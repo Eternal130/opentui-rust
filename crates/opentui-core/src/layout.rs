@@ -191,6 +191,23 @@ pub fn taffy_style(opts: &LayoutOptions, width: Dimension, height: Dimension) ->
         flex_shrink,
         ..Default::default()
     };
+    // Yoga applies NO automatic minimum size to flex items (no CSS
+    // min-content floor): items shrink below content and grow from 0.
+    // Taffy implements the CSS automatic minimum — zero it unless the
+    // options give an explicit min, else e.g. the ScrollBox's horizontal
+    // scrollbar keeps 1 row during the first-layout shrink that upstream
+    // collapses to 0 (pinned: scrollbox-scrollbar-geometry vs 0.5.14).
+    if opts.min_width.is_none() {
+        style.min_size.width = tp::Dimension::length(0.0);
+    }
+    if opts.min_height.is_none() {
+        style.min_size.height = tp::Dimension::length(0.0);
+    }
+    // (The scroll-container special case collapses into the rule above;
+    // kept for documentation: `overflow != visible` nodes zero their
+    // auto-min in both engines — ScrollBox.ts:329-331 sets overflow
+    // hidden on the viewport for exactly this sizing behavior.)
+    let _ = matches!(opts.overflow.as_deref(), Some("hidden") | Some("scroll"));
     if let Some(s) = opts.flex_direction.as_deref() {
         style.flex_direction = flex_direction(s);
     }

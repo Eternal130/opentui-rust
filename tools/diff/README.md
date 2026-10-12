@@ -42,3 +42,24 @@ Oracle captures cache under `out/oracle/` (gitignored); reports under
 Both drivers implement the same option subset; unknown options on either
 side fail loudly (JS throws, Rust `bail!`s) so the vocabulary stays
 honest.
+
+Scroll-lane vocabulary (harness-generic — no scroll-specific driver
+branching, only option plumbing):
+
+* `{ "op": "scrollbox", "id": "sb", … }` — mounts a `ScrollBoxRenderable`
+  (`width`/`height`, `scrollX`, `scrollY`, `stickyScroll`,
+  `stickyStart`, box-ish border options, `scrollbarOptions: { thumbColor,
+  trackColor }`, plus `viewportOptions`/`contentOptions`/
+  `wrapperOptions` layout subsets). Children added with
+  `parent: "sb"` route into the content viewport (upstream
+  `ScrollBox.add`).
+* `{ "op": "flush" }` — a deterministic settle point (upstream
+  `setup.flush()`): render until visually idle. Scripted mutations
+  between flushes are observable in the final capture.
+* `{ "op": "set", "id": "sb", "prop": "scrollTop" | "scrollLeft",
+  "value": n }` — generic scripted property mutation.
+* `{ "op": "call", "id": "sb", "method": "scrollBy" | "scrollTo" |
+  "scrollChildIntoView", "args": […] }` — generic scripted invocation.
+* `{ "op": "resize", "width": w, "height": h }` — `renderer.resize`,
+  then the next flush captures the reflow.
+

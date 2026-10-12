@@ -80,6 +80,50 @@ far):**
   deviations (e.g. stretch of items with auto margins). Any observable
   delta becomes a differential scenario + an explicit shim.
 * Percentages: both engines use [0,1] fractions.
+* **Yoga applies NO automatic minimum size to flex items** (no CSS
+  min-content floor): items shrink below their content. Taffy implements
+  the CSS automatic minimum — the port zeroes `min_size` unless the
+  options set one. Without this, the ScrollBox's horizontal scrollbar
+  keeps 1 row during the first-layout shrink that upstream collapses to
+  0 (pinned by `scrollbox-scrollbar-geometry`).
+
+## Scissor clipping (buffer.zig:322-399)
+
+The scroll viewport clips its children through the buffer's **scissor
+stack**: `pushScissorRect` intersects with the parent rect (nested clips
+nest), every write path gates on `isPointInScissor` (`set` via
+`validateAndIndex`, per-cluster `drawText`, per-cell `fillRect` after the
+whole-rect `isRectInScissor` cull, `drawBox` early cull + per-cell
+writes). The render walk pushes the rect around a node's CHILDREN only
+(the node itself paints unclipped — Renderable.ts:1425-1432); the Box
+override insets the rect by its borders (Box.ts:296-315).
+
+**Published-binary drift (oracle wins):** the vendored Zig source's
+transparent-border fast path (opaque border over transparent bg writes
+char/fg/attributes directly, keeping the destination bg) omits the
+scissor check — buffer.zig:2405-2409. The PUBLISHED 0.5.14 native binary
+CLIPS those writes: a border-only box whose edge sits outside an
+overflow-hidden viewport paints nothing there while keeping the
+destination bg inside. Pinned by `scrollbox-scissor-escape`; the port
+follows the binary.
+
+## The scroll settle loop
+
+Upstream's ScrollBox state is **event-driven and path-dependent**:
+viewport/content `onSizeChange` fire `recalculateBarProps` INLINE during
+the update walk (a viewport resize reads the content's still-stale size),
+scrollbar setters cascade into the slider and back out via onChange to
+`content.translateY = -position`, visibility flips toggle yoga
+`display` and request another frame. The settled values depend on that
+transient sequence — e.g. the vertical slider's `viewPortSize` ends
+clamped against a stale `max` from the frame where the horizontal bar
+was still visible (pinned: the oracle ends `vp=3` where a fixpoint-only
+port would compute 6). The port reproduces the sequence exactly: an
+update walk collects size-change events (with at-fire-time snapshots) in
+tree order, applies them as `recalculateBarProps` runs, and re-walks
+until a walk produces no effects — the same frames upstream's
+`requestRender` scheduling produces, verified frame-equivalent by the
+differential oracle (`setup.flush()` = walk until visually idle).
 
 ## Renderer & reactive glue
 

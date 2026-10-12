@@ -1,0 +1,22 @@
+{
+  "name": "scrollbox-static",
+  "width": 20,
+  "height": 8,
+  "steps": [
+    { "op": "scrollbox", "id": "sb", "parent": "root", "options": {
+      "width": 20, "height": 8,
+      "scrollbarOptions": { "thumbColor": "#9a9ea3", "trackColor": "#252527" }
+    } },
+    { "op": "text", "id": "t0", "parent": "sb", "options": { "content": "line-00" } },
+    { "op": "text", "id": "t1", "parent": "sb", "options": { "content": "line-01" } },
+    { "op": "text", "id": "t2", "parent": "sb", "options": { "content": "line-02" } },
+    { "op": "text", "id": "t3", "parent": "sb", "options": { "content": "line-03" } },
+    { "op": "text", "id": "t4", "parent": "sb", "options": { "content": "line-04" } },
+    { "op": "text", "id": "t5", "parent": "sb", "options": { "content": "line-05" } },
+    { "op": "text", "id": "t6", "parent": "sb", "options": { "content": "line-06" } },
+    { "op": "text", "id": "t7", "parent": "sb", "options": { "content": "line-07" } },
+    { "op": "text", "id": "t8", "parent": "sb", "options": { "content": "line-08" } },
+    { "op": "text", "id": "t9", "parent": "sb", "options": { "content": "line-09" } },
+    { "op": "flush" }
+  ]
+}

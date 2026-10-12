@@ -10,3 +10,4 @@ tools/diff/out/
 
 # OS
 .DS_Store
+.worktrees/
