@@ -18,6 +18,7 @@ pub mod layout;
 pub mod renderable;
 pub mod renderables;
 pub mod renderer;
+pub mod scroll_acceleration;
 
 pub use ansi::TextAttributes;
 pub use buffer::OptimizedBuffer;
@@ -25,8 +26,16 @@ pub use color::{parse_color, ColorIntent, Rgba};
 pub use layout::{Dimension, LayoutOptions};
 pub use renderable::{Renderable, RenderableId, RootRenderable};
 pub use renderables::box_::{BorderSpec, BorderStyle, BoxOptions, BoxRenderableState};
+pub use renderables::scrollbar::{
+    ArrowDirection, ArrowState, Orientation, ScrollBarState, ScrollUnit, SliderState,
+};
+pub use renderables::scrollbox::{
+    get_objects_in_viewport, scroll_by, scroll_child_into_view, scroll_to, set_scroll_left,
+    set_scroll_top, ScrollBoxOptions, ScrollBoxState, StickyStart, ViewportCulling,
+};
 pub use renderables::text::{TextOptions, TextRenderableState, WrapMode};
 pub use renderer::{create_cli_renderer, CliRenderer, CliRendererConfig, RenderTarget};
+pub use scroll_acceleration::{LinearScrollAccel, MacOSScrollAccel, ScrollAcceleration};
 
 /// Upstream version this crate pins (`packages/core/package.json`).
 pub const SPEC_VERSION: &str = "0.5.14";
