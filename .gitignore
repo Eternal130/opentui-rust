@@ -5,7 +5,8 @@
 # spec). package.json + bun.lock are tracked so the oracle is reproducible;
 # the installed tree is not.
 tools/diff/sandbox/node_modules/
-tools/diff/sandbox/out/
+# oracle caches + generated reports (regenerate on demand)
+tools/diff/out/
 
 # OS
 .DS_Store

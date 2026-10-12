@@ -201,7 +201,12 @@ impl Rgba {
     /// Channel-wise float view (r/g/b/a as 0.0-1.0). — RGBA.ts:128 getters.
     pub fn floats(self) -> [f32; 4] {
         let [r, g, b, a] = self.to_ints();
-        [f32::from(r) / 255.0, f32::from(g) / 255.0, f32::from(b) / 255.0, f32::from(a) / 255.0]
+        [
+            f32::from(r) / 255.0,
+            f32::from(g) / 255.0,
+            f32::from(b) / 255.0,
+            f32::from(a) / 255.0,
+        ]
     }
 
     /// `rgbToHex`. — RGBA.ts:241.
@@ -300,8 +305,7 @@ pub fn hex_to_rgb(hex: &str) -> Rgba {
     } else {
         hex
     };
-    let valid =
-        (hex.len() == 6 || hex.len() == 8) && hex.chars().all(|c| c.is_ascii_hexdigit());
+    let valid = (hex.len() == 6 || hex.len() == 8) && hex.chars().all(|c| c.is_ascii_hexdigit());
     if !valid {
         // upstream: console.warn + magenta fallback (RGBA.ts:231-233)
         return Rgba::from_values(1.0, 0.0, 1.0, 1.0);
@@ -360,12 +364,18 @@ mod tests {
 
     #[test]
     fn parse_color_paths() {
-        assert_eq!(parse_color("transparent"), Rgba::from_values(0.0, 0.0, 0.0, 0.0));
+        assert_eq!(
+            parse_color("transparent"),
+            Rgba::from_values(0.0, 0.0, 0.0, 0.0)
+        );
         assert_eq!(parse_color("#FFFFFF"), Rgba::rgb(255, 255, 255));
         assert_eq!(parse_color("#fff"), Rgba::rgb(255, 255, 255));
         assert_eq!(parse_color("red"), Rgba::rgb(255, 0, 0));
         // upstream falls back to magenta on invalid hex
-        assert_eq!(parse_color("#zzzzzz"), Rgba::from_values(1.0, 0.0, 1.0, 1.0));
+        assert_eq!(
+            parse_color("#zzzzzz"),
+            Rgba::from_values(1.0, 0.0, 1.0, 1.0)
+        );
     }
 
     #[test]

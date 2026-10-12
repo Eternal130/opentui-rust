@@ -21,7 +21,7 @@ pub enum WrapMode {
 }
 
 impl WrapMode {
-    pub fn from_str(s: &str) -> WrapMode {
+    pub fn parse(s: &str) -> WrapMode {
         match s {
             "none" => WrapMode::None,
             "char" => WrapMode::Char,
@@ -151,8 +151,12 @@ impl TextRenderableState {
     pub fn from_options(opts: &TextOptions) -> Self {
         TextRenderableState {
             content: opts.content.clone(),
-            default_fg: opts.fg.unwrap_or_else(|| Rgba::from_values(1.0, 1.0, 1.0, 1.0)),
-            default_bg: opts.bg.unwrap_or_else(|| Rgba::from_values(0.0, 0.0, 0.0, 0.0)),
+            default_fg: opts
+                .fg
+                .unwrap_or_else(|| Rgba::from_values(1.0, 1.0, 1.0, 1.0)),
+            default_bg: opts
+                .bg
+                .unwrap_or_else(|| Rgba::from_values(0.0, 0.0, 0.0, 0.0)),
             attributes: opts.attributes,
             wrap_mode: opts.wrap_mode.unwrap_or(WrapMode::Word),
             text_align: opts.text_align.clone().unwrap_or_else(|| "left".into()),
@@ -161,7 +165,10 @@ impl TextRenderableState {
     }
 
     pub fn measured(&self) -> MeasuredText {
-        MeasuredText { content: self.content.clone(), wrap_mode: self.wrap_mode }
+        MeasuredText {
+            content: self.content.clone(),
+            wrap_mode: self.wrap_mode,
+        }
     }
 
     /// Re-wrap at the laid-out width.
@@ -173,7 +180,11 @@ impl TextRenderableState {
     /// (definite) or natural width (max-content), return
     /// (widest line, line count) — the text buffer measure contract.
     #[must_use]
-    pub fn measure(text: &MeasuredText, known_width: Option<f32>, available_width: f32) -> (f32, f32) {
+    pub fn measure(
+        text: &MeasuredText,
+        known_width: Option<f32>,
+        available_width: f32,
+    ) -> (f32, f32) {
         let wrap_width = match known_width {
             Some(w) => w.max(0.0) as u32,
             None => {
@@ -221,7 +232,10 @@ mod tests {
 
     #[test]
     fn defaults_match_textbuffer() {
-        let s = TextRenderableState::from_options(&TextOptions { content: "hi".into(), ..Default::default() });
+        let s = TextRenderableState::from_options(&TextOptions {
+            content: "hi".into(),
+            ..Default::default()
+        });
         assert_eq!(s.default_fg, Rgba::from_values(1.0, 1.0, 1.0, 1.0));
         assert_eq!(s.default_bg, Rgba::from_values(0.0, 0.0, 0.0, 0.0));
         assert_eq!(s.wrap_mode, WrapMode::Word);
@@ -229,19 +243,37 @@ mod tests {
 
     #[test]
     fn word_wrap_greedy() {
-        assert_eq!(wrap_text("hello world", WrapMode::Word, 5), vec!["hello", "world"]);
-        assert_eq!(wrap_text("hello world", WrapMode::Word, 11), vec!["hello world"]);
-        assert_eq!(wrap_text("hello world", WrapMode::Word, 6), vec!["hello", "world"]);
+        assert_eq!(
+            wrap_text("hello world", WrapMode::Word, 5),
+            vec!["hello", "world"]
+        );
+        assert_eq!(
+            wrap_text("hello world", WrapMode::Word, 11),
+            vec!["hello world"]
+        );
+        assert_eq!(
+            wrap_text("hello world", WrapMode::Word, 6),
+            vec!["hello", "world"]
+        );
         // overlong word hard-breaks
-        assert_eq!(wrap_text("abcdefgh", WrapMode::Word, 3), vec!["abc", "def", "gh"]);
+        assert_eq!(
+            wrap_text("abcdefgh", WrapMode::Word, 3),
+            vec!["abc", "def", "gh"]
+        );
         assert_eq!(wrap_text("a\nb", WrapMode::Word, 10), vec!["a", "b"]);
     }
 
     #[test]
     fn measure_natural_and_wrapped() {
-        let m = MeasuredText { content: "hello world".into(), wrap_mode: WrapMode::Word };
+        let m = MeasuredText {
+            content: "hello world".into(),
+            wrap_mode: WrapMode::Word,
+        };
         // max-content: no wrap
-        assert_eq!(TextRenderableState::measure(&m, None, f32::INFINITY), (11.0, 1.0));
+        assert_eq!(
+            TextRenderableState::measure(&m, None, f32::INFINITY),
+            (11.0, 1.0)
+        );
         // definite 5 → two lines
         assert_eq!(TextRenderableState::measure(&m, Some(5.0), 5.0), (5.0, 2.0));
     }

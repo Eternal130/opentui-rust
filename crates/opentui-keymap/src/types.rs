@@ -15,7 +15,13 @@ pub struct KeyStroke {
 impl KeyStroke {
     #[must_use]
     pub fn new(name: &str) -> Self {
-        KeyStroke { name: leak_name(name.to_ascii_lowercase()), ctrl: false, shift: false, meta: false, super_key: false }
+        KeyStroke {
+            name: leak_name(name.to_ascii_lowercase()),
+            ctrl: false,
+            shift: false,
+            meta: false,
+            super_key: false,
+        }
     }
 
     /// Parse a `ctrl+shift+x`-style token (the binding-table grammar).
@@ -23,7 +29,13 @@ impl KeyStroke {
     /// (services/keys.ts:158).
     #[must_use]
     pub fn parse(token: &str) -> Self {
-        let mut stroke = KeyStroke { name: "", ctrl: false, shift: false, meta: false, super_key: false };
+        let mut stroke = KeyStroke {
+            name: "",
+            ctrl: false,
+            shift: false,
+            meta: false,
+            super_key: false,
+        };
         for part in token.split('+') {
             match part.trim().to_ascii_lowercase().as_str() {
                 "ctrl" => stroke.ctrl = true,
@@ -88,7 +100,7 @@ mod tests {
         let k = KeyStroke::parse("ctrl+shift+x");
         assert!(k.ctrl && k.shift);
         assert_eq!(k.name, "x");
-        let k = KeyStroke::parse("Cmd+K".into());
+        let k = KeyStroke::parse("Cmd+K");
         assert!(k.super_key);
         assert_eq!(k.name, "k");
     }

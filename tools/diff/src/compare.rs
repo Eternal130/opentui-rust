@@ -25,12 +25,16 @@ pub fn capture_cells(cap: &Capture) -> Vec<Vec<Cell>> {
             for span in &line.spans {
                 let fg = [span.fg[0], span.fg[1], span.fg[2], span.fg[3]];
                 let bg = [span.bg[0], span.bg[1], span.bg[2], span.bg[3]];
-                let graphemes: Vec<String> =
-                    span.text.chars().map(|c| c.to_string()).collect();
+                let graphemes: Vec<String> = span.text.chars().map(|c| c.to_string()).collect();
                 for i in 0..span.width as usize {
                     // continuation cells: grapheme count < width
                     let text = graphemes.get(i).cloned().unwrap_or_default();
-                    cells.push(Cell { text, fg, bg, attributes: span.attributes });
+                    cells.push(Cell {
+                        text,
+                        fg,
+                        bg,
+                        attributes: span.attributes,
+                    });
                 }
             }
             cells
@@ -161,7 +165,11 @@ impl Report {
         let mut md = String::new();
         md.push_str(&format!(
             "# diff report: {name}\n\n**{}** — {}/{} cells differ ({} field diffs)\n\n",
-            if self.identical { "IDENTICAL" } else { "MISMATCH" },
+            if self.identical {
+                "IDENTICAL"
+            } else {
+                "MISMATCH"
+            },
             self.mismatched_cells,
             self.total_cells,
             self.diffs.len()

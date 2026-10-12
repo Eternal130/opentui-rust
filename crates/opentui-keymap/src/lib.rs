@@ -44,7 +44,9 @@ impl Default for Keymap {
 impl Keymap {
     #[must_use]
     pub fn new() -> Self {
-        Keymap { engine: KeymapEngine::new() }
+        Keymap {
+            engine: KeymapEngine::new(),
+        }
     }
 
     /// `keymap.registerLayer(layer)` (keymap.ts:378).

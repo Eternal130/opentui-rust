@@ -33,13 +33,16 @@ pub fn load(path: &std::path::Path) -> Result<Scenario> {
 }
 
 fn opt_f32(v: &serde_json::Value, key: &str) -> Option<opentui_core::layout::Dimension> {
-    v.get(key).and_then(|x| x.as_f64()).map(|f| opentui_core::layout::Dimension::Points(f as f32))
+    v.get(key)
+        .and_then(|x| x.as_f64())
+        .map(|f| opentui_core::layout::Dimension::Points(f as f32))
 }
 
-/// One scenario node pending mount (kind + options + children).
+/// One scenario node pending mount (kind + options + children). The id
+/// lives in the staging maps; variants carry only their options.
 enum PendingNode {
-    Text { id: String, opts: TextOptions },
-    Box { id: String, opts: BoxOptions },
+    Text(TextOptions),
+    Box(BoxOptions),
 }
 
 /// Build + render the scenario with opentui-core, dump the same capture
@@ -53,7 +56,8 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
 
     // Stage nodes with their parent links, then mount recursively in
     // step order (children after parents, like the JS driver's adds).
-    let mut by_id: std::collections::HashMap<String, PendingNode> = std::collections::HashMap::new();
+    let mut by_id: std::collections::HashMap<String, PendingNode> =
+        std::collections::HashMap::new();
     let mut children_of: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
     let mut roots: Vec<String> = Vec::new();
@@ -78,9 +82,9 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
                     opts.height = Some(h);
                 }
                 if let Some(w) = o.get("wrapMode").and_then(|v| v.as_str()) {
-                    opts.wrap_mode = Some(WrapMode::from_str(w));
+                    opts.wrap_mode = Some(WrapMode::parse(w));
                 }
-                PendingNode::Text { id: step.id.clone(), opts }
+                PendingNode::Text(opts)
             }
             "box" => {
                 let mut opts = BoxOptions::default();
@@ -119,16 +123,18 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
                     opts.layout.flex_direction = Some(d.to_owned());
                 }
                 if let Some(p) = o.get("padding").and_then(|v| v.as_f64()) {
-                    opts.layout.padding =
-                        Some(opentui_core::layout::Dimension::Points(p as f32));
+                    opts.layout.padding = Some(opentui_core::layout::Dimension::Points(p as f32));
                 }
-                PendingNode::Box { id: step.id.clone(), opts }
+                PendingNode::Box(opts)
             }
             other => anyhow::bail!("unknown op: {other}"),
         };
         match step.parent.as_deref() {
             None | Some("root") => roots.push(step.id.clone()),
-            Some(p) => children_of.entry(p.to_owned()).or_default().push(step.id.clone()),
+            Some(p) => children_of
+                .entry(p.to_owned())
+                .or_default()
+                .push(step.id.clone()),
         }
         by_id.insert(step.id.clone(), node);
     }
@@ -157,7 +163,10 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
         .collect();
     Ok(Capture {
         oracle: "opentui-core".into(),
-        renderer: Size { width: buf.width, height: buf.height },
+        renderer: Size {
+            width: buf.width,
+            height: buf.height,
+        },
         lines,
         char_frame: buf.char_frame(),
         sgr_bytes: renderer.last_frame_sgr().bytes().collect(),
@@ -175,8 +184,8 @@ fn mount(
 ) {
     for id in ids {
         let r = match by_id.get(id) {
-            Some(PendingNode::Text { opts, .. }) => renderer.make_text(id, opts),
-            Some(PendingNode::Box { opts, .. }) => renderer.make_box(id, opts),
+            Some(PendingNode::Text(opts)) => renderer.make_text(id, opts),
+            Some(PendingNode::Box(opts)) => renderer.make_box(id, opts),
             None => continue,
         };
         match parent {

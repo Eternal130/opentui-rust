@@ -77,7 +77,12 @@ impl Default for KeymapEngine {
 
 impl KeymapEngine {
     pub fn new() -> Self {
-        KeymapEngine { layers: Vec::new(), modes: Vec::new(), pending: Vec::new(), sequence_roots: HashMap::new() }
+        KeymapEngine {
+            layers: Vec::new(),
+            modes: Vec::new(),
+            pending: Vec::new(),
+            sequence_roots: HashMap::new(),
+        }
     }
 
     /// Register a layer; returns its handle (upstream unregister fn →
@@ -88,11 +93,12 @@ impl KeymapEngine {
         let name = layer.name.clone();
         for (stroke, intercept) in &layer.bindings {
             if matches!(intercept, Intercept::PendingNext) {
-                self.sequence_roots.insert(stroke.match_id(), self.sequence_roots.len() + 1);
+                self.sequence_roots
+                    .insert(stroke.match_id(), self.sequence_roots.len() + 1);
             }
         }
         self.layers.push(layer);
-        self.layers.sort_by(|a, b| b.priority.cmp(&a.priority));
+        self.layers.sort_by_key(|l| std::cmp::Reverse(l.priority));
         name
     }
 
@@ -154,7 +160,12 @@ impl KeymapEngine {
                                     stroke: *stroke,
                                 });
                                 return DispatchOutcome::Pending {
-                                    display: self.pending.iter().map(|p| p.display.clone()).collect::<Vec<_>>().join(""),
+                                    display: self
+                                        .pending
+                                        .iter()
+                                        .map(|p| p.display.clone())
+                                        .collect::<Vec<_>>()
+                                        .join(""),
                                 };
                             }
                             _ => {}
@@ -167,8 +178,13 @@ impl KeymapEngine {
         }
         // fresh stroke
         if self.sequence_roots.contains_key(&id) {
-            self.pending.push(PendingPart { display: crate::stringify::canonical_stroke_string(stroke), stroke: *stroke });
-            return DispatchOutcome::Pending { display: self.pending[0].display.clone() };
+            self.pending.push(PendingPart {
+                display: crate::stringify::canonical_stroke_string(stroke),
+                stroke: *stroke,
+            });
+            return DispatchOutcome::Pending {
+                display: self.pending[0].display.clone(),
+            };
         }
         for layer in &self.layers {
             if !self.layer_active(layer) {
@@ -182,8 +198,13 @@ impl KeymapEngine {
                             layer: layer.name.clone(),
                         },
                         Intercept::PendingNext => {
-                            self.pending.push(PendingPart { display: crate::stringify::canonical_stroke_string(stroke), stroke: *stroke });
-                            DispatchOutcome::Pending { display: self.pending[0].display.clone() }
+                            self.pending.push(PendingPart {
+                                display: crate::stringify::canonical_stroke_string(stroke),
+                                stroke: *stroke,
+                            });
+                            DispatchOutcome::Pending {
+                                display: self.pending[0].display.clone(),
+                            }
                         }
                         Intercept::Swallow => DispatchOutcome::Unhandled,
                         Intercept::PassThrough => DispatchOutcome::Unhandled,
@@ -207,25 +228,37 @@ mod tests {
             mode: LayerMode::Global,
             priority: 0,
             enabled: true,
-            bindings: vec![(KeyStroke::parse("ctrl+k"), Intercept::Command("global.cmd".into()))],
+            bindings: vec![(
+                KeyStroke::parse("ctrl+k"),
+                Intercept::Command("global.cmd".into()),
+            )],
         });
         e.register_layer(Layer {
             name: "dialog".into(),
             mode: LayerMode::Named("dialog"),
             priority: 10,
             enabled: true,
-            bindings: vec![(KeyStroke::parse("ctrl+k"), Intercept::Command("dialog.cmd".into()))],
+            bindings: vec![(
+                KeyStroke::parse("ctrl+k"),
+                Intercept::Command("dialog.cmd".into()),
+            )],
         });
         // dialog mode off → global wins
         assert_eq!(
             e.dispatch(&KeyStroke::parse("ctrl+k")),
-            DispatchOutcome::Command { command: "global.cmd".into(), layer: "base".into() }
+            DispatchOutcome::Command {
+                command: "global.cmd".into(),
+                layer: "base".into()
+            }
         );
         // dialog mode on → higher priority wins
         e.push_mode("dialog");
         assert_eq!(
             e.dispatch(&KeyStroke::parse("ctrl+k")),
-            DispatchOutcome::Command { command: "dialog.cmd".into(), layer: "dialog".into() }
+            DispatchOutcome::Command {
+                command: "dialog.cmd".into(),
+                layer: "dialog".into()
+            }
         );
     }
 
@@ -246,7 +279,13 @@ mod tests {
         assert!(matches!(out, DispatchOutcome::Pending { .. }));
         assert_eq!(e.pending().len(), 1);
         let out = e.dispatch(&KeyStroke::new("u"));
-        assert_eq!(out, DispatchOutcome::Command { command: "undo".into(), layer: "base".into() });
+        assert_eq!(
+            out,
+            DispatchOutcome::Command {
+                command: "undo".into(),
+                layer: "base".into()
+            }
+        );
         assert!(e.pending().is_empty());
     }
 }

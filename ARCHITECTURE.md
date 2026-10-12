@@ -1,0 +1,129 @@
+# ARCHITECTURE
+
+## What this port is
+
+`opentui-core` reproduces the **observable behavior** of `@opentui/core`
+0.5.14 — the published npm artifact, whose hot paths are a native Zig
+library (`packages/native/src`) driven by a TS facade
+(`packages/core/src`). Because both halves are in the vendored spec, the
+port translates from the **native source where the semantics live**
+(buffer, renderer, ansi) and from the **TS facade where the API shape
+lives** (Renderable options, renderables, events). Each Rust item cites
+its upstream `file:line`.
+
+The proof instrument is the differential harness: the real package
+(imported from the pinned tarball under bun) and this port render the
+same scenario; cell grids (char + packed colors + attributes) must be
+**byte-identical**.
+
+## Cell grid & raster design (mapped to ansi.zig / buffer.zig)
+
+* **Cell** = `{ char: u32, fg: Rgba, bg: Rgba, attributes: u32 }` —
+  upstream's four parallel arrays collapsed into one struct
+  (memory layout is a native artifact; semantics identical).
+* **`Rgba = [u16; 4]`** — each word: channel byte low, metadata byte
+  high; metadata word = palette slot (bits 0-7) + intent (bits 8-9).
+  Intent (`rgb | indexed | default`) decides SGR emission:
+  `38;2;r;g;b` / `38;5;n` / `39|49` (`emitColor`, renderer.zig:844-885).
+  Frame diffing compares colors by **exact integer equality** — so the
+  port never normalizes colors, it preserves packed words end-to-end.
+* **Char word packing** (grapheme.zig): bits 30-31 flag
+  image/grapheme/continuation; bits 28-29 right extent, 26-27 left
+  extent; bits 0-25 grapheme-pool id. Wide clusters plant continuation
+  cells that **copy the start cell's fg/bg/attributes**
+  (buffer.zig:635-637) — span capture emits no text for them.
+* **Write paths** (`buffer.rs`): plain `set` (span cleanup + continuation
+  planting), `set_text_cell` (text draws with alpha bg route to the
+  blending writer), `blend_cells` (the exact `blendCells` integer math:
+  bg read-through, char preservation over spaces, overlay-wins link
+  ids). `draw_text`'s ASCII fast path requires **explicit opaque
+  colors**; `bg: None` reads the destination cell's bg — the semantic
+  that makes text-over-filled-box adopt the box color.
+* **Frame lifecycle** (renderer): clear `next` with the background color
+  (default transparent black) → layout → paint into `next` → SGR-diff
+  `current` vs `next` (row-equality fast path, run coalescing with reset
+  between attribute changes, CUP + SGR + text per run) → swap. The
+  harness observes `current` post-swap — the same thing upstream's
+  `captureCharFrame`/`getSpanLines` read.
+
+## Layout: taffy 0.9 replaces yoga
+
+**Choice:** [`taffy`](https://github.com/DioxusLabs/taffy) **0.9.2** —
+the Rust flexbox engine with yoga-compatible semantics; the same version
+opencode-rust (the consumer) already pins, so the two repos share layout
+math when the synthesis migration lands.
+
+**Compatibility configuration (what makes taffy behave like the yoga in
+opentui):**
+
+1. **Rounding ON** (taffy default, `use_rounding: true`) — yoga rounds
+   layout to the pixel grid (point-scale 1); taffy's rounding reproduces
+   this. Cell-grid parity would break without it.
+2. **flex-direction defaults to COLUMN** — yoga's own default (Facebook
+   deviation from CSS) that opentui's option parser relies on
+   (`parseFlexDirection(null) → Column`, yoga.options.ts:188-191). taffy
+   defaults to Row; every node we create pins Column.
+3. **Conditional flexShrink** — opentui overrides the yoga default:
+   explicit numeric width/height ⇒ shrink 0, else web default 1
+   (Renderable.ts:728-737). Ported verbatim.
+4. **Measure leaves** — text nodes measure
+   `(widest wrapped line, line count)` with word wrap at the available
+   width, mirroring the native measure target
+   (TextBufferRenderable.ts:402-431).
+
+**Known deltas (documented, none observable in the differential suite so
+far):**
+
+* `"auto"` align-items maps to taffy `Stretch` (yoga has an `Auto`
+  align-items; taffy reserves auto for align-self only).
+* taffy computes flexbox per CSS spec; yoga carries small historical
+  deviations (e.g. stretch of items with auto margins). Any observable
+  delta becomes a differential scenario + an explicit shim.
+* Percentages: both engines use [0,1] fractions.
+
+## Renderer & reactive glue
+
+The slice renderer is **headless-deterministic**: no terminal I/O, one
+`render()` = one frame (upstream's `loop()` tick with the animation
+scheduler factored out — the scheduler is an events-lane port target).
+`create_cli_renderer` keeps upstream's width/height resolution semantics
+(explicit config → 80×24 fallback in the headless profile).
+
+**opentui-solid (design record, in-crate):** solid-js does not exist in
+Rust; the consumer runs its own Signal/Store core. The glue therefore
+exposes a `Reactive` trait boundary (consumer adapts its signals;
+standalone users get the built-in `Signal`), and components are **Rust
+builder constructors** (`text()`, `box_()`) — the 1:1 target of the
+TSX→Rust transplants. Mount-only now; keyed reconciler diffing (the
+solid reconciler semantics) is the solid-glue lane.
+
+## opentui-keymap
+
+Upstream `@opentui/keymap` is a facade over host-provided services. The
+dispatch engine semantics (layer precedence, focus scopes, mode gating,
+pending sequences, interceptor precedence) were already ported once in
+opencode-rust's `oc-tui-core::keymap` and pinned there by replay suites;
+`opentui-keymap` adapts that proven logic onto the 0.5.14 API shape,
+standalone (no opencode-rust dependency), with the upstream type names
+(`Layer`, `Binding`, `Command`, `PendingPart`…). `stringifyKeyStroke`/
+`stringifyKeySequence` are exact ports (modifier order, `return`→`enter`
+aliasing).
+
+## The differential harness (tools/diff)
+
+* **Oracle:** `@opentui/core@0.5.14` from the npm registry (sandbox
+  install, `bun.lock` tracked), driven through upstream's own
+  `createTestRenderer` (deterministic headless profile) with a recording
+  stdout (`bufferedOutput: "buffer"` routes native frames to the stream)
+  — capture = span lines (packed colors) + char frame + raw SGR bytes.
+* **Port side:** the same scenario JSON rendered by `opentui-core`
+  in-process, same capture shape.
+* **Compare:** span expansion to per-cell grids; byte-level compare of
+  `text / fg[4] / bg[4] / attributes`; markdown report + JSON oracle
+  cache per scenario (refresh with `--refresh-oracle`).
+* **Secondary check:** vt-replay — the port's SGR stream parsed by a
+  vt100 grid parser must repaint the port's cell grid (validates the
+  emission, not just the raster).
+* The JS driver and scenario vocabulary are intentionally tiny
+  (`text`/`box` steps with the option subset both sides understand);
+  each lane grows the vocabulary with its renderables.

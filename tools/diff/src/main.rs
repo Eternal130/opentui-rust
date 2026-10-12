@@ -1,10 +1,13 @@
 //! opentui-diff — the differential acceptance instrument.
 //!
 //! Runs one scenario on both sides and compares cell grids:
-//!   * oracle: `bun js/driver.ts` driving the REAL @opentui 0.5.14
-//!     (npm tarball, sandbox install)
-//!   * rust: `opentui-core` rendering the same scenario in-process
-//! then emits a cell-level report (+ SGR replay check of the rust side).
+//!
+//! * oracle: `bun js/driver.ts` driving the REAL @opentui 0.5.14
+//!   (npm tarball, sandbox install)
+//! * rust: `opentui-core` rendering the same scenario in-process
+//!
+//! Then it emits a cell-level report (+ SGR replay check of the rust
+//! side).
 //!
 //! Usage: opentui-diff <scenario.json> [--refresh-oracle] [--keep-oracle]
 //! Oracle JSONs cache under tools/diff/out/oracle/<name>.json; reports
@@ -62,7 +65,9 @@ fn main() -> Result<()> {
     std::fs::create_dir_all(out_dir.join("reports"))?;
     let oracle_path = out_dir.join("oracle").join(format!("{name}.json"));
 
-    let scenario_path = scenario_path.canonicalize().context("scenario path not found")?;
+    let scenario_path = scenario_path
+        .canonicalize()
+        .context("scenario path not found")?;
     if refresh_oracle || !oracle_path.exists() {
         run_oracle(&scenario_path, &oracle_path)?;
     }

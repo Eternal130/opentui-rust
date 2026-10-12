@@ -24,7 +24,7 @@ pub use buffer::OptimizedBuffer;
 pub use color::{parse_color, ColorIntent, Rgba};
 pub use layout::{Dimension, LayoutOptions};
 pub use renderable::{Renderable, RenderableId, RootRenderable};
-pub use renderables::box_::{BoxOptions, BoxRenderableState, BorderSpec, BorderStyle};
+pub use renderables::box_::{BorderSpec, BorderStyle, BoxOptions, BoxRenderableState};
 pub use renderables::text::{TextOptions, TextRenderableState, WrapMode};
 pub use renderer::{create_cli_renderer, CliRenderer, CliRendererConfig, RenderTarget};
 

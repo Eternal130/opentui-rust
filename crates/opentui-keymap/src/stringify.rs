@@ -25,7 +25,11 @@ pub fn canonical_stroke_string(stroke: &KeyStroke) -> String {
     if stroke.super_key {
         parts.push("super");
     }
-    parts.push(if stroke.name == "return" { "enter" } else { stroke.name });
+    parts.push(if stroke.name == "return" {
+        "enter"
+    } else {
+        stroke.name
+    });
     parts.join("+")
 }
 
@@ -51,7 +55,13 @@ mod tests {
 
     #[test]
     fn canonical_order_and_enter_alias() {
-        let k = KeyStroke { name: "return", ctrl: true, shift: true, meta: true, super_key: true };
+        let k = KeyStroke {
+            name: "return",
+            ctrl: true,
+            shift: true,
+            meta: true,
+            super_key: true,
+        };
         assert_eq!(canonical_stroke_string(&k), "ctrl+shift+meta+super+enter");
         assert_eq!(canonical_stroke_string(&KeyStroke::new("return")), "enter");
         assert_eq!(canonical_stroke_string(&KeyStroke::new("escape")), "escape");
