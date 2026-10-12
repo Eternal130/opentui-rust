@@ -1,0 +1,32 @@
+---
+import SiteFooter from "../components/SiteFooter.astro"
+import SiteNav from "../components/SiteNav.astro"
+import Minimal from "../layouts/Minimal.astro"
+---
+
+<Minimal title="Page not found | OpenTUI" description="This page does not exist." robots="noindex" wide>
+  <SiteNav slot="nav" />
+
+  <main>
+    <h1>404</h1>
+    <p>This page does not exist.</p>
+    <p><a href="/">Go to the home page</a>.</p>
+  </main>
+
+  <SiteFooter />
+</Minimal>
+
+<style>
+  main {
+    max-width: var(--content-width);
+    margin-block: 3rem;
+  }
+
+  h1 {
+    margin-block: 0 3rem;
+  }
+
+  p {
+    margin-block: 0 1.5rem;
+  }
+</style>

@@ -1,0 +1,4 @@
+.node-test
+.node-benchmark
+ffi-fast-path-paired.json
+src/zig/

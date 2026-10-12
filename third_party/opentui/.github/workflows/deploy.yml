@@ -1,0 +1,44 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    steps:
+      - name: Checkout your repository using git
+        uses: actions/checkout@v6
+      - name: Checkout package index
+        uses: actions/checkout@v6
+        with:
+          repository: anomalyco/opentui-index
+          path: opentui-index
+      - name: Install, build, and upload your site
+        uses: withastro/action@v6
+        env:
+          OPENTUI_INDEX_DIR: ${{ github.workspace }}/opentui-index/packages
+        with:
+          path: ./packages/web
+          package-manager: bun@1.4.1
+          node-version: 26
+
+  deploy:
+    needs: build
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
