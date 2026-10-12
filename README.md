@@ -51,13 +51,24 @@ cargo run -q -- scenarios/smoke-hello.json      # oracle caches under out/
 cargo run -q -- scenarios/box-border-text.json --refresh-oracle
 ```
 
-Bootstrap result (see `tools/diff/out/reports/`):
+Bootstrap + scrollbox-lane result (see `tools/diff/out/reports/`):
 
 | scenario | cells | result |
 |---|---|---|
 | smoke-hello | 100 | **IDENTICAL** (0 diffs) |
 | box-border-text | 96 | **IDENTICAL** (0 diffs) |
 | flex-column-stack | 192 | **IDENTICAL** (0 diffs) |
+| scrollbox-static | 160 | **IDENTICAL** (0 diffs) |
+| scrollbox-scroll-mid | 160 | **IDENTICAL** (0 diffs) |
+| scrollbox-scroll-end | 160 | **IDENTICAL** (0 diffs) |
+| scrollbox-scrollbar-geometry | 384 | **IDENTICAL** (0 diffs) |
+| scrollbox-clipped-borders | 176 | **IDENTICAL** (0 diffs) |
+| scrollbox-scissor-escape | 220 | **IDENTICAL** (0 diffs) |
+| scrollbox-nested | 240 | **IDENTICAL** (0 diffs) |
+| scrollbox-sticky-bottom | 160 | **IDENTICAL** (0 diffs) |
+| scrollbox-long-math | 200 | **IDENTICAL** (0 diffs) |
+| scrollbox-resize | 100 | **IDENTICAL** (0 diffs) |
+| scrollbox-hscroll | 120 | **IDENTICAL** (0 diffs) |
 
 Each run also vt-replays the port's SGR stream through a vt100 parser to
 prove the emitted bytes repaint the same grid.
@@ -67,8 +78,10 @@ prove the emitted bytes repaint the same grid.
 1. **render-primitives** — StyledText multi-chunk, TextNode tree, text
    alignment, tab indicators, wrapping modes char/none (`wrapMode`
    differential scenarios).
-2. **scrollbox-lane** — ScrollBox + ScrollBar + scroll accel + nested
-   clipping (scissor rects port from buffer.zig).
+2. ~~**scrollbox-lane**~~ — **done**: ScrollBox + ScrollBar + Slider +
+   Arrow + scroll accel + scissor-rect clipping (viewport culling via the
+   ported `getObjectsInViewport`), 11 differential scenarios IDENTICAL
+   (incl. the 3 bootstrap regressions).
 3. **textarea-lane** — EditBuffer/TextBuffer/editor primitives + selection.
 4. **input-lane** — Input renderable + key events (KeyEvent/PasteEvent
    parsing from lib/parse.keypress*.ts).

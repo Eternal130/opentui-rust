@@ -1,0 +1,146 @@
+{
+ "name": "scrollbox-nested",
+ "width": 24,
+ "height": 10,
+ "steps": [
+  {
+   "op": "scrollbox",
+   "id": "outer",
+   "parent": "root",
+   "options": {
+    "width": 24,
+    "height": 10,
+    "scrollbarOptions": {
+     "thumbColor": "#9a9ea3",
+     "trackColor": "#252527"
+    }
+   }
+  },
+  {
+   "op": "text",
+   "id": "o0",
+   "parent": "outer",
+   "options": {
+    "content": "outer-00"
+   }
+  },
+  {
+   "op": "text",
+   "id": "o1",
+   "parent": "outer",
+   "options": {
+    "content": "outer-01"
+   }
+  },
+  {
+   "op": "text",
+   "id": "o2",
+   "parent": "outer",
+   "options": {
+    "content": "outer-02"
+   }
+  },
+  {
+   "op": "text",
+   "id": "o3",
+   "parent": "outer",
+   "options": {
+    "content": "outer-03"
+   }
+  },
+  {
+   "op": "text",
+   "id": "o4",
+   "parent": "outer",
+   "options": {
+    "content": "outer-04"
+   }
+  },
+  {
+   "op": "scrollbox",
+   "id": "inner",
+   "parent": "outer",
+   "options": {
+    "width": 20,
+    "height": 4,
+    "scrollbarOptions": {
+     "thumbColor": "#FFAA00",
+     "trackColor": "#112233"
+    }
+   }
+  },
+  {
+   "op": "text",
+   "id": "n0",
+   "parent": "inner",
+   "options": {
+    "content": "inner-00"
+   }
+  },
+  {
+   "op": "text",
+   "id": "n1",
+   "parent": "inner",
+   "options": {
+    "content": "inner-01"
+   }
+  },
+  {
+   "op": "text",
+   "id": "n2",
+   "parent": "inner",
+   "options": {
+    "content": "inner-02"
+   }
+  },
+  {
+   "op": "text",
+   "id": "n3",
+   "parent": "inner",
+   "options": {
+    "content": "inner-03"
+   }
+  },
+  {
+   "op": "text",
+   "id": "n4",
+   "parent": "inner",
+   "options": {
+    "content": "inner-04"
+   }
+  },
+  {
+   "op": "text",
+   "id": "n5",
+   "parent": "inner",
+   "options": {
+    "content": "inner-05"
+   }
+  },
+  {
+   "op": "text",
+   "id": "n6",
+   "parent": "inner",
+   "options": {
+    "content": "inner-06"
+   }
+  },
+  {
+   "op": "text",
+   "id": "n7",
+   "parent": "inner",
+   "options": {
+    "content": "inner-07"
+   }
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "set",
+   "id": "inner",
+   "prop": "scrollTop",
+   "value": 2
+  }
+ ]
+}

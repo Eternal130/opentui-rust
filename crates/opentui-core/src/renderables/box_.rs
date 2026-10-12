@@ -80,6 +80,27 @@ pub struct BorderCharSet {
     pub vertical: char,
 }
 
+impl BorderCharSet {
+    /// `isSingleWidthBorderChar` — buffer.zig:2230-2236: ASCII 32-126 and
+    /// the box-drawing block U+2500-257F are width 1 (the fast-path gate).
+    #[must_use]
+    pub fn all_single_width(&self) -> bool {
+        [
+            self.top_left,
+            self.top_right,
+            self.bottom_left,
+            self.bottom_right,
+            self.horizontal,
+            self.vertical,
+        ]
+        .iter()
+        .all(|&c| {
+            let cp = c as u32;
+            (32..=126).contains(&cp) || (0x2500..=0x257F).contains(&cp)
+        })
+    }
+}
+
 const SINGLE: BorderCharSet = BorderCharSet {
     top_left: '┌',
     top_right: '┐',

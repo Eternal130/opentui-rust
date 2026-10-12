@@ -19,8 +19,11 @@
 use crate::buffer::OptimizedBuffer;
 use crate::color::Rgba;
 use crate::layout::Dimension;
-use crate::renderable::{Content, MeasureCtx, MeasureKind, Renderable, RootRenderable};
+use crate::renderable::{
+    Content, MeasureCtx, MeasureKind, Renderable, RootRenderable, WalkEffects,
+};
 use crate::renderables::box_::{BoxOptions, BoxRenderableState};
+use crate::renderables::scrollbox;
 use crate::renderables::text::{MeasuredText, TextOptions, TextRenderableState};
 use taffy::prelude as tp;
 use taffy::tree::TaffyTree;
@@ -53,13 +56,19 @@ pub enum RenderTarget {
 /// `CliRenderer` — the render loop owner.
 pub struct CliRenderer {
     pub config: CliRendererConfig,
-    tree: TaffyTree<MeasureCtx>,
+    pub tree: TaffyTree<MeasureCtx>,
     pub root: RootRenderable,
     pub next_render_buffer: OptimizedBuffer,
     pub current_render_buffer: OptimizedBuffer,
     /// SGR bytes emitted by the last [`CliRenderer::render`]
     last_frame_sgr: String,
+    /// every frame's SGR concatenated — the full terminal emission
+    /// (upstream's stdout stream; the differential harness replays it)
+    sgr_history: String,
     frame_id: u64,
+    /// scrollbox root id → content node id (`ScrollBox.add` routes user
+    /// children into the content viewport, ScrollBox.ts:514-516)
+    content_of: std::collections::HashMap<String, String>,
 }
 
 impl Default for CliRenderer {
@@ -83,7 +92,9 @@ pub fn create_cli_renderer(config: CliRendererConfig) -> CliRenderer {
         next_render_buffer: OptimizedBuffer::new(config.width, config.height),
         current_render_buffer: OptimizedBuffer::new(config.width, config.height),
         last_frame_sgr: String::new(),
+        sgr_history: String::new(),
         frame_id: 0,
+        content_of: std::collections::HashMap::new(),
     }
 }
 
@@ -162,17 +173,43 @@ impl CliRenderer {
 
         // 2. layout: root calculateLayout(width, height) —
         //    RootRenderable.render pass 1 (Renderable.ts:1798-1802, 1865-67)
-        let root_node = self.root.inner.node;
-        let available = tp::Size {
-            width: tp::AvailableSpace::Definite(self.config.width as f32),
-            height: tp::AvailableSpace::Definite(self.config.height as f32),
-        };
-        self.tree
-            .compute_layout_with_measure(root_node, available, Self::measure_text)
-            .expect("taffy layout");
+        self.layout_pass();
 
-        // pass 2: update layout + screen coords
-        self.root.inner.update_layout(&self.tree, (0, 0));
+        // pass 2: update layout + screen coords + inline size hooks
+        // (effects drive re-layout frames exactly like upstream's
+        // requestRender scheduling — the observed 0.5.14 settle sequence:
+        // frame A lays out with both bars visible, the recalc hides the
+        // horizontal bar, frame B re-lays the viewport one row taller)
+        let mut effects = WalkEffects::default();
+        self.root.inner.update_layout(
+            &self.tree,
+            (0.0, 0.0),
+            (f32::INFINITY, f32::INFINITY),
+            &mut effects,
+        );
+        self.apply_recalcs(&mut effects);
+        let mut guard = 0;
+        while effects.any() && guard < 16 {
+            self.layout_pass();
+            effects = WalkEffects::default();
+            self.root.inner.update_layout(
+                &self.tree,
+                (0.0, 0.0),
+                (f32::INFINITY, f32::INFINITY),
+                &mut effects,
+            );
+            if std::env::var("OT_DBG").is_ok() {
+                let vp = self
+                    .root
+                    .inner
+                    .find("scroll-box-viewport-0")
+                    .map(|n| format!("({},{})", n.w, n.h))
+                    .unwrap_or_default();
+                eprintln!("[walk{}] vp={}", guard + 2, vp);
+            }
+            self.apply_recalcs(&mut effects);
+            guard += 1;
+        }
 
         // pass 3: paint into next buffer
         self.root.inner.paint(&mut self.next_render_buffer);
@@ -180,6 +217,7 @@ impl CliRenderer {
         // 3. SGR emission (diff current vs next) — before the swap
         let mut sgr = String::new();
         self.emit_frame_sgr(&mut sgr);
+        self.sgr_history.push_str(&sgr);
         self.last_frame_sgr = sgr;
 
         // swap: current := next (renderer.zig syncs cell-by-cell; a frame
@@ -193,11 +231,143 @@ impl CliRenderer {
         self.frame_id
     }
 
+    fn layout_pass(&mut self) {
+        let root_node = self.root.inner.node;
+        let available = tp::Size {
+            width: tp::AvailableSpace::Definite(self.config.width as f32),
+            height: tp::AvailableSpace::Definite(self.config.height as f32),
+        };
+        self.tree
+            .compute_layout_with_measure(root_node, available, Self::measure_text)
+            .expect("taffy layout");
+    }
+
+    /// Apply size-change hook events in fire order — each is a
+    /// `recalculateBarProps` run with the at-fire-time sizes
+    /// (ScrollBox.ts:749-805).
+    fn apply_recalcs(&mut self, effects: &mut WalkEffects) {
+        let Self { root, tree, .. } = self;
+        for event in std::mem::take(&mut effects.events) {
+            scrollbox::apply_recalc(
+                &mut root.inner,
+                tree,
+                &event.owner,
+                event.stale_content_size,
+                effects,
+            );
+        }
+    }
+
     /// Mount a renderable under an arbitrary node (nested `add`).
-    /// Returns false when `parent_id` is not in the tree.
+    /// Returns false when `parent_id` is not in the tree. ScrollBox ids
+    /// route into the content viewport (`ScrollBox.add`, ScrollBox.ts:514-516).
     pub fn mount_child(&mut self, parent_id: &str, child: Renderable) -> bool {
+        let target = self
+            .content_of
+            .get(parent_id)
+            .cloned()
+            .unwrap_or_else(|| parent_id.to_owned());
         let Self { tree, root, .. } = self;
-        crate::renderable::mount_under(&mut root.inner, parent_id, tree, child).is_none()
+        crate::renderable::mount_under(&mut root.inner, &target, tree, child).is_none()
+    }
+
+    /// Construct a ScrollBox subtree without mounting (children added via
+    /// [`CliRenderer::mount_child`] land in its content).
+    #[must_use]
+    pub fn make_scrollbox(
+        &mut self,
+        id: &str,
+        opts: &mut scrollbox::ScrollBoxOptions,
+    ) -> Renderable {
+        let r = scrollbox::build_scrollbox(&mut self.tree, id, opts);
+        let content_id = match &r.content {
+            Content::ScrollBox(_, state) => state.content_id.clone(),
+            _ => unreachable!("build_scrollbox yields ScrollBox root"),
+        };
+        self.content_of.insert(id.to_owned(), content_id);
+        r
+    }
+
+    /// `scrollBox.scrollTop = value` (ScrollBox.ts:168-171) followed by a
+    /// settle render — the harness's scripted-mutation step.
+    pub fn set_scroll_top(&mut self, owner: &str, value: f32) {
+        let mut effects = WalkEffects::default();
+        let Self { root, tree, .. } = self;
+        scrollbox::set_scroll_top(&mut root.inner, tree, owner, value, &mut effects);
+        let _ = effects;
+        self.render();
+    }
+
+    pub fn set_scroll_left(&mut self, owner: &str, value: f32) {
+        let mut effects = WalkEffects::default();
+        let Self { root, tree, .. } = self;
+        scrollbox::set_scroll_left(&mut root.inner, tree, owner, value, &mut effects);
+        let _ = effects;
+        self.render();
+    }
+
+    /// `scrollBox.scrollBy(delta, unit)` (ScrollBox.ts:404-413).
+    pub fn scroll_by(
+        &mut self,
+        owner: &str,
+        dx: f32,
+        dy: f32,
+        unit: crate::renderables::scrollbar::ScrollUnit,
+    ) {
+        let mut effects = WalkEffects::default();
+        let Self { root, tree, .. } = self;
+        scrollbox::scroll_by(&mut root.inner, tree, owner, dx, dy, unit, &mut effects);
+        let _ = effects;
+        self.render();
+    }
+
+    /// `scrollBox.scrollTo({x, y})` (ScrollBox.ts:464-473).
+    pub fn scroll_to(&mut self, owner: &str, x: f32, y: f32) {
+        let mut effects = WalkEffects::default();
+        let Self { root, tree, .. } = self;
+        scrollbox::scroll_to(&mut root.inner, tree, owner, x, y, &mut effects);
+        let _ = effects;
+        self.render();
+    }
+
+    /// `scrollBox.scrollChildIntoView(childId)` (ScrollBox.ts:415-462).
+    pub fn scroll_child_into_view(&mut self, owner: &str, child_id: &str) {
+        let mut effects = WalkEffects::default();
+        let Self { root, tree, .. } = self;
+        scrollbox::scroll_child_into_view(&mut root.inner, tree, owner, child_id, &mut effects);
+        let _ = effects;
+        self.render();
+    }
+
+    /// Wheel-event seam (`onMouseEvent` scroll branch, ScrollBox.ts:542-584).
+    pub fn scroll_event(&mut self, owner: &str, event: &scrollbox::ScrollEvent) {
+        let mut effects = WalkEffects::default();
+        let Self { root, tree, .. } = self;
+        scrollbox::on_scroll_event(&mut root.inner, tree, owner, event, &mut effects);
+        let _ = effects;
+        self.render();
+    }
+
+    /// `renderer.resize(w, h)` (renderer.ts:4073-4076 → processResize):
+    /// new buffers, root re-sized; cached node sizes PERSIST (upstream
+    /// `_widthValue` keeps the last size across resizes, Renderable.ts:1096-1119)
+    /// so only genuinely-resized nodes fire their size hooks.
+    pub fn resize(&mut self, width: u32, height: u32) {
+        if self.config.width == width && self.config.height == height {
+            return;
+        }
+        self.config.width = width;
+        self.config.height = height;
+        self.next_render_buffer = OptimizedBuffer::new(width, height);
+        self.current_render_buffer = OptimizedBuffer::new(width, height);
+        // RootRenderable size is fixed at construction (Renderable.ts:1743+)
+        let node = self.root.inner.node;
+        let mut style = self.tree.style(node).expect("root style").clone();
+        style.size.width = tp::Dimension::length(width as f32);
+        style.size.height = tp::Dimension::length(height as f32);
+        let _ = self.tree.set_style(node, style);
+        let _ = self.tree.mark_dirty(node);
+        self.render();
     }
 
     /// The taffy measure function: Text leaves measure their wrapped
@@ -323,6 +493,13 @@ impl CliRenderer {
     #[must_use]
     pub fn last_frame_sgr(&self) -> &str {
         &self.last_frame_sgr
+    }
+
+    /// The FULL SGR emission across all rendered frames — what a terminal
+    /// consumed (the harness's vt-replay validates this end-to-end).
+    #[must_use]
+    pub fn full_sgr_stream(&self) -> &str {
+        &self.sgr_history
     }
 
     #[must_use]
@@ -540,5 +717,216 @@ mod tests {
     fn standalone_text_renderable_helper_works() {
         let r = text_renderable("t", "x");
         assert_eq!(r.id.0, "t");
+    }
+
+    // --- scroll family -----------------------------------------------------
+
+    mod scroll {
+        use super::*;
+        use crate::renderables::scrollbar::ScrollUnit;
+        use crate::renderables::scrollbox::{
+            self, ScrollBoxOptions, ScrollDirection, ScrollEvent, StickyStart,
+        };
+        use crate::scroll_acceleration::MacOSScrollAccel;
+
+        fn mounted_scrollbox() -> CliRenderer {
+            let mut renderer = create_cli_renderer(CliRendererConfig {
+                width: 20,
+                height: 8,
+                ..Default::default()
+            });
+            let mut opts = ScrollBoxOptions {
+                scroll_y: true,
+                ..Default::default()
+            };
+            opts.box_options.width = Some(Dimension::Points(20.0));
+            opts.box_options.height = Some(Dimension::Points(8.0));
+            let sb = renderer.make_scrollbox("sb", &mut opts);
+            renderer.add(sb);
+            for i in 0..10 {
+                let t =
+                    text_renderable_node(&mut renderer, &format!("t{i}"), &format!("line-{i:02}"));
+                renderer.mount_child("sb", t);
+            }
+            renderer.render();
+            renderer
+        }
+
+        fn text_renderable_node(renderer: &mut CliRenderer, id: &str, content: &str) -> Renderable {
+            let opts = TextOptions {
+                content: content.into(),
+                ..Default::default()
+            };
+            renderer.make_text(id, &opts)
+        }
+
+        fn scroll_top_of(renderer: &CliRenderer) -> f32 {
+            scrollbox::scroll_top(&renderer.root.inner, "sb").unwrap()
+        }
+
+        fn translate_y_of(renderer: &CliRenderer) -> f32 {
+            renderer
+                .root
+                .inner
+                .find("scroll-box-content-0")
+                .unwrap()
+                .translate_y
+        }
+
+        #[test]
+        fn settles_with_visible_vertical_bar() {
+            // the oracle-pinned settled state: scrollSize 10, viewportSize
+            // 8, slider max 2 / viewPortSize 3 (path-dependent transient)
+            let r = mounted_scrollbox();
+            assert_eq!(scroll_top_of(&r), 0.0);
+            assert_eq!(translate_y_of(&r), 0.0);
+            let vp = r.root.inner.find("scroll-box-viewport-0").unwrap();
+            assert_eq!((vp.w, vp.h), (19.0, 8.0));
+            let bar = r
+                .root
+                .inner
+                .find("scroll-box-vertical-scrollbar-0")
+                .unwrap();
+            let crate::renderable::Content::ScrollBar(b) = &bar.content else {
+                panic!("bar state")
+            };
+            assert_eq!((b.scroll_size, b.viewport_size), (10.0, 8.0));
+            assert!(bar.visible);
+            let hbar = r
+                .root
+                .inner
+                .find("scroll-box-horizontal-scrollbar-0")
+                .unwrap();
+            assert!(!hbar.visible);
+        }
+
+        #[test]
+        fn scroll_top_clamps_and_translates() {
+            let mut r = mounted_scrollbox();
+            r.set_scroll_top("sb", 3.0);
+            // clamp to max = 10 - 8 = 2 (ScrollBar.ts:72-74)
+            assert_eq!(scroll_top_of(&r), 2.0);
+            assert_eq!(translate_y_of(&r), -2.0);
+            r.set_scroll_top("sb", f32::MIN);
+            assert_eq!(scroll_top_of(&r), 0.0);
+            assert_eq!(translate_y_of(&r), 0.0);
+        }
+
+        #[test]
+        fn scroll_by_viewport_units() {
+            // ScrollBar.ts:246-258 — viewport unit multiplies by viewportSize
+            let mut r = mounted_scrollbox();
+            r.scroll_by("sb", 0.0, 0.25, ScrollUnit::Viewport);
+            assert_eq!(scroll_top_of(&r), 2.0); // 0.25 × 8 = 2, clamped
+            r.scroll_by("sb", 0.0, -0.25, ScrollUnit::Viewport);
+            assert_eq!(scroll_top_of(&r), 0.0);
+        }
+
+        #[test]
+        fn sticky_bottom_applies_on_first_layout() {
+            let mut renderer = create_cli_renderer(CliRendererConfig {
+                width: 20,
+                height: 8,
+                ..Default::default()
+            });
+            let mut opts = ScrollBoxOptions {
+                scroll_y: true,
+                sticky_scroll: true,
+                sticky_start: Some(StickyStart::Bottom),
+                ..Default::default()
+            };
+            opts.box_options.width = Some(Dimension::Points(20.0));
+            opts.box_options.height = Some(Dimension::Points(8.0));
+            let sb = renderer.make_scrollbox("sb", &mut opts);
+            renderer.add(sb);
+            for i in 0..10 {
+                let t =
+                    text_renderable_node(&mut renderer, &format!("t{i}"), &format!("sline-{i:02}"));
+                renderer.mount_child("sb", t);
+            }
+            renderer.render();
+            // applyStickyStart → max(0, 10-8) = 2 (ScrollBox.ts:257)
+            assert_eq!(scroll_top_of(&renderer), 2.0);
+            assert_eq!(translate_y_of(&renderer), -2.0);
+        }
+
+        #[test]
+        fn wheel_seam_accumulates_and_uses_accel_curve() {
+            // ScrollBox.ts:542-584 via MacOSScrollAccel: fractional deltas
+            // accumulate; only integer parts scroll
+            let mut r = mounted_scrollbox();
+            r.scroll_event(
+                "sb",
+                &ScrollEvent {
+                    direction: ScrollDirection::Down,
+                    delta: 0.6, // LinearAccel ⇒ multiplier 1 (first tick)
+                    shift: false,
+                    now_ms: Some(1000.0),
+                },
+            );
+            // 0.6 truncates to 0 → no scroll, accumulator keeps 0.6
+            assert_eq!(scroll_top_of(&r), 0.0);
+            r.scroll_event(
+                "sb",
+                &ScrollEvent {
+                    direction: ScrollDirection::Down,
+                    delta: 0.6,
+                    shift: false,
+                    now_ms: Some(1100.0),
+                },
+            );
+            // 1.2 → trunc 1 → scrollTop 1
+            assert_eq!(scroll_top_of(&r), 1.0);
+            // shift remaps down → right (ScrollBox.ts:545-546)
+            r.scroll_event(
+                "sb",
+                &ScrollEvent {
+                    direction: ScrollDirection::Down,
+                    delta: 5.0,
+                    shift: true,
+                    now_ms: Some(1200.0),
+                },
+            );
+            let left = scrollbox::scroll_left(&r.root.inner, "sb").unwrap();
+            assert_eq!(left, 0.0); // horizontal scroll clamps (content fits)
+        }
+
+        #[test]
+        fn macos_accel_scales_wheel_deltas() {
+            // burst ticks: multiplier > 1 → each delta pushes several cells
+            // (here it saturates the 2-row scroll range and leaves residue
+            // in the accumulator — the linear curve would leave < 1)
+            let mut r = mounted_scrollbox();
+            if let Some(sb) = r.root.inner.find_mut("sb") {
+                if let crate::renderable::Content::ScrollBox(_, st) = &mut sb.content {
+                    st.scroll_accel = std::sync::Mutex::new(Box::new(MacOSScrollAccel::default()));
+                }
+            }
+            for t in [1000.0, 1020.0, 1040.0] {
+                r.scroll_event(
+                    "sb",
+                    &ScrollEvent {
+                        direction: ScrollDirection::Down,
+                        delta: 1.0,
+                        shift: false,
+                        now_ms: Some(t),
+                    },
+                );
+            }
+            // dt=20ms ⇒ velocity 5 ⇒ multiplier 1 + 0.8·(e^{5/3} − 1) ≈ 4.4;
+            // the range (2) saturates and the accumulator holds the excess
+            assert_eq!(scroll_top_of(&r), 2.0);
+            let residue = {
+                let sb = r.root.inner.find("sb").unwrap();
+                let crate::renderable::Content::ScrollBox(_, st) = &sb.content else {
+                    unreachable!()
+                };
+                st.scroll_accumulator_y
+            };
+            assert!(
+                residue > 0.5,
+                "accelerated residue: {residue} (linear would be 0)"
+            );
+        }
     }
 }
