@@ -1,0 +1,109 @@
+{
+ "name": "scrollbox-scroll-end",
+ "width": 20,
+ "height": 8,
+ "steps": [
+  {
+   "op": "scrollbox",
+   "id": "sb",
+   "parent": "root",
+   "options": {
+    "width": 20,
+    "height": 8,
+    "scrollbarOptions": {
+     "thumbColor": "#9a9ea3",
+     "trackColor": "#252527"
+    }
+   }
+  },
+  {
+   "op": "text",
+   "id": "e0",
+   "parent": "sb",
+   "options": {
+    "content": "eline-00"
+   }
+  },
+  {
+   "op": "text",
+   "id": "e1",
+   "parent": "sb",
+   "options": {
+    "content": "eline-01"
+   }
+  },
+  {
+   "op": "text",
+   "id": "e2",
+   "parent": "sb",
+   "options": {
+    "content": "eline-02"
+   }
+  },
+  {
+   "op": "text",
+   "id": "e3",
+   "parent": "sb",
+   "options": {
+    "content": "eline-03"
+   }
+  },
+  {
+   "op": "text",
+   "id": "e4",
+   "parent": "sb",
+   "options": {
+    "content": "eline-04"
+   }
+  },
+  {
+   "op": "text",
+   "id": "e5",
+   "parent": "sb",
+   "options": {
+    "content": "eline-05"
+   }
+  },
+  {
+   "op": "text",
+   "id": "e6",
+   "parent": "sb",
+   "options": {
+    "content": "eline-06"
+   }
+  },
+  {
+   "op": "text",
+   "id": "e7",
+   "parent": "sb",
+   "options": {
+    "content": "eline-07"
+   }
+  },
+  {
+   "op": "text",
+   "id": "e8",
+   "parent": "sb",
+   "options": {
+    "content": "eline-08"
+   }
+  },
+  {
+   "op": "text",
+   "id": "e9",
+   "parent": "sb",
+   "options": {
+    "content": "eline-09"
+   }
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "set",
+   "id": "sb",
+   "prop": "scrollTop",
+   "value": 100
+  }
+ ]
+}

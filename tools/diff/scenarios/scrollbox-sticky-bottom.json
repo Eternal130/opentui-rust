@@ -1,0 +1,105 @@
+{
+ "name": "scrollbox-sticky-bottom",
+ "width": 20,
+ "height": 8,
+ "steps": [
+  {
+   "op": "scrollbox",
+   "id": "sb",
+   "parent": "root",
+   "options": {
+    "width": 20,
+    "height": 8,
+    "stickyScroll": true,
+    "stickyStart": "bottom",
+    "scrollbarOptions": {
+     "thumbColor": "#9a9ea3",
+     "trackColor": "#252527"
+    }
+   }
+  },
+  {
+   "op": "text",
+   "id": "s0",
+   "parent": "sb",
+   "options": {
+    "content": "sline-00"
+   }
+  },
+  {
+   "op": "text",
+   "id": "s1",
+   "parent": "sb",
+   "options": {
+    "content": "sline-01"
+   }
+  },
+  {
+   "op": "text",
+   "id": "s2",
+   "parent": "sb",
+   "options": {
+    "content": "sline-02"
+   }
+  },
+  {
+   "op": "text",
+   "id": "s3",
+   "parent": "sb",
+   "options": {
+    "content": "sline-03"
+   }
+  },
+  {
+   "op": "text",
+   "id": "s4",
+   "parent": "sb",
+   "options": {
+    "content": "sline-04"
+   }
+  },
+  {
+   "op": "text",
+   "id": "s5",
+   "parent": "sb",
+   "options": {
+    "content": "sline-05"
+   }
+  },
+  {
+   "op": "text",
+   "id": "s6",
+   "parent": "sb",
+   "options": {
+    "content": "sline-06"
+   }
+  },
+  {
+   "op": "text",
+   "id": "s7",
+   "parent": "sb",
+   "options": {
+    "content": "sline-07"
+   }
+  },
+  {
+   "op": "text",
+   "id": "s8",
+   "parent": "sb",
+   "options": {
+    "content": "sline-08"
+   }
+  },
+  {
+   "op": "text",
+   "id": "s9",
+   "parent": "sb",
+   "options": {
+    "content": "sline-09"
+   }
+  },
+  {
+   "op": "flush"
+  }
+ ]
+}

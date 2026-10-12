@@ -1,0 +1,16 @@
+{
+ "name": "scrollbox-scissor-escape",
+ "width": 22,
+ "height": 10,
+ "steps": [
+  { "op": "text", "id": "hdr", "parent": "root", "options": { "content": "header above the box" } },
+  { "op": "scrollbox", "id": "sb", "parent": "root", "options": { "width": 22, "height": 6,
+    "scrollbarOptions": { "thumbColor": "#9a9ea3", "trackColor": "#252527" } } },
+  { "op": "box", "id": "bx0", "parent": "sb", "options": { "border": true, "borderColor": "#00FF88", "width": 18, "height": 3 } },
+  { "op": "box", "id": "bx1", "parent": "sb", "options": { "border": true, "borderColor": "#00FF88", "width": 18, "height": 3 } },
+  { "op": "box", "id": "bx2", "parent": "sb", "options": { "border": true, "borderColor": "#00FF88", "width": 18, "height": 3 } },
+  { "op": "box", "id": "bx3", "parent": "sb", "options": { "border": true, "borderColor": "#00FF88", "width": 18, "height": 3 } },
+  { "op": "flush" },
+  { "op": "set", "id": "sb", "prop": "scrollTop", "value": 4 }
+ ]
+}

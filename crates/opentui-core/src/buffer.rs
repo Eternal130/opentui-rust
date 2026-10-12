@@ -52,6 +52,13 @@ pub fn char_right_extent(c: u32) -> u32 {
     (c >> CHAR_EXT_RIGHT_SHIFT) & CHAR_EXT_MASK
 }
 
+/// left extent — bits 26-27 (grapheme.zig packing; read by span cleanup,
+/// buffer.zig:565).
+#[must_use]
+pub fn char_left_extent(c: u32) -> u32 {
+    (c >> CHAR_EXT_LEFT_SHIFT) & CHAR_EXT_MASK
+}
+
 #[must_use]
 pub fn pack_grapheme_start(gid: u32, total_width: u32) -> u32 {
     let width_minus_one = (total_width - 1).min(CHAR_EXT_MASK);
@@ -128,6 +135,15 @@ mod rgba_serde {
     }
 }
 
+/// `ClipRect` — buffer.zig:190-198 (scissor stack entry).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClipRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
 /// The raster target. Width/height in cells; origin top-left.
 pub struct OptimizedBuffer {
     pub width: u32,
@@ -136,6 +152,12 @@ pub struct OptimizedBuffer {
     /// Grapheme byte pool — the `GraphemePool` (grapheme.zig) in its
     /// simplest arena form: ids are 1-based, 0 = none.
     graphemes: Vec<String>,
+    /// `GraphemeTracker.used_ids` (grapheme.zig:770+) — live grapheme id →
+    /// cell refcount. Drives the drawBox transparent-border fast path's
+    /// `!grapheme_tracker.hasAny()` condition (buffer.zig:2255).
+    grapheme_refs: std::collections::HashMap<u32, u32>,
+    /// The scissor stack (buffer.zig:199 `scissor_stack`). Empty = no clip.
+    scissor_stack: Vec<ClipRect>,
     /// `blendBackdropColor` — the color transparent destinations blend
     /// against (renderer sets it from its background color made opaque,
     /// renderer.zig:495; default opaque black for a transparent bg).
@@ -215,6 +237,8 @@ impl OptimizedBuffer {
             height,
             cells: vec![Cell::space(); (width * height) as usize],
             graphemes: Vec::new(),
+            grapheme_refs: std::collections::HashMap::new(),
+            scissor_stack: Vec::new(),
             blend_backdrop: Some(Rgba::rgb(0, 0, 0)),
         };
         // mirror the renderer's frame-clear default: transparent black
@@ -224,7 +248,8 @@ impl OptimizedBuffer {
     }
 
     /// `clear` — buffer.zig:479-488: space chars, attributes 0, fg literal
-    /// white, bg = argument.
+    /// white, bg = argument. Also clears the scissor stack
+    /// (grapheme/link trackers cleared alongside).
     pub fn clear(&mut self, bg: Rgba) {
         for cell in &mut self.cells {
             cell.char = DEFAULT_SPACE_CHAR;
@@ -233,6 +258,145 @@ impl OptimizedBuffer {
             cell.bg = bg;
         }
         self.graphemes.clear();
+        self.grapheme_refs.clear();
+        self.scissor_stack.clear();
+    }
+
+    // --- scissor stack (buffer.zig:322-399, exact) -------------------------
+
+    /// `getCurrentScissorRect` — buffer.zig:322-325.
+    #[must_use]
+    pub fn current_scissor_rect(&self) -> Option<ClipRect> {
+        self.scissor_stack.last().copied()
+    }
+
+    /// `isPointInScissor` — buffer.zig:327-331. No scissor = everything in.
+    #[must_use]
+    pub fn is_point_in_scissor(&self, x: i32, y: i32) -> bool {
+        let Some(s) = self.current_scissor_rect() else {
+            return true;
+        };
+        x >= s.x && x < s.x + s.width as i32 && y >= s.y && y < s.y + s.height as i32
+    }
+
+    /// `isRectInScissor` — buffer.zig:333-343: overlap test (touching edges
+    /// do not overlap).
+    #[must_use]
+    pub fn is_rect_in_scissor(&self, x: i32, y: i32, width: u32, height: u32) -> bool {
+        let Some(s) = self.current_scissor_rect() else {
+            return true;
+        };
+        let rect_end_x = x.saturating_add(width as i32);
+        let rect_end_y = y.saturating_add(height as i32);
+        let scissor_end_x = s.x.saturating_add(s.width as i32);
+        let scissor_end_y = s.y.saturating_add(s.height as i32);
+        !(x >= scissor_end_x || rect_end_x <= s.x || y >= scissor_end_y || rect_end_y <= s.y)
+    }
+
+    /// `clipRectToScissor` — buffer.zig:345-372: intersection or None.
+    #[must_use]
+    pub fn clip_rect_to_scissor(
+        &self,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+    ) -> Option<ClipRect> {
+        let scissor = self.current_scissor_rect().unwrap_or(ClipRect {
+            x,
+            y,
+            width,
+            height,
+        });
+        let rect_end_x = x.saturating_add(width as i32);
+        let rect_end_y = y.saturating_add(height as i32);
+        let scissor_end_x = scissor.x.saturating_add(scissor.width as i32);
+        let scissor_end_y = scissor.y.saturating_add(scissor.height as i32);
+
+        let intersect_x = x.max(scissor.x);
+        let intersect_y = y.max(scissor.y);
+        let intersect_end_x = rect_end_x.min(scissor_end_x);
+        let intersect_end_y = rect_end_y.min(scissor_end_y);
+
+        if intersect_x >= intersect_end_x || intersect_y >= intersect_end_y {
+            return None; // No intersection
+        }
+
+        Some(ClipRect {
+            x: intersect_x,
+            y: intersect_y,
+            width: (intersect_end_x - intersect_x) as u32,
+            height: (intersect_end_y - intersect_y) as u32,
+        })
+    }
+
+    /// `pushScissorRect` — buffer.zig:375-393: intersect with the current
+    /// scissor so nested rects always clip to parents; a rect completely
+    /// outside degenerates to 0×0 (nothing renders).
+    pub fn push_scissor_rect(&mut self, x: i32, y: i32, width: u32, height: u32) {
+        let mut rect = ClipRect {
+            x,
+            y,
+            width,
+            height,
+        };
+        if self.current_scissor_rect().is_some() {
+            match self.clip_rect_to_scissor(rect.x, rect.y, rect.width, rect.height) {
+                Some(clipped) => rect = clipped,
+                None => {
+                    rect = ClipRect {
+                        x: 0,
+                        y: 0,
+                        width: 0,
+                        height: 0,
+                    }
+                }
+            }
+        }
+        self.scissor_stack.push(rect);
+    }
+
+    /// `popScissorRect` — buffer.zig:395-399.
+    pub fn pop_scissor_rect(&mut self) {
+        self.scissor_stack.pop();
+    }
+
+    /// `clearScissorRects` — buffer.zig:401-403.
+    pub fn clear_scissor_rects(&mut self) {
+        self.scissor_stack.clear();
+    }
+
+    /// `grapheme_tracker.hasAny()` (grapheme.zig:822-824) — any live
+    /// grapheme cell in the buffer.
+    #[must_use]
+    pub fn grapheme_tracker_has_any(&self) -> bool {
+        !self.grapheme_refs.is_empty()
+    }
+
+    fn tracker_add(&mut self, id: u32) {
+        *self.grapheme_refs.entry(id).or_insert(0) += 1;
+    }
+
+    fn tracker_remove(&mut self, id: u32) {
+        if let Some(c) = self.grapheme_refs.get_mut(&id) {
+            *c -= 1;
+            if *c == 0 {
+                self.grapheme_refs.remove(&id);
+            }
+        }
+    }
+
+    /// `GraphemeTracker.replace` (grapheme.zig:808-813).
+    fn tracker_replace(&mut self, old_id: Option<u32>, new_id: Option<u32>) {
+        if old_id.is_some() && new_id.is_some() && old_id == new_id {
+            return;
+        }
+        if let Some(id) = new_id {
+            self.tracker_add(id);
+        }
+        if let Some(id) = old_id {
+            self.tracker_remove(id);
+        }
     }
 
     fn index(&self, x: u32, y: u32) -> Option<usize> {
@@ -247,54 +411,96 @@ impl OptimizedBuffer {
         self.index(x, y).map(|i| self.cells[i])
     }
 
-    /// `set` (span-cleanup path) — buffer.zig:513. Wide graphemes overwrite
-    /// their full prior span and plant continuation cells.
+    /// `set` — buffer.zig:513 (`setInternal(span_cleanup = true)`), exact:
+    /// bounds + scissor gate (`validateAndIndex`, buffer.zig:650-655), span
+    /// cleanup of an overwritten wide span (fg/bg of cleared cells KEPT —
+    /// buffer.zig:571-590), continuation planting, grapheme tracker
+    /// accounting (buffer.zig:533,553,612), and the end-of-row clip for
+    /// graphemes that don't fit (fg/bg/attributes come from the CELL,
+    /// buffer.zig:595-620).
     pub fn set(&mut self, x: u32, y: u32, cell: Cell) {
+        // validateAndIndex (buffer.zig:650-655)
         let Some(i) = self.index(x, y) else { return };
-        // span cleanup: clear a previous wide span we're overwriting
+        if !self.is_point_in_scissor(x as i32, y as i32) {
+            return;
+        }
         let prev = self.cells[i].char;
+        let mut tracker_replaced = false;
+
+        // span cleanup (buffer.zig:558-590)
         if (is_grapheme_char(prev) || is_continuation_char(prev)) && prev != cell.char {
-            let id = grapheme_id_from_char(prev);
             let row_start = (y * self.width) as usize;
             let row_end = row_start + self.width as usize - 1;
-            let left = if is_grapheme_char(prev) {
-                char_right_extent(prev) as usize
+            let left = char_left_extent(prev) as usize;
+            let right = char_right_extent(prev) as usize;
+            let id = grapheme_id_from_char(prev);
+
+            let new_grapheme_id: Option<u32> = if is_grapheme_char(cell.char) {
+                let new_width = char_right_extent(cell.char) + 1;
+                if x + new_width <= self.width {
+                    Some(grapheme_id_from_char(cell.char))
+                } else {
+                    None
+                }
             } else {
-                0
+                None
             };
+            self.tracker_replace(Some(id), new_grapheme_id);
+            tracker_replaced = true;
+
             let span_start = i.saturating_sub(left.min(i - row_start));
-            let span_end = i + char_right_extent(prev) as usize;
-            let span_end = span_end.min(row_end).min(self.cells.len() - 1);
+            let span_end = (i + right.min(row_end - i)).min(self.cells.len() - 1);
             for c in &mut self.cells[span_start..=span_end] {
                 if (is_grapheme_char(c.char) || is_continuation_char(c.char))
                     && grapheme_id_from_char(c.char) == id
                 {
-                    *c = Cell::space();
+                    // buffer.zig:586-587 — only char + attributes reset
+                    c.char = DEFAULT_SPACE_CHAR;
+                    c.attributes = 0;
                 }
             }
         }
-        self.cells[i] = cell;
 
-        // continuation planting (buffer.zig:576-644): continuation cells
-        // copy the CELL's fg/bg/attributes and carry the packed
-        // continuation char with left/right extents
         if is_grapheme_char(cell.char) {
-            let width = char_right_extent(cell.char) + 1;
+            let right = char_right_extent(cell.char);
+            let width = 1 + right;
             if x + width > self.width {
-                // clip: clear rest of row to spaces (upstream EOL memset)
-                for c in &mut self.cells[i..((y + 1) * self.width) as usize] {
-                    *c = Cell::space();
+                // EOL clip (buffer.zig:595-620): spaces to end of row, but
+                // fg/bg/attributes from the cell
+                let end_of_line = (((y + 1) * self.width) as usize).min(self.cells.len());
+                for c in &mut self.cells[i..end_of_line] {
+                    c.char = DEFAULT_SPACE_CHAR;
+                    c.fg = cell.fg;
+                    c.bg = cell.bg;
+                    c.attributes = cell.attributes;
                 }
                 return;
             }
-            let gid = grapheme_id_from_char(cell.char);
-            for offset in 1..width {
-                let ci = i + offset as usize;
-                self.cells[ci].char = pack_continuation(offset, width - 1 - offset, gid);
-                self.cells[ci].fg = cell.fg;
-                self.cells[ci].bg = cell.bg;
-                self.cells[ci].attributes = cell.attributes;
+            self.cells[i] = cell;
+            let id = grapheme_id_from_char(cell.char);
+            let is_same_grapheme_start = is_grapheme_char(prev) && prev == cell.char;
+            if !tracker_replaced && !is_same_grapheme_start {
+                self.tracker_add(id);
             }
+            if width > 1 {
+                let row_end_index = (y * self.width + self.width - 1) as usize;
+                let max_right = (right as usize).min(row_end_index - i);
+                if max_right > 0 {
+                    for c in &mut self.cells[i + 1..=i + max_right] {
+                        c.fg = cell.fg;
+                        c.bg = cell.bg;
+                        c.attributes = cell.attributes;
+                    }
+                    for k in 1..=max_right {
+                        self.cells[i + k].char =
+                            pack_continuation(k as u32, (max_right - k) as u32, id);
+                    }
+                }
+            }
+        } else {
+            // writeCellAndLinks (buffer.zig:658-669) — links always 0 in
+            // this port (no link attributes exist yet)
+            self.cells[i] = cell;
         }
     }
 
@@ -315,11 +521,14 @@ impl OptimizedBuffer {
         self.set(x, y, cell);
     }
 
-    /// `setCellWithAlphaBlendingCell` — the write path
-    /// `drawTextBufferInternal` uses for every cell (buffer.zig:2061):
-    /// fully transparent skip, fully opaque set, otherwise the
-    /// `blendCells` math.
+    /// `setCellWithAlphaBlending` (TS) — maps to the native
+    /// `setCellWithAlphaBlendingCell(WithoutImages)` pair (buffer.zig:925-950);
+    /// identical when no image placements exist, which is this port's scope.
+    /// Scissor gate at the top (buffer.zig:930).
     pub fn set_cell_with_alpha_blending(&mut self, x: u32, y: u32, cell: Cell) {
+        if !self.is_point_in_scissor(x as i32, y as i32) {
+            return;
+        }
         if is_fully_transparent(cell.fg, cell.bg) {
             return;
         }
@@ -330,6 +539,36 @@ impl OptimizedBuffer {
         let dest = self.get(x, y).unwrap_or_else(Cell::space);
         let blended = self.blend_cells(cell, dest);
         self.set(x, y, blended);
+    }
+
+    /// `setRaw` — direct write with no span cleanup / tracker / scissor
+    /// (buffer.zig:671-677 `writeCellAndLinks` minus link tracking).
+    fn set_raw(&mut self, x: u32, y: u32, cell: Cell) {
+        let Some(i) = self.index(x, y) else { return };
+        self.cells[i] = cell;
+    }
+
+    /// `setCellWithAlphaBlendingRawCell` — buffer.zig:985-1015 (opacity
+    /// ≡ 1): scissor gate, opaque → raw write, else `blendCells` over the
+    /// destination then raw write (no span cleanup, no tracker).
+    fn set_cell_alpha_blending_raw_cell(&mut self, x: u32, y: u32, cell: Cell) {
+        if !self.is_point_in_scissor(x as i32, y as i32) {
+            return;
+        }
+        if is_fully_opaque(cell.fg, cell.bg) {
+            self.set_raw(x, y, cell);
+            return;
+        }
+        if is_fully_transparent(cell.fg, cell.bg) {
+            return;
+        }
+        match self.get(x, y) {
+            Some(dest) => {
+                let blended = self.blend_cells(cell, dest);
+                self.set_raw(x, y, blended);
+            }
+            None => self.set_raw(x, y, cell),
+        }
     }
 
     /// `blendCells` — buffer.zig:803-853 (exact).
@@ -403,7 +642,12 @@ impl OptimizedBuffer {
     /// EXPLICIT OPAQUE colors (buffer.zig:1297-1300); `bg: None` reads
     /// through to the existing cell's bg (buffer.zig:1363-1370) and
     /// writes via the blend-aware [`set_text_cell`]. Tab expands to 2
-    /// columns (`tab_width = 2`, buffer.zig:1325).
+    /// columns (`tab_width = 2`, buffer.zig:1325). Scissor: clusters whose
+    /// start cell is outside are skipped but still advance
+    /// (buffer.zig:1357-1361); wide clusters additionally require every
+    /// span cell inside or the cluster is skipped whole
+    /// (buffer.zig:1383-1390); tab cells outside are dropped per cell
+    /// (buffer.zig:1396-1397).
     pub fn draw_text(
         &mut self,
         text: &str,
@@ -425,6 +669,7 @@ impl OptimizedBuffer {
                 if cx >= self.width {
                     break;
                 }
+                // per-cell scissor via set (buffer.zig:1314 → set → 651-655)
                 self.set(cx, y, make_cell(u32::from(byte), fg, bg_cell, attributes));
             }
             return;
@@ -432,17 +677,43 @@ impl OptimizedBuffer {
 
         use unicode_segmentation::UnicodeSegmentation;
         let mut advance: u32 = 0;
-        for cluster in text.graphemes(true) {
+        'text_loop: for cluster in text.graphemes(true) {
             let cx = x + advance;
             if cx >= self.width {
                 break;
             }
-            if cluster == "\t" {
+            let width = cluster_width(cluster);
+            if width == 0 {
+                // zero-width clusters fold into the next cell upstream
+                // (combining marks join the preceding grapheme); we drop
+                // them at the slice level — harness will flag if visible.
+                continue;
+            }
+            let is_tab = cluster == "\t";
+            // cluster start outside the scissor: skip, keep advancing
+            // (buffer.zig:1357-1361)
+            if !is_tab && !self.is_point_in_scissor(cx as i32, y as i32) {
+                advance += width;
+                continue;
+            }
+            // wide clusters need every span cell inside (buffer.zig:1383-1390)
+            if width > 1 && !is_tab {
+                for span_offset in 1..width {
+                    if !self.is_point_in_scissor((cx + span_offset) as i32, y as i32) {
+                        advance += width;
+                        continue 'text_loop;
+                    }
+                }
+            }
+            if is_tab {
                 // tab → 2 blank cells (buffer.zig:1392-1405)
                 for t in 0..2 {
                     let tx = x + advance + t;
                     if tx >= self.width {
                         break;
+                    }
+                    if !self.is_point_in_scissor(tx as i32, y as i32) {
+                        continue;
                     }
                     let bg_cell = match bg {
                         Some(b) => b,
@@ -454,11 +725,9 @@ impl OptimizedBuffer {
                 advance += 2;
                 continue;
             }
-            let width = cluster_width(cluster);
-            if width == 0 {
-                // zero-width clusters fold into the next cell upstream
-                // (combining marks join the preceding grapheme); we drop
-                // them at the slice level — harness will flag if visible.
+            if cx + width > self.width {
+                // buffer.zig:1377-1381 — overflow cluster: skip, keep advancing
+                advance += width;
                 continue;
             }
             let bg_cell = match bg {
@@ -481,25 +750,97 @@ impl OptimizedBuffer {
         }
     }
 
-    /// `fillRect` — buffer.zig (fills with bg-colored spaces).
+    /// `fillRect` — buffer.zig:1080-1200 (the non-image subset, opacity ≡ 1):
+    /// transparent bg is a no-op; whole-rect scissor early-out; then fill
+    /// only the scissor intersection. Grapheme-aware buffers fill through
+    /// the blending cell setter (`setCellWithAlphaBlendingCell`), alpha bg
+    /// through the raw blend writer, opaque bg through direct row writes.
     pub fn fill_rect(&mut self, x: i32, y: i32, width: u32, height: u32, bg: Rgba) {
-        for dy in 0..height as i32 {
-            for dx in 0..width as i32 {
-                let px = x + dx;
-                let py = y + dy;
-                if px < 0 || py < 0 || px >= self.width as i32 || py >= self.height as i32 {
-                    continue;
+        if self.width == 0 || self.height == 0 || width == 0 || height == 0 {
+            return;
+        }
+        // upstream takes u32 coords: negative callers coerce to huge values
+        // and early out on the bounds check — mirrored
+        if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
+            return;
+        }
+        let (x, y) = (x as u32, y as u32);
+        if !self.is_rect_in_scissor(x as i32, y as i32, width, height) {
+            return;
+        }
+        // fully_transparent + no images → return (buffer.zig:1098-1099)
+        let fully_transparent = is_fully_transparent(Rgba::from_ints(0, 0, 0, 0), bg);
+        if fully_transparent {
+            return;
+        }
+        let start_x = x;
+        let start_y = y;
+        let end_x = (self.width - 1).min(x + width - 1);
+        let end_y = (self.height - 1).min(y + height - 1);
+        if start_x > end_x || start_y > end_y {
+            return;
+        }
+        // clipRectToScissor (buffer.zig:1108)
+        let Some(clipped) = self.clip_rect_to_scissor(
+            start_x as i32,
+            start_y as i32,
+            end_x - start_x + 1,
+            end_y - start_y + 1,
+        ) else {
+            return;
+        };
+        let cx0 = (start_x as i32).max(clipped.x) as u32;
+        let cy0 = (start_y as i32).max(clipped.y) as u32;
+        let cx1 = (end_x as i32).min(clipped.x + clipped.width as i32 - 1) as u32;
+        let cy1 = (end_y as i32).min(clipped.y + clipped.height as i32 - 1) as u32;
+        if cx0 > cx1 || cy0 > cy1 {
+            return;
+        }
+
+        if self.grapheme_tracker_has_any() {
+            // buffer.zig:1164-1174 — tracker-safe per-cell setter
+            for py in cy0..=cy1 {
+                for px in cx0..=cx1 {
+                    self.set_cell_with_alpha_blending(
+                        px,
+                        py,
+                        make_cell(DEFAULT_SPACE_CHAR, Rgba::rgb(255, 255, 255), bg, 0),
+                    );
                 }
-                let i = (py as u32 * self.width + px as u32) as usize;
-                self.cells[i].char = DEFAULT_SPACE_CHAR;
-                self.cells[i].attributes = 0;
-                self.cells[i].fg = Rgba::rgb(255, 255, 255);
-                self.cells[i].bg = bg;
+            }
+        } else if is_rgba_with_alpha(bg) {
+            // buffer.zig:1175-1189 — raw blend writer
+            for py in cy0..=cy1 {
+                for px in cx0..=cx1 {
+                    self.set_cell_alpha_blending_raw_cell(
+                        px,
+                        py,
+                        make_cell(DEFAULT_SPACE_CHAR, Rgba::rgb(255, 255, 255), bg, 0),
+                    );
+                }
+            }
+        } else {
+            // buffer.zig:1190-1205 — direct row fill
+            for py in cy0..=cy1 {
+                for px in cx0..=cx1 {
+                    let i = (py * self.width + px) as usize;
+                    self.cells[i].char = DEFAULT_SPACE_CHAR;
+                    self.cells[i].attributes = 0;
+                    self.cells[i].fg = Rgba::rgb(255, 255, 255);
+                    self.cells[i].bg = bg;
+                }
             }
         }
     }
 
-    /// `drawBox` — buffer.zig:2267-2567 (drawVisibleBox + title layout).
+    /// `drawBox` — buffer.zig:2267-2567 (drawBox + drawVisibleBox): early
+    /// whole-rect scissor cull, the border+bg-fully-transparent early-out,
+    /// then fill + borders + titles. Border cells take one of three paths
+    /// (buffer.zig:2379-2384): the **transparent-border fast path** (opaque
+    /// border over transparent bg, no live graphemes/links: direct
+    /// char/fg/attributes write — destination bg KEPT, and notably NO
+    /// scissor check), the opaque fast path (`set`), or the alpha-blending
+    /// cell writer. Both latter paths are scissor-gated.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_box(&mut self, opts: DrawBoxOptions) {
         let x = opts.x;
@@ -515,12 +856,38 @@ impl OptimizedBuffer {
         }
 
         let sides = opts.border_sides;
+        let box_width = (end_x - start_x + 1) as u32;
+        let box_height = (end_y - start_y + 1) as u32;
+
+        // buffer.zig:2343 — whole-rect scissor cull
+        if !self.is_rect_in_scissor(start_x, start_y, box_width, box_height) {
+            return;
+        }
+        // buffer.zig:2287-2292 — border+bg fully transparent and no title
+        // → nothing to draw (no images in this port)
+        let border_bg_transparent =
+            opts.border_color.alpha() == 0 && opts.background_color.alpha() == 0;
+        let has_title = opts.title.is_some() || opts.bottom_title.is_some();
+        let title_visible =
+            has_title && !(opts.title_color.alpha() == 0 && opts.background_color.alpha() == 0);
+        if border_bg_transparent && !title_visible {
+            return;
+        }
+
         let is_at_left = start_x == x;
         let is_at_right = end_x == x + width as i32 - 1;
         let is_at_top = start_y == y;
         let is_at_bottom = end_y == y + height as i32 - 1;
 
         let chars = opts.border_chars;
+
+        // buffer.zig:2379-2384 — border write path selection
+        let use_transparent_border_fast_path = opts.border_color.alpha() == 255
+            && opts.background_color.alpha() == 0
+            && !self.grapheme_tracker_has_any()
+            && chars.all_single_width();
+        let use_opaque_fast_path =
+            opts.border_color.alpha() == 255 && opts.background_color.alpha() == 255;
 
         let title_layout = Self::compute_title_layout(
             opts.title.as_deref(),
@@ -568,6 +935,41 @@ impl OptimizedBuffer {
             }
         }
 
+        // The three border-cell writers (buffer.zig:2400-2414 per border cell)
+        let write_border_cell = |buf: &mut Self, cx: i32, cy: i32, ch: u32| {
+            if use_transparent_border_fast_path {
+                // direct: char/fg/attributes, destination bg kept
+                // (buffer.zig:2405-2409). NOTE: the vendored Zig source
+                // omits the scissor check here, but the PUBLISHED 0.5.14
+                // native binary clips these writes (pinned by the
+                // scrollbox-scissor-escape differential: a border-only box
+                // whose top edge sits above an overflow-hidden viewport
+                // paints nothing outside it, while keeping the destination
+                // bg inside) — source/binary drift, oracle wins.
+                if cx >= 0 && cy >= 0 && cx < buf.width as i32 && cy < buf.height as i32 {
+                    if !buf.is_point_in_scissor(cx, cy) {
+                        return;
+                    }
+                    let i = (cy as u32 * buf.width + cx as u32) as usize;
+                    buf.cells[i].char = ch;
+                    buf.cells[i].fg = opts.border_color;
+                    buf.cells[i].attributes = 0;
+                }
+            } else if use_opaque_fast_path {
+                buf.set(
+                    cx as u32,
+                    cy as u32,
+                    make_cell(ch, opts.border_color, opts.background_color, 0),
+                );
+            } else {
+                buf.set_cell_with_alpha_blending(
+                    cx as u32,
+                    cy as u32,
+                    make_cell(ch, opts.border_color, opts.background_color, 0),
+                );
+            }
+        };
+
         // top border (buffer.zig:2388-2421)
         if sides.top && is_at_top {
             let mut dx = start_x;
@@ -590,11 +992,7 @@ impl OptimizedBuffer {
                         chars.horizontal
                     };
                 }
-                self.set(
-                    dx as u32,
-                    start_y as u32,
-                    make_cell(u32::from(ch), opts.border_color, opts.background_color, 0),
-                );
+                write_border_cell(self, dx, start_y, u32::from(ch));
                 dx += 1;
             }
         }
@@ -620,11 +1018,7 @@ impl OptimizedBuffer {
                         chars.horizontal
                     };
                 }
-                self.set(
-                    dx as u32,
-                    end_y as u32,
-                    make_cell(u32::from(ch), opts.border_color, opts.background_color, 0),
-                );
+                write_border_cell(self, dx, end_y, u32::from(ch));
                 dx += 1;
             }
         }
@@ -635,32 +1029,14 @@ impl OptimizedBuffer {
         if sides.left && is_at_left {
             let mut dy = v_start;
             while dy <= v_end {
-                self.set(
-                    start_x as u32,
-                    dy as u32,
-                    make_cell(
-                        u32::from(chars.vertical),
-                        opts.border_color,
-                        opts.background_color,
-                        0,
-                    ),
-                );
+                write_border_cell(self, start_x, dy, u32::from(chars.vertical));
                 dy += 1;
             }
         }
         if sides.right && is_at_right {
             let mut dy = v_start;
             while dy <= v_end {
-                self.set(
-                    end_x as u32,
-                    dy as u32,
-                    make_cell(
-                        u32::from(chars.vertical),
-                        opts.border_color,
-                        opts.background_color,
-                        0,
-                    ),
-                );
+                write_border_cell(self, end_x, dy, u32::from(chars.vertical));
                 dy += 1;
             }
         }
@@ -868,6 +1244,173 @@ mod tests {
 
     fn white() -> Rgba {
         Rgba::rgb(255, 255, 255)
+    }
+
+    // --- scissor stack (buffer.zig:322-399) ------------------------------
+
+    #[test]
+    fn scissor_gates_set_and_nests() {
+        let mut b = OptimizedBuffer::new(8, 2);
+        b.push_scissor_rect(2, 0, 4, 2); // x 2..5
+        b.set_cell(0, 0, 'a', white(), Rgba::rgb(1, 1, 1), 0);
+        b.set_cell(3, 0, 'b', white(), Rgba::rgb(1, 1, 1), 0);
+        assert_eq!(b.get(0, 0).unwrap().char, b' ' as u32);
+        assert_eq!(b.get(3, 0).unwrap().char, b'b' as u32);
+        // nested: intersect with parent (buffer.zig:383-392)
+        b.push_scissor_rect(4, 0, 4, 2); // x 4..7 ∩ 2..5 = 4..5
+        b.set_cell(3, 1, 'c', white(), Rgba::rgb(1, 1, 1), 0);
+        b.set_cell(4, 1, 'd', white(), Rgba::rgb(1, 1, 1), 0);
+        assert_eq!(b.get(3, 1).unwrap().char, b' ' as u32);
+        assert_eq!(b.get(4, 1).unwrap().char, b'd' as u32);
+        // degenerate rect when completely outside (buffer.zig:386-390)
+        b.push_scissor_rect(100, 100, 2, 2);
+        assert_eq!(
+            b.current_scissor_rect(),
+            Some(ClipRect {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0
+            })
+        );
+        b.pop_scissor_rect();
+        b.pop_scissor_rect();
+        // back to the outer [2..5] scissor: (0,1) still blocked
+        b.set_cell(0, 1, 'e', white(), Rgba::rgb(1, 1, 1), 0);
+        assert_eq!(b.get(0, 1).unwrap().char, b' ' as u32);
+        b.pop_scissor_rect();
+        b.set_cell(0, 1, 'e', white(), Rgba::rgb(1, 1, 1), 0);
+        assert_eq!(b.get(0, 1).unwrap().char, b'e' as u32);
+    }
+
+    #[test]
+    fn scissor_rect_predicates_match_zig() {
+        let mut b = OptimizedBuffer::new(10, 10);
+        // no scissor: everything in
+        assert!(b.is_point_in_scissor(-5, 100));
+        assert!(b.is_rect_in_scissor(0, 0, 10, 10));
+        b.push_scissor_rect(2, 2, 3, 3); // [2..4]×[2..4]
+        assert!(b.is_point_in_scissor(2, 2));
+        assert!(!b.is_point_in_scissor(5, 2));
+        // touching edges do not overlap (buffer.zig:341-342)
+        assert!(!b.is_rect_in_scissor(5, 2, 1, 1));
+        assert!(!b.is_rect_in_scissor(0, 0, 2, 10)); // ends exactly at 2
+        assert!(b.is_rect_in_scissor(4, 4, 1, 1));
+        // intersection
+        assert_eq!(
+            b.clip_rect_to_scissor(0, 0, 4, 4),
+            Some(ClipRect {
+                x: 2,
+                y: 2,
+                width: 2,
+                height: 2
+            })
+        );
+        assert_eq!(b.clip_rect_to_scissor(5, 5, 2, 2), None);
+    }
+
+    #[test]
+    fn fill_rect_clips_to_scissor_intersection() {
+        let mut b = OptimizedBuffer::new(6, 3);
+        b.push_scissor_rect(1, 1, 3, 2); // [1..3]×[1..2]
+        b.fill_rect(0, 0, 6, 3, Rgba::rgb(9, 9, 9));
+        for y in 0..3 {
+            for x in 0..6 {
+                let inside = (1..=3).contains(&x) && (1..=2).contains(&y);
+                let expect = if inside {
+                    Rgba::rgb(9, 9, 9)
+                } else {
+                    Rgba::from_ints(0, 0, 0, 0)
+                };
+                assert_eq!(b.get(x, y).unwrap().bg, expect, "({x},{y})");
+            }
+        }
+    }
+
+    #[test]
+    fn draw_text_skips_clusters_outside_scissor() {
+        // buffer.zig:1357-1361 — clusters outside skip but advance
+        let mut b = OptimizedBuffer::new(6, 1);
+        b.push_scissor_rect(2, 0, 2, 1); // cols 2..3
+        b.draw_text("abcdef", 0, 0, white(), Some(Rgba::rgb(1, 2, 3)), 0);
+        assert_eq!(b.char_frame(), "  cd  ");
+    }
+
+    #[test]
+    fn draw_box_fast_path_respects_scissor() {
+        // the PUBLISHED 0.5.14 binary clips the transparent-border fast
+        // path (source/binary drift — pinned by scrollbox-scissor-escape)
+        let mut b = OptimizedBuffer::new(10, 4);
+        b.fill_rect(0, 0, 10, 4, Rgba::rgb(50, 50, 50));
+        b.push_scissor_rect(0, 2, 10, 2); // rows 2..3
+        b.draw_box(DrawBoxOptions {
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 4,
+            border_sides: crate::renderables::box_::BorderSidesConfig::all(),
+            border_chars: border_char_set("single"),
+            border_color: white(),
+            background_color: Rgba::from_ints(0, 0, 0, 0),
+            should_fill: true,
+            title: None,
+            title_color: white(),
+            title_alignment: 0,
+            bottom_title: None,
+            bottom_title_alignment: 0,
+        });
+        // top border (row 0) clipped; bottom border (row 3) paints and
+        // KEEPS the destination bg (fast path signature)
+        assert_eq!(b.get(0, 0).unwrap().char, b' ' as u32);
+        assert_eq!(b.get(0, 3).unwrap().char, '└' as u32);
+        assert_eq!(b.get(0, 3).unwrap().bg, Rgba::rgb(50, 50, 50));
+    }
+
+    // --- exactness fixes pinned this lane ---------------------------------
+
+    #[test]
+    fn span_cleanup_keeps_fg_bg_of_cleared_cells() {
+        // buffer.zig:586-587 — only char + attributes reset
+        let mut b = OptimizedBuffer::new(4, 1);
+        b.draw_text("世", 0, 0, white(), Some(Rgba::rgb(7, 7, 7)), 0);
+        // overwrite the continuation cell with a plain char
+        b.set(1, 0, make_cell(b'x' as u32, white(), Rgba::rgb(9, 9, 9), 0));
+        // the span-cleared start cell keeps its fg/bg
+        let c = b.get(0, 0).unwrap();
+        assert_eq!(c.char, b' ' as u32);
+        assert_eq!(c.attributes, 0);
+        assert_eq!(c.bg, Rgba::rgb(7, 7, 7));
+    }
+
+    #[test]
+    fn grapheme_eol_clip_takes_cell_colors() {
+        // buffer.zig:595-620 — a wide grapheme that overflows the row:
+        // chars to spaces FROM THE GRAPHENE START to end of row, with
+        // fg/bg/attributes from the CELL (cells before it untouched)
+        let mut b = OptimizedBuffer::new(3, 1);
+        let cell = make_cell(
+            pack_grapheme_start(1, 2),
+            Rgba::rgb(1, 2, 3),
+            Rgba::rgb(4, 5, 6),
+            0,
+        );
+        b.set(2, 0, cell);
+        let c = b.get(2, 0).unwrap();
+        assert_eq!(c.char, b' ' as u32);
+        assert_eq!(c.fg, Rgba::rgb(1, 2, 3));
+        assert_eq!(c.bg, Rgba::rgb(4, 5, 6));
+        // the cells before the clipped grapheme keep the cleared defaults
+        assert_eq!(b.get(0, 0).unwrap().bg, Rgba::from_ints(0, 0, 0, 0));
+    }
+
+    #[test]
+    fn grapheme_tracker_clears_with_buffer() {
+        let mut b = OptimizedBuffer::new(4, 1);
+        assert!(!b.grapheme_tracker_has_any());
+        b.draw_text("世", 0, 0, white(), None, 0);
+        assert!(b.grapheme_tracker_has_any());
+        b.clear(Rgba::from_ints(0, 0, 0, 0));
+        assert!(!b.grapheme_tracker_has_any());
     }
 
     #[test]

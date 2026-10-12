@@ -40,7 +40,7 @@ spot-checks). Upstream is MIT.
 
 | package | exports | tier 1 | done | partial | todo |
 |---|---|---|---|---|---|
-| @opentui/core | 279 | 55 | 14 | 4 | 261 |
+| @opentui/core | 279 | 55 | 21 | 4 | 254 |
 | @opentui/solid | 48 | 10 | 5 | 4 | 39 |
 | @opentui/keymap (+subpaths) | 12 | 14* | 4 | 2 | 6 |
 | **total** | **339** | **79** | **23** | **10** | **306** |
@@ -65,7 +65,7 @@ tree-sitter styling, testing helpers.
 | `ASCIIFontSelectionHelper` | 2 | core/src/lib/selection.ts:186 | opentui-core | todo |
 | `ATTRIBUTE_BASE_BITS` | 2 | core/src/types.ts:21 | opentui-core | todo |
 | `ATTRIBUTE_BASE_MASK` | 2 | core/src/types.ts:22 | opentui-core | todo |
-| `ArrowRenderable` | 2 | core/src/renderables/ScrollBar.ts:320 | opentui-core::renderables | todo |
+| `ArrowRenderable` | 2 | core/src/renderables/ScrollBar.ts:320 | opentui-core::renderables | done |
 | `Audio` | **1** | core/src/audio.ts:2752 | opentui-core | todo |
 | `AudioCaptureStream` | 2 | core/src/audio.ts:1759 | opentui-core | todo |
 | `AudioCaptureStreamError` | 2 | core/src/audio.ts:371 | opentui-core | todo |
@@ -121,10 +121,10 @@ tree-sitter styling, testing helpers.
 | `KeyHandler` | 2 | core/src/lib/KeyHandler.ts:99 | opentui-core::renderer | todo |
 | `LayoutEvents` | 2 | core/src/Renderable.ts:39 | opentui-core | todo |
 | `LineNumberRenderable` | **1** | core/src/renderables/LineNumberRenderable.ts:365 | opentui-core::renderables | todo |
-| `LinearScrollAccel` | 2 | core/src/lib/scroll-acceleration.ts:6 | opentui-core | todo |
+| `LinearScrollAccel` | 2 | core/src/lib/scroll-acceleration.ts:6 | opentui-core | done |
 | `LogLevel` | 2 | core/src/zig.ts:2339 | opentui-core | todo |
 | `MAX_LINK_URL_BYTES` | 2 | core/src/zig.ts:105 | opentui-core::ansi | todo |
-| `MacOSScrollAccel` | **1** | core/src/lib/scroll-acceleration.ts:34 | opentui-core | todo |
+| `MacOSScrollAccel` | **1** | core/src/lib/scroll-acceleration.ts:34 | opentui-core | done |
 | `MarkdownRenderable` | **1** | core/src/renderables/Markdown.ts:270 | opentui-core::renderables | todo |
 | `MouseButton` | **1** | core/src/renderer.ts:705 | opentui-core::renderer | partial |
 | `MouseEvent` | **1** | core/src/renderer.ts:653 | opentui-core::renderer | partial |
@@ -156,14 +156,14 @@ tree-sitter styling, testing helpers.
 | `SEPIA_MATRIX` | 2 | core/src/post/matrices.ts:2 | opentui-core | todo |
 | `SOLARIZATION_MATRIX` | 2 | core/src/post/matrices.ts:191 | opentui-core | todo |
 | `SYNTHWAVE_MATRIX` | 2 | core/src/post/matrices.ts:211 | opentui-core | todo |
-| `ScrollBarRenderable` | 2 | core/src/renderables/ScrollBar.ts:20 | opentui-core::renderables | todo |
-| `ScrollBox` | 2 | core/src/renderables/composition/constructs.ts:64 | opentui-core | todo |
-| `ScrollBoxRenderable` | **1** | core/src/renderables/ScrollBox.ts:109 | opentui-core::renderables | todo |
+| `ScrollBarRenderable` | 2 | core/src/renderables/ScrollBar.ts:20 | opentui-core::renderables | done |
+| `ScrollBox` | 2 | core/src/renderables/composition/constructs.ts:64 | opentui-core | done |
+| `ScrollBoxRenderable` | **1** | core/src/renderables/ScrollBox.ts:109 | opentui-core::renderables | done |
 | `Select` | 2 | core/src/renderables/composition/constructs.ts:48 | opentui-core | todo |
 | `SelectRenderable` | 2 | core/src/renderables/Select.ts:66 | opentui-core::renderables | todo |
 | `SelectRenderableEvents` | 2 | core/src/renderables/Select.ts:61 | opentui-core::renderables | todo |
 | `Selection` | 2 | core/src/lib/selection.ts:27 | opentui-core | todo |
-| `SliderRenderable` | 2 | core/src/renderables/Slider.ts:20 | opentui-core::renderables | todo |
+| `SliderRenderable` | 2 | core/src/renderables/Slider.ts:20 | opentui-core::renderables | done |
 | `SlotRegistry` | 2 | core/src/plugins/registry.ts:40 | opentui-core | todo |
 | `SlotRenderable` | 2 | core/src/plugins/core-slot.ts:241 | opentui-core::renderables | todo |
 | `StdinParser` | 2 | core/src/lib/stdin-parser.ts:587 | opentui-core | todo |
