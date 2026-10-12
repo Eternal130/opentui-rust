@@ -1,0 +1,9 @@
+[package]
+name = "opentui-solid"
+description = "Rust reactive glue equivalent of @opentui/solid 0.5.14 (component tree + signals integration)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+opentui-core = { workspace = true }

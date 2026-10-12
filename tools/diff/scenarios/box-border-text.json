@@ -1,0 +1,9 @@
+{
+  "name": "box-border-text",
+  "width": 16,
+  "height": 6,
+  "steps": [
+    { "op": "box", "id": "b1", "parent": "root", "options": { "border": true, "borderColor": "#00FF00", "width": 12, "height": 4, "backgroundColor": "#112233" } },
+    { "op": "text", "id": "t1", "parent": "b1", "options": { "content": "hi opentui", "fg": "#FFAA00" } }
+  ]
+}

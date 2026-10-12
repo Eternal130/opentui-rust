@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/opentui-core",
+    "crates/opentui-keymap",
+    "crates/opentui-solid",
+    "tools/diff",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/anomalyco/opentui (upstream spec; this port)"
+
+[workspace.dependencies]
+opentui-core = { path = "crates/opentui-core" }
+anyhow = "1.0.104"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+taffy = "0.9.2"
+unicode-width = "0.2.0"
+unicode-segmentation = "1.12"
+vt100 = "0.15.2"
+
+[profile.release]
+# Keep the parity profile aligned with the consumer (opencode-rust) so frame
+# budget numbers are comparable.
+debug = true

@@ -1,0 +1,10 @@
+[package]
+name = "opentui-keymap"
+description = "API-shape port of @opentui/keymap 0.5.14 (Keymap facade, key stringify, binding types)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

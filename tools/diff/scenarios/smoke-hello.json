@@ -1,0 +1,9 @@
+{
+  "$schema": "opentui-diff scenario v1",
+  "name": "smoke-hello",
+  "width": 20,
+  "height": 5,
+  "steps": [
+    { "op": "text", "id": "t1", "parent": "root", "options": { "content": "hello" } }
+  ]
+}

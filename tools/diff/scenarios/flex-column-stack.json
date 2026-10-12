@@ -1,0 +1,10 @@
+{
+  "name": "flex-column-stack",
+  "width": 24,
+  "height": 8,
+  "steps": [
+    { "op": "box", "id": "b1", "parent": "root", "options": { "width": 10, "height": 2, "backgroundColor": "#FF0000" } },
+    { "op": "box", "id": "b2", "parent": "root", "options": { "width": 6, "height": 2, "backgroundColor": "#0000FF", "border": true } },
+    { "op": "text", "id": "t1", "parent": "root", "options": { "content": "row three" } }
+  ]
+}

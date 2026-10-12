@@ -1,0 +1,13 @@
+[package]
+name = "opentui-core"
+description = "API-level Rust port of @opentui/core 0.5.14 (renderables, raster semantics, layout, colors, renderer)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+taffy = { workspace = true }
+unicode-width = { workspace = true }
+unicode-segmentation = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
