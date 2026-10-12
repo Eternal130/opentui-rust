@@ -106,7 +106,8 @@ impl Renderable {
     /// `add(child)` — appends to children + taffy child list (Renderable.ts
     /// `add`, children order preserved).
     pub fn add(&mut self, tree: &mut TaffyTree<MeasureCtx>, child: Renderable) {
-        tree.add_child(self.node, child.node).expect("taffy add_child");
+        tree.add_child(self.node, child.node)
+            .expect("taffy add_child");
         self.children.push(child);
         // Border-derived padding: a Box's taffy borders shrink its content
         // box automatically; nothing extra needed here.
@@ -115,7 +116,9 @@ impl Renderable {
     /// `updateLayout` — pull taffy layout, propagate screen coords
     /// (Renderable.ts:1100-1109).
     pub fn update_layout(&mut self, tree: &TaffyTree<MeasureCtx>, parent_screen: (i32, i32)) {
-        let Ok(l) = tree.layout(self.node) else { return };
+        let Ok(l) = tree.layout(self.node) else {
+            return;
+        };
         self.x = l.location.x;
         self.y = l.location.y;
         self.w = l.size.width;
@@ -143,7 +146,13 @@ impl Renderable {
         }
         match &self.content {
             Content::Group => {}
-            Content::Box(state) => state.paint(buffer, self.screen_x, self.screen_y, self.w as u32, self.h as u32),
+            Content::Box(state) => state.paint(
+                buffer,
+                self.screen_x,
+                self.screen_y,
+                self.w as u32,
+                self.h as u32,
+            ),
             Content::Text(state) => state.paint(buffer, self.screen_x, self.screen_y),
         }
         for child in &self.children {
@@ -191,8 +200,10 @@ pub(crate) fn mount_under(
 
 impl RootRenderable {
     pub fn new(tree: &mut TaffyTree<MeasureCtx>, width: u32, height: u32) -> Self {
-        let mut layout = LayoutOptions::default();
-        layout.flex_direction = Some("column".into());
+        let layout = LayoutOptions {
+            flex_direction: Some("column".into()),
+            ..Default::default()
+        };
         RootRenderable {
             inner: Renderable::new(
                 tree,

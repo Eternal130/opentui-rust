@@ -44,8 +44,8 @@ pub fn get_link_id(attr: u32) -> u32 {
 #[must_use]
 pub fn set_link_id(attr: u32, link_id: u32) -> u32 {
     let base = attr & text_attributes::ATTRIBUTE_BASE_MASK;
-    let link_bits = (link_id & text_attributes::LINK_ID_PAYLOAD_MASK)
-        << text_attributes::LINK_ID_SHIFT;
+    let link_bits =
+        (link_id & text_attributes::LINK_ID_PAYLOAD_MASK) << text_attributes::LINK_ID_SHIFT;
     base | link_bits
 }
 
@@ -103,7 +103,11 @@ pub fn emit_color(buf: &mut String, rgba: Rgba, is_background: bool) {
     let sgr_code = if is_background { 48 } else { 38 };
     match rgba.intent() {
         ColorIntent::Default => {
-            buf.push_str(if is_background { "\x1b[49m" } else { "\x1b[39m" });
+            buf.push_str(if is_background {
+                "\x1b[49m"
+            } else {
+                "\x1b[39m"
+            });
         }
         intent => {
             if is_background && rgba.alpha() == 0 {

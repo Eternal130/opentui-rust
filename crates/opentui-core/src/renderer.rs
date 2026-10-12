@@ -123,7 +123,10 @@ impl CliRenderer {
     #[must_use]
     pub fn make_text(&mut self, id: &str, opts: &TextOptions) -> Renderable {
         let state = TextRenderableState::from_options(opts);
-        let ctx = MeasureCtx { kind: MeasureKind::Text, text: Some(state.measured()) };
+        let ctx = MeasureCtx {
+            kind: MeasureKind::Text,
+            text: Some(state.measured()),
+        };
         Renderable::new(
             &mut self.tree,
             id,
@@ -181,7 +184,10 @@ impl CliRenderer {
 
         // swap: current := next (renderer.zig syncs cell-by-cell; a frame
         // ends with current == next)
-        core::mem::swap(&mut self.current_render_buffer, &mut self.next_render_buffer);
+        core::mem::swap(
+            &mut self.current_render_buffer,
+            &mut self.next_render_buffer,
+        );
 
         self.frame_id += 1;
         self.frame_id
@@ -209,10 +215,10 @@ impl CliRenderer {
         if ctx.kind != MeasureKind::Text {
             return tp::Size::ZERO;
         }
-        let text = ctx
-            .text
-            .clone()
-            .unwrap_or(MeasuredText { content: String::new(), wrap_mode: Default::default() });
+        let text = ctx.text.clone().unwrap_or(MeasuredText {
+            content: String::new(),
+            wrap_mode: Default::default(),
+        });
         let avail_w = match available_space.width {
             tp::AvailableSpace::Definite(w) => w,
             tp::AvailableSpace::MaxContent => f32::INFINITY,
@@ -223,7 +229,10 @@ impl CliRenderer {
             known_dimensions.width,
             avail_w,
         );
-        tp::Size { width: w, height: h }
+        tp::Size {
+            width: w,
+            height: h,
+        }
     }
 
     /// The SGR frame writer — `prepareRenderFrameWithWriter` simplified to
@@ -244,7 +253,10 @@ impl CliRenderer {
             if !force {
                 let mut equal = true;
                 for x in 0..width {
-                    match (self.current_render_buffer.get(x, y), self.next_render_buffer.get(x, y)) {
+                    match (
+                        self.current_render_buffer.get(x, y),
+                        self.next_render_buffer.get(x, y),
+                    ) {
                         (Some(a), Some(b)) if a == b => {}
                         _ => {
                             equal = false;
@@ -260,7 +272,9 @@ impl CliRenderer {
                 let (Some(cur), Some(next)) = (
                     self.current_render_buffer.get(x, y),
                     self.next_render_buffer.get(x, y),
-                ) else { continue };
+                ) else {
+                    continue;
+                };
                 if !force && cur == next {
                     if run_length > 0 {
                         out.push_str(crate::ansi::ansi_consts::RESET);
@@ -290,7 +304,10 @@ impl CliRenderer {
                 if crate::buffer::is_continuation_char(next.char) {
                     // no bytes; cursor advances implicitly
                 } else if crate::buffer::is_grapheme_char(next.char) {
-                    out.push_str(self.next_render_buffer.grapheme_bytes(crate::buffer::grapheme_id_from_char(next.char)));
+                    out.push_str(
+                        self.next_render_buffer
+                            .grapheme_bytes(crate::buffer::grapheme_id_from_char(next.char)),
+                    );
                 } else if let Some(c) = char::from_u32(next.char) {
                     out.push(c);
                 }
@@ -316,7 +333,9 @@ impl CliRenderer {
     /// Update a text leaf's measure context after content changes
     /// (`content` setter → updateTextBuffer, Text.ts:75-83).
     pub fn refresh_text_measure(&mut self, id: &str) {
-        let Some(node) = self.find_node(&self.root.inner, id) else { return };
+        let Some(node) = self.find_node(&self.root.inner, id) else {
+            return;
+        };
         if let Content::Text(state) = &node.content {
             let m = state.measured();
             let n = node.node;
@@ -344,9 +363,15 @@ mod tests {
     use crate::renderables::text::TextOptions;
 
     fn text_renderable(id: &str, content: &str) -> Renderable {
-        let opts = TextOptions { content: content.into(), ..Default::default() };
+        let opts = TextOptions {
+            content: content.into(),
+            ..Default::default()
+        };
         let state = crate::renderables::text::TextRenderableState::from_options(&opts);
-        let ctx = MeasureCtx { kind: MeasureKind::Text, text: Some(state.measured()) };
+        let ctx = MeasureCtx {
+            kind: MeasureKind::Text,
+            text: Some(state.measured()),
+        };
         Renderable::new(
             &mut TaffyTree::new(),
             id,
@@ -360,9 +385,15 @@ mod tests {
 
     // helper: build with a real renderer-owned tree
     fn add_text(renderer: &mut CliRenderer, id: &str, content: &str) {
-        let opts = TextOptions { content: content.into(), ..Default::default() };
+        let opts = TextOptions {
+            content: content.into(),
+            ..Default::default()
+        };
         let state = crate::renderables::text::TextRenderableState::from_options(&opts);
-        let ctx = MeasureCtx { kind: MeasureKind::Text, text: Some(state.measured()) };
+        let ctx = MeasureCtx {
+            kind: MeasureKind::Text,
+            text: Some(state.measured()),
+        };
         let r = Renderable::new(
             &mut renderer.tree,
             id,
@@ -393,7 +424,11 @@ mod tests {
 
     #[test]
     fn hello_smoke_renders_text_at_origin() {
-        let mut renderer = create_cli_renderer(CliRendererConfig { width: 20, height: 5, ..Default::default() });
+        let mut renderer = create_cli_renderer(CliRendererConfig {
+            width: 20,
+            height: 5,
+            ..Default::default()
+        });
         add_text(&mut renderer, "t1", "hello");
         renderer.render();
         let frame = renderer.current_render_buffer.char_frame();
@@ -409,7 +444,11 @@ mod tests {
 
     #[test]
     fn sgr_stream_contains_text_and_colors() {
-        let mut renderer = create_cli_renderer(CliRendererConfig { width: 10, height: 3, ..Default::default() });
+        let mut renderer = create_cli_renderer(CliRendererConfig {
+            width: 10,
+            height: 3,
+            ..Default::default()
+        });
         add_text(&mut renderer, "t1", "hi");
         renderer.render();
         let sgr = renderer.last_frame_sgr().to_owned();
@@ -425,7 +464,11 @@ mod tests {
 
     #[test]
     fn box_lays_out_children_in_column() {
-        let mut renderer = create_cli_renderer(CliRendererConfig { width: 20, height: 10, ..Default::default() });
+        let mut renderer = create_cli_renderer(CliRendererConfig {
+            width: 20,
+            height: 10,
+            ..Default::default()
+        });
         add_box(
             &mut renderer,
             "b1",
@@ -446,31 +489,46 @@ mod tests {
 
     #[test]
     fn flex_grow_splits_space() {
-        let mut renderer = create_cli_renderer(CliRendererConfig { width: 20, height: 3, ..Default::default() });
-        let mut layout = LayoutOptions::default();
-        layout.flex_direction = Some("row".into());
-        let mut b1_layout = LayoutOptions::default();
-        b1_layout.flex_grow = Some(1.0);
+        let mut renderer = create_cli_renderer(CliRendererConfig {
+            width: 20,
+            height: 3,
+            ..Default::default()
+        });
+        let layout = LayoutOptions {
+            flex_direction: Some("row".into()),
+            ..Default::default()
+        };
+        let b1_layout = LayoutOptions {
+            flex_grow: Some(1.0),
+            ..Default::default()
+        };
         let b1 = Renderable::new(
             &mut renderer.tree,
             "b1",
             b1_layout,
             Dimension::Auto,
             Dimension::Points(1.0),
-            Content::Box(crate::renderables::box_::BoxRenderableState::from_options(&BoxOptions {
-                background_color: Some("#FF0000".into()),
-                should_fill: Some(true),
-                ..Default::default()
-            })),
+            Content::Box(crate::renderables::box_::BoxRenderableState::from_options(
+                &BoxOptions {
+                    background_color: Some("#FF0000".into()),
+                    should_fill: Some(true),
+                    ..Default::default()
+                },
+            )),
             None,
         );
         renderer.root.inner.layout = layout;
-        let mut root_style = tp::Style { flex_direction: tp::FlexDirection::Row, ..Default::default() };
+        let mut root_style = tp::Style {
+            flex_direction: tp::FlexDirection::Row,
+            ..Default::default()
+        };
         // keep the root's terminal size (RootRenderable sets it; a bare
         // default Style would wipe width/height to AUTO)
         root_style.size.width = tp::Dimension::length(20.0);
         root_style.size.height = tp::Dimension::length(3.0);
-        let _ = renderer.tree.set_style(renderer.root.inner.node, root_style);
+        let _ = renderer
+            .tree
+            .set_style(renderer.root.inner.node, root_style);
         renderer.add(b1);
         renderer.render();
         // flexGrow 1 in a 20-wide row → fills the row with red

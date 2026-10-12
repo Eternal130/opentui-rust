@@ -88,7 +88,12 @@ impl Cell {
 }
 
 fn make_cell(char: u32, fg: Rgba, bg: Rgba, attributes: u32) -> Cell {
-    Cell { char, fg, bg, attributes }
+    Cell {
+        char,
+        fg,
+        bg,
+        attributes,
+    }
 }
 
 /// A span of same-style cells — the capture unit (`CapturedSpan`,
@@ -152,7 +157,11 @@ fn blend_colors(src: Rgba, dst0: Rgba, backdrop: Option<Rgba>) -> Rgba {
     if sa == 0 {
         return dst0;
     }
-    let dst = if dst0.alpha() == 0 { backdrop.unwrap_or(dst0) } else { dst0 };
+    let dst = if dst0.alpha() == 0 {
+        backdrop.unwrap_or(dst0)
+    } else {
+        dst0
+    };
     if sa == 255 {
         return Rgba::rgb(src.red(), src.green(), src.blue());
     }
@@ -170,12 +179,18 @@ fn blend_colors(src: Rgba, dst0: Rgba, backdrop: Option<Rgba>) -> Rgba {
         );
     }
     Rgba::from_ints(
-        round_div(u32::from(src.red()) * sa + mul_div_255(u32::from(dst.red()) * da, inv), out_a),
+        round_div(
+            u32::from(src.red()) * sa + mul_div_255(u32::from(dst.red()) * da, inv),
+            out_a,
+        ),
         round_div(
             u32::from(src.green()) * sa + mul_div_255(u32::from(dst.green()) * da, inv),
             out_a,
         ),
-        round_div(u32::from(src.blue()) * sa + mul_div_255(u32::from(dst.blue()) * da, inv), out_a),
+        round_div(
+            u32::from(src.blue()) * sa + mul_div_255(u32::from(dst.blue()) * da, inv),
+            out_a,
+        ),
         out_a as u8,
     )
 }
@@ -242,10 +257,13 @@ impl OptimizedBuffer {
             let id = grapheme_id_from_char(prev);
             let row_start = (y * self.width) as usize;
             let row_end = row_start + self.width as usize - 1;
-            let left = if is_grapheme_char(prev) { char_right_extent(prev) as usize } else { 0 };
+            let left = if is_grapheme_char(prev) {
+                char_right_extent(prev) as usize
+            } else {
+                0
+            };
             let span_start = i.saturating_sub(left.min(i - row_start));
-            let span_end =
-                i + char_right_extent(prev) as usize;
+            let span_end = i + char_right_extent(prev) as usize;
             let span_end = span_end.min(row_end).min(self.cells.len() - 1);
             for c in &mut self.cells[span_start..=span_end] {
                 if (is_grapheme_char(c.char) || is_continuation_char(c.char))
@@ -283,7 +301,7 @@ impl OptimizedBuffer {
     /// `setCell` (TS) / `setCellWithAlphaBlending` when alpha < 1 — for the
     /// slice, alpha blending applies when the incoming bg has 0 < a < 1.
     pub fn set_cell(&mut self, x: u32, y: u32, ch: char, fg: Rgba, bg: Rgba, attributes: u32) {
-        let cell = make_cell(u32::from(ch as u32), fg, bg, attributes);
+        let cell = make_cell(ch as u32, fg, bg, attributes);
         self.set(x, y, cell);
     }
 
@@ -330,7 +348,11 @@ impl OptimizedBuffer {
         let dest_width_is_one = char_right_extent(dest.char) == 0;
         let preserve_char =
             char_is_default_space && dest_not_zero && dest_not_default_space && dest_width_is_one;
-        let final_char = if preserve_char { dest.char } else { overlay.char };
+        let final_char = if preserve_char {
+            dest.char
+        } else {
+            overlay.char
+        };
         let final_fg = if preserve_char {
             blend_colors(overlay.bg, dest.fg, self.blend_backdrop)
         } else if has_fg_alpha {
@@ -347,7 +369,12 @@ impl OptimizedBuffer {
         };
         let overlay_link = crate::ansi::get_link_id(overlay.attributes);
         let final_attributes = crate::ansi::set_link_id(base_attrs, overlay_link);
-        Cell { char: final_char, fg: final_fg, bg: blended_bg, attributes: final_attributes }
+        Cell {
+            char: final_char,
+            fg: final_fg,
+            bg: blended_bg,
+            attributes: final_attributes,
+        }
     }
 
     fn alloc_grapheme(&mut self, bytes: &str) -> u32 {
@@ -358,7 +385,10 @@ impl OptimizedBuffer {
 
     #[must_use]
     pub fn grapheme_bytes(&self, gid: u32) -> &str {
-        self.graphemes.get((gid - 1) as usize).map(String::as_str).unwrap_or("")
+        self.graphemes
+            .get((gid - 1) as usize)
+            .map(String::as_str)
+            .unwrap_or("")
     }
 
     /// `drawText` — buffer.zig:1246-1420. The ASCII fast path needs
@@ -408,10 +438,7 @@ impl OptimizedBuffer {
                     }
                     let bg_cell = match bg {
                         Some(b) => b,
-                        None => self.get(tx, y).map_or_else(
-                            || Rgba::rgb(0, 0, 0),
-                            |c| c.bg,
-                        ),
+                        None => self.get(tx, y).map_or_else(|| Rgba::rgb(0, 0, 0), |c| c.bg),
                     };
                     let cell = make_cell(DEFAULT_SPACE_CHAR, fg, bg_cell, attributes);
                     self.set_text_cell(tx, y, cell);
@@ -433,7 +460,10 @@ impl OptimizedBuffer {
             let encoded = if cluster.len() == 1 && width == 1 {
                 u32::from(cluster.as_bytes()[0])
             } else if cluster.chars().count() == 1 && width == 1 {
-                cluster.chars().next().map_or(DEFAULT_SPACE_CHAR, |c| c as u32)
+                cluster
+                    .chars()
+                    .next()
+                    .map_or(DEFAULT_SPACE_CHAR, |c| c as u32)
             } else {
                 let gid = self.alloc_grapheme(cluster);
                 pack_grapheme_start(gid, width)
@@ -506,14 +536,26 @@ impl OptimizedBuffer {
         // fill (buffer.zig:2354-2371)
         if opts.should_fill {
             if !sides.top && !sides.right && !sides.bottom && !sides.left {
-                self.fill_rect(start_x, start_y, (end_x - start_x + 1) as u32, (end_y - start_y + 1) as u32, opts.background_color);
+                self.fill_rect(
+                    start_x,
+                    start_y,
+                    (end_x - start_x + 1) as u32,
+                    (end_y - start_y + 1) as u32,
+                    opts.background_color,
+                );
             } else {
                 let ix0 = start_x + i32::from(sides.left && is_at_left);
                 let iy0 = start_y + i32::from(sides.top && is_at_top);
                 let ix1 = end_x - i32::from(sides.right && is_at_right);
                 let iy1 = end_y - i32::from(sides.bottom && is_at_bottom);
                 if ix1 >= ix0 && iy1 >= iy0 {
-                    self.fill_rect(ix0, iy0, (ix1 - ix0 + 1) as u32, (iy1 - iy0 + 1) as u32, opts.background_color);
+                    self.fill_rect(
+                        ix0,
+                        iy0,
+                        (ix1 - ix0 + 1) as u32,
+                        (iy1 - iy0 + 1) as u32,
+                        opts.background_color,
+                    );
                 }
             }
         }
@@ -522,18 +564,23 @@ impl OptimizedBuffer {
         if sides.top && is_at_top {
             let mut dx = start_x;
             while dx <= end_x {
-                if title_layout.draw
-                    && dx >= title_layout.start_x
-                    && dx <= title_layout.end_x
-                {
+                if title_layout.draw && dx >= title_layout.start_x && dx <= title_layout.end_x {
                     dx += 1;
                     continue;
                 }
                 let mut ch = chars.horizontal;
                 if dx == start_x && is_at_left {
-                    ch = if sides.left { chars.top_left } else { chars.horizontal };
+                    ch = if sides.left {
+                        chars.top_left
+                    } else {
+                        chars.horizontal
+                    };
                 } else if dx == end_x && is_at_right {
-                    ch = if sides.right { chars.top_right } else { chars.horizontal };
+                    ch = if sides.right {
+                        chars.top_right
+                    } else {
+                        chars.horizontal
+                    };
                 }
                 self.set(
                     dx as u32,
@@ -547,18 +594,23 @@ impl OptimizedBuffer {
         if sides.bottom && is_at_bottom {
             let mut dx = start_x;
             while dx <= end_x {
-                if bottom_layout.draw
-                    && dx >= bottom_layout.start_x
-                    && dx <= bottom_layout.end_x
-                {
+                if bottom_layout.draw && dx >= bottom_layout.start_x && dx <= bottom_layout.end_x {
                     dx += 1;
                     continue;
                 }
                 let mut ch = chars.horizontal;
                 if dx == start_x && is_at_left {
-                    ch = if sides.left { chars.bottom_left } else { chars.horizontal };
+                    ch = if sides.left {
+                        chars.bottom_left
+                    } else {
+                        chars.horizontal
+                    };
                 } else if dx == end_x && is_at_right {
-                    ch = if sides.right { chars.bottom_right } else { chars.horizontal };
+                    ch = if sides.right {
+                        chars.bottom_right
+                    } else {
+                        chars.horizontal
+                    };
                 }
                 self.set(
                     dx as u32,
@@ -578,7 +630,12 @@ impl OptimizedBuffer {
                 self.set(
                     start_x as u32,
                     dy as u32,
-                    make_cell(u32::from(chars.vertical), opts.border_color, opts.background_color, 0),
+                    make_cell(
+                        u32::from(chars.vertical),
+                        opts.border_color,
+                        opts.background_color,
+                        0,
+                    ),
                 );
                 dy += 1;
             }
@@ -589,7 +646,12 @@ impl OptimizedBuffer {
                 self.set(
                     end_x as u32,
                     dy as u32,
-                    make_cell(u32::from(chars.vertical), opts.border_color, opts.background_color, 0),
+                    make_cell(
+                        u32::from(chars.vertical),
+                        opts.border_color,
+                        opts.background_color,
+                        0,
+                    ),
                 );
                 dy += 1;
             }
@@ -597,12 +659,26 @@ impl OptimizedBuffer {
         // titles (buffer.zig:2513-2523)
         if title_layout.draw {
             if let Some(t) = opts.title.as_deref() {
-                self.draw_text(t, title_layout.x as u32, start_y as u32, opts.title_color, Some(opts.background_color), 0);
+                self.draw_text(
+                    t,
+                    title_layout.x as u32,
+                    start_y as u32,
+                    opts.title_color,
+                    Some(opts.background_color),
+                    0,
+                );
             }
         }
         if bottom_layout.draw {
             if let Some(t) = opts.bottom_title.as_deref() {
-                self.draw_text(t, bottom_layout.x as u32, end_y as u32, opts.title_color, Some(opts.background_color), 0);
+                self.draw_text(
+                    t,
+                    bottom_layout.x as u32,
+                    end_y as u32,
+                    opts.title_color,
+                    Some(opts.background_color),
+                    0,
+                );
             }
         }
     }
@@ -619,7 +695,9 @@ impl OptimizedBuffer {
         width: u32,
         alignment: u8,
     ) -> TitleLayout {
-        let Some(text) = title else { return TitleLayout::none(start_x) };
+        let Some(text) = title else {
+            return TitleLayout::none(start_x);
+        };
         if text.is_empty() || !border_side || !is_at_side {
             return TitleLayout::none(start_x);
         }
@@ -658,16 +736,15 @@ impl OptimizedBuffer {
                 let cell_text = if is_continuation_char(cell.char) {
                     String::new()
                 } else if is_grapheme_char(cell.char) {
-                    self.grapheme_bytes(grapheme_id_from_char(cell.char)).to_owned()
+                    self.grapheme_bytes(grapheme_id_from_char(cell.char))
+                        .to_owned()
                 } else {
                     char::from_u32(cell.char).map_or_else(String::new, |c| c.to_string())
                 };
                 let attrs = (cell.attributes & 0xff) as u8;
                 match &mut cur {
                     Some(span)
-                        if span.fg == cell.fg
-                            && span.bg == cell.bg
-                            && span.attributes == attrs =>
+                        if span.fg == cell.fg && span.bg == cell.bg && span.attributes == attrs =>
                     {
                         span.text.push_str(&cell_text);
                         span.width += 1;
@@ -728,7 +805,12 @@ struct TitleLayout {
 
 impl TitleLayout {
     fn none(x: i32) -> Self {
-        TitleLayout { draw: false, x, start_x: x, end_x: x }
+        TitleLayout {
+            draw: false,
+            x,
+            start_x: x,
+            end_x: x,
+        }
     }
 }
 
@@ -774,7 +856,7 @@ use unicode_width::UnicodeWidthChar;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::renderables::box_::{border_char_set, BorderStyle};
+    use crate::renderables::box_::border_char_set;
 
     fn white() -> Rgba {
         Rgba::rgb(255, 255, 255)

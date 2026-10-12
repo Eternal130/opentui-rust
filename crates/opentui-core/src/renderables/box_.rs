@@ -28,7 +28,12 @@ pub struct BorderSidesConfig {
 impl BorderSidesConfig {
     #[must_use]
     pub fn all() -> Self {
-        BorderSidesConfig { top: true, right: true, bottom: true, left: true }
+        BorderSidesConfig {
+            top: true,
+            right: true,
+            bottom: true,
+            left: true,
+        }
     }
 
     #[must_use]
@@ -194,7 +199,10 @@ impl BoxRenderableState {
             should_fill: opts.should_fill.unwrap_or(true),
             title: opts.title.clone(),
             title_color: opts.title_color.as_deref().map(parse_color),
-            title_alignment: opts.title_alignment.clone().unwrap_or_else(|| "left".into()),
+            title_alignment: opts
+                .title_alignment
+                .clone()
+                .unwrap_or_else(|| "left".into()),
             bottom_title: opts.bottom_title.clone(),
             bottom_title_alignment: opts
                 .bottom_title_alignment
@@ -214,7 +222,14 @@ impl BoxRenderableState {
 
     /// `renderSelf` (Box.ts:255-286): skip when no border and invisible
     /// fill, then `buffer.drawBox(...)` at screen coords.
-    pub fn paint(&self, buffer: &mut OptimizedBuffer, screen_x: i32, screen_y: i32, w: u32, h: u32) {
+    pub fn paint(
+        &self,
+        buffer: &mut OptimizedBuffer,
+        screen_x: i32,
+        screen_y: i32,
+        w: u32,
+        h: u32,
+    ) {
         let has_border = self.border_sides.any();
         let has_visible_fill = self.should_fill && self.background_color.alpha() > 0;
         if !has_border && !has_visible_fill {

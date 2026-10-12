@@ -42,10 +42,16 @@ pub fn parse_sgr(bytes: &[u8], cols: usize, rows: usize) -> VtGrid {
     for y in 0..rows {
         for x in 0..cols {
             let cell = screen.cell(y as u16, x as u16);
-            cells.push(cell.map_or(VtCell { ch: ' ', fg_rgb: [255, 255, 255] }, |c| VtCell {
-                ch: c.contents().chars().next().unwrap_or(' '),
-                fg_rgb: fg_of(&c),
-            }));
+            cells.push(cell.map_or(
+                VtCell {
+                    ch: ' ',
+                    fg_rgb: [255, 255, 255],
+                },
+                |c| VtCell {
+                    ch: c.contents().chars().next().unwrap_or(' '),
+                    fg_rgb: fg_of(c),
+                },
+            ));
         }
     }
     VtGrid { cols, rows, cells }
@@ -53,9 +59,12 @@ pub fn parse_sgr(bytes: &[u8], cols: usize, rows: usize) -> VtGrid {
 
 /// Check: replay the rust capture's SGR stream; text must equal the
 /// capture's char frame (spaces normalized).
-#[must_use]
 pub fn replay_matches(cap: &Capture) -> Result<(), String> {
-    let grid = parse_sgr(&cap.sgr_bytes, cap.renderer.width as usize, cap.renderer.height as usize);
+    let grid = parse_sgr(
+        &cap.sgr_bytes,
+        cap.renderer.width as usize,
+        cap.renderer.height as usize,
+    );
     let expected: Vec<Vec<char>> = cap
         .char_frame
         .split('\n')

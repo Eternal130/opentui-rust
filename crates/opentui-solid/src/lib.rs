@@ -38,9 +38,9 @@
 //! [`opentui_core::CliRenderer`]. See PORT-MATRIX.md for the solid
 //! surface (11 tier-1 symbols) and lane order.
 
-use opentui_core::renderer::CliRenderer;
 use opentui_core::renderables::box_::BoxOptions;
 use opentui_core::renderables::text::TextOptions;
+use opentui_core::renderer::CliRenderer;
 
 /// Upstream version this crate pins (`packages/solid/package.json`).
 pub const SPEC_VERSION: &str = "0.5.14";
@@ -55,15 +55,20 @@ pub trait Reactive<T> {
 
 /// Minimal built-in signal (standalone users; opencode-rust adapts its
 /// own via [`Reactive`]).
+type Subscribers<T> = Vec<Box<dyn Fn(&T)>>;
+
 pub struct Signal<T: Copy> {
     value: std::cell::RefCell<T>,
-    subs: std::cell::RefCell<Vec<Box<dyn Fn(&T)>>>,
+    subs: std::cell::RefCell<Subscribers<T>>,
 }
 
 impl<T: Copy> Signal<T> {
     #[must_use]
     pub fn new(value: T) -> Self {
-        Signal { value: std::cell::RefCell::new(value), subs: std::cell::RefCell::new(Vec::new()) }
+        Signal {
+            value: std::cell::RefCell::new(value),
+            subs: std::cell::RefCell::new(Vec::new()),
+        }
     }
 
     pub fn set(&self, value: T) {
@@ -97,12 +102,21 @@ pub enum Node {
 /// createElement targets).
 #[must_use]
 pub fn text(id: &str, content: &str) -> Node {
-    Node::Text { id: id.into(), opts: TextOptions { content: content.into(), ..Default::default() } }
+    Node::Text {
+        id: id.into(),
+        opts: TextOptions {
+            content: content.into(),
+            ..Default::default()
+        },
+    }
 }
 
 #[must_use]
 pub fn box_(id: &str, opts: BoxOptions) -> Node {
-    Node::Box { id: id.into(), opts }
+    Node::Box {
+        id: id.into(),
+        opts,
+    }
 }
 
 #[must_use]
@@ -155,7 +169,11 @@ mod tests {
     #[test]
     fn render_mounts_and_draws() {
         let renderer = render(
-            opentui_core::renderer::CliRendererConfig { width: 10, height: 2, ..Default::default() },
+            opentui_core::renderer::CliRendererConfig {
+                width: 10,
+                height: 2,
+                ..Default::default()
+            },
             children(vec![text("t", "hello")]),
         );
         let frame = renderer.current_render_buffer.char_frame();

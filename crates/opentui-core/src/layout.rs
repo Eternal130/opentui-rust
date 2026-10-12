@@ -168,22 +168,28 @@ fn position_type(s: &str) -> tp::Position {
 /// node's own defaults (e.g. Box borders set edge widths).
 #[must_use]
 pub fn taffy_style(opts: &LayoutOptions, width: Dimension, height: Dimension) -> tp::Style {
-    let mut style = tp::Style::default();
-    // yoga's column default (yoga.options.ts:188-191 — null ⇒ Column; taffy
-    // defaults to Row, so pin it)
-    style.flex_direction = tp::FlexDirection::Column;
-
-    // flexGrow defaults 0 (Renderable.ts:724-727). flexShrink is conditional
-    // (Renderable.ts:728-737): explicit numeric width/height ⇒ 0, else the
-    // web default 1.
-    style.flex_grow = opts.flex_grow.unwrap_or(0.0);
-    style.flex_shrink = match opts.flex_shrink {
+    // yoga's column default (yoga.options.ts:188-191 — null ⇒ Column;
+    // taffy defaults to Row, so pin it). flexGrow defaults 0
+    // (Renderable.ts:724-727); flexShrink is conditional
+    // (Renderable.ts:728-737): explicit numeric width/height ⇒ 0, else
+    // the web default 1.
+    let flex_shrink = match opts.flex_shrink {
         Some(fs) => fs,
         None => {
-            let explicit_size = matches!(width, Dimension::Points(_))
-                || matches!(height, Dimension::Points(_));
-            if explicit_size { 0.0 } else { 1.0 }
+            let explicit_size =
+                matches!(width, Dimension::Points(_)) || matches!(height, Dimension::Points(_));
+            if explicit_size {
+                0.0
+            } else {
+                1.0
+            }
         }
+    };
+    let mut style = tp::Style {
+        flex_direction: tp::FlexDirection::Column,
+        flex_grow: opts.flex_grow.unwrap_or(0.0),
+        flex_shrink,
+        ..Default::default()
     };
     if let Some(s) = opts.flex_direction.as_deref() {
         style.flex_direction = flex_direction(s);
@@ -287,7 +293,10 @@ pub fn taffy_style(opts: &LayoutOptions, width: Dimension, height: Dimension) ->
         style.padding.left = parse_dimension_length(d);
     }
     if let Some(g) = opts.gap {
-        style.gap = tp::Size { width: parse_dimension_length(g), height: parse_dimension_length(g) };
+        style.gap = tp::Size {
+            width: parse_dimension_length(g),
+            height: parse_dimension_length(g),
+        };
     }
     if let Some(g) = opts.row_gap {
         style.gap.height = parse_dimension_length(g);
@@ -323,7 +332,11 @@ mod tests {
         // no explicit size ⇒ web-default shrink 1 (Renderable.ts:734)
         assert_eq!(style.flex_shrink, 1.0);
         // explicit width ⇒ shrink 0 (Renderable.ts:733)
-        let style = taffy_style(&LayoutOptions::default(), Dimension::Points(10.0), Dimension::Auto);
+        let style = taffy_style(
+            &LayoutOptions::default(),
+            Dimension::Points(10.0),
+            Dimension::Auto,
+        );
         assert_eq!(style.flex_shrink, 0.0);
     }
 
@@ -331,6 +344,9 @@ mod tests {
     fn parsers_match_yoga_options_ts() {
         assert_eq!(flex_direction("column"), tp::FlexDirection::Column);
         assert_eq!(flex_direction("row"), tp::FlexDirection::Row);
-        assert_eq!(justify_content("space-between"), tp::JustifyContent::SpaceBetween);
+        assert_eq!(
+            justify_content("space-between"),
+            tp::JustifyContent::SpaceBetween
+        );
     }
 }
