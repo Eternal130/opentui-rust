@@ -20,6 +20,18 @@ pub mod text_attributes {
     pub const HIDDEN: u8 = 1 << 6;
     pub const STRIKETHROUGH: u8 = 1 << 7;
 
+    /// `TextAttributes` (types.ts:8-18) as u32 words — the attribute
+    /// packing the text buffer stores (bits 8-31 carry the link id).
+    pub const NONE_U32: u32 = 0;
+    pub const BOLD_U32: u32 = 1;
+    pub const DIM_U32: u32 = 1 << 1;
+    pub const ITALIC_U32: u32 = 1 << 2;
+    pub const UNDERLINE_U32: u32 = 1 << 3;
+    pub const BLINK_U32: u32 = 1 << 4;
+    pub const INVERSE_U32: u32 = 1 << 5;
+    pub const HIDDEN_U32: u32 = 1 << 6;
+    pub const STRIKETHROUGH_U32: u32 = 1 << 7;
+
     pub const ATTRIBUTE_BASE_BITS: u32 = 8;
     pub const ATTRIBUTE_BASE_MASK: u32 = 0xFF;
     pub const LINK_ID_BITS: u32 = 24;

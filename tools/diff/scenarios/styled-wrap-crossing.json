@@ -1,0 +1,24 @@
+{
+  "$schema": "opentui-diff scenario v1",
+  "name": "styled-wrap-crossing",
+  "width": 24,
+  "height": 12,
+  "steps": [
+    { "op": "text", "id": "t1", "parent": "root", "options": {
+      "width": 12, "height": 6,
+      "content": [
+        { "text": "redstart ", "fg": "#FF0000", "attributes": ["bold"] },
+        { "text": "bluebridge that wraps across the boundary ", "fg": "#0000FF", "bg": "#333333" },
+        { "text": "greentail", "fg": "#00FF00", "attributes": ["underline"] },
+        { "text": " after-plain" }
+      ]
+    } },
+    { "op": "text", "id": "t2", "parent": "root", "options": {
+      "width": 12, "height": 6, "wrapMode": "char",
+      "content": [
+        { "text": "char模式", "fg": "magenta" },
+        { "text": "wrap with 明确 chunks", "bg": "cyan", "attributes": ["italic"] }
+      ]
+    } }
+  ]
+}

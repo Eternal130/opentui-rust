@@ -30,7 +30,7 @@ const CHAR_EXT_LEFT_SHIFT: u32 = 26;
 const CHAR_EXT_MASK: u32 = 0x3;
 
 /// `DEFAULT_SPACE_CHAR` — buffer.zig (clear fills with this).
-const DEFAULT_SPACE_CHAR: u32 = b' ' as u32;
+pub const DEFAULT_SPACE_CHAR: u32 = b' ' as u32;
 
 #[must_use]
 pub fn is_grapheme_char(c: u32) -> bool {
@@ -315,9 +315,11 @@ impl OptimizedBuffer {
         self.set(x, y, cell);
     }
 
-    /// `setCellWithAlphaBlendingCellWithoutImages` — buffer.zig:929-938
-    /// (opacity stack not in the slice; opacity ≡ 1.0).
-    fn set_cell_with_alpha_blending(&mut self, x: u32, y: u32, cell: Cell) {
+    /// `setCellWithAlphaBlendingCell` — the write path
+    /// `drawTextBufferInternal` uses for every cell (buffer.zig:2061):
+    /// fully transparent skip, fully opaque set, otherwise the
+    /// `blendCells` math.
+    pub fn set_cell_with_alpha_blending(&mut self, x: u32, y: u32, cell: Cell) {
         if is_fully_transparent(cell.fg, cell.bg) {
             return;
         }
@@ -381,6 +383,12 @@ impl OptimizedBuffer {
         self.graphemes.push(bytes.to_owned());
         // ids are 1-based within the mask
         (self.graphemes.len() as u32) & GRAPHEME_ID_MASK
+    }
+
+    /// Grapheme-pool allocation as the text-buffer draw uses it
+    /// (buffer.zig:2040, `pool.alloc` + `packGraphemeStart`).
+    pub fn alloc_grapheme_pub(&mut self, bytes: &str) -> u32 {
+        self.alloc_grapheme(bytes)
     }
 
     #[must_use]

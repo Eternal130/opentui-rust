@@ -57,6 +57,7 @@ dependencies = [
  "opentui-core",
  "serde",
  "serde_json",
+ "unicode-segmentation",
  "vt100",
 ]
 

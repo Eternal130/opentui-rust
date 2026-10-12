@@ -216,7 +216,7 @@ impl CliRenderer {
             return tp::Size::ZERO;
         }
         let text = ctx.text.clone().unwrap_or(MeasuredText {
-            content: String::new(),
+            doc: crate::text_buffer::TextDocument::default(),
             wrap_mode: Default::default(),
         });
         let avail_w = match available_space.width {
@@ -364,7 +364,7 @@ mod tests {
 
     fn text_renderable(id: &str, content: &str) -> Renderable {
         let opts = TextOptions {
-            content: content.into(),
+            content: crate::renderables::text::ContentInput::Str(content.to_owned()),
             ..Default::default()
         };
         let state = crate::renderables::text::TextRenderableState::from_options(&opts);
@@ -386,7 +386,7 @@ mod tests {
     // helper: build with a real renderer-owned tree
     fn add_text(renderer: &mut CliRenderer, id: &str, content: &str) {
         let opts = TextOptions {
-            content: content.into(),
+            content: crate::renderables::text::ContentInput::Str(content.to_owned()),
             ..Default::default()
         };
         let state = crate::renderables::text::TextRenderableState::from_options(&opts);

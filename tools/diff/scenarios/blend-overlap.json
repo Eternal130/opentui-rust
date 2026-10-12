@@ -1,0 +1,44 @@
+{
+  "$schema": "opentui-diff scenario v1",
+  "name": "blend-overlap",
+  "width": 30,
+  "height": 16,
+  "steps": [
+    { "op": "box", "id": "b1", "parent": "root", "options": {
+      "width": 20, "height": 4, "border": true, "backgroundColor": "#001133"
+    } },
+    { "op": "text", "id": "t1", "parent": "b1", "options": {
+      "content": [
+        { "text": "nobg ", "fg": "#FFFFFF" },
+        { "text": "withbg ", "fg": "#FFFF00", "bg": "#AA0000" },
+        { "text": "transparentbg", "fg": "#00FF00", "bg": "#00000000" }
+      ]
+    } },
+    { "op": "box", "id": "b2", "parent": "root", "options": {
+      "width": 16, "height": 4, "shouldFill": true, "backgroundColor": "#330044"
+    } },
+    { "op": "text", "id": "t2", "parent": "b2", "options": {
+      "content": [
+        { "text": "over-fill ", "fg": "#FFFFFF" },
+        { "text": "inverse-over", "attributes": ["inverse"] }
+      ]
+    } },
+    { "op": "box", "id": "b3", "parent": "root", "options": {
+      "width": 18, "height": 4, "shouldFill": true, "backgroundColor": "#101010"
+    } },
+    { "op": "text", "id": "t3", "parent": "b3", "options": {
+      "content": [
+        { "text": "alpha ", "fg": "#FFFFFF" },
+        { "text": "halfbg ", "bg": "#80306070" },
+        { "text": "lightbg", "bg": "#30505050" }
+      ]
+    } },
+    { "op": "box", "id": "b4", "parent": "root", "options": {
+      "width": 24, "height": 4, "shouldFill": false, "backgroundColor": "#000000"
+    } },
+    { "op": "text", "id": "t4", "parent": "b4", "options": {
+      "content": "underneath-text here"
+    } }
+  ]
+}
+

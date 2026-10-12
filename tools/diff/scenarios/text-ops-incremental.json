@@ -1,0 +1,20 @@
+{
+  "$schema": "opentui-diff scenario v1",
+  "name": "text-ops-incremental",
+  "width": 40,
+  "height": 8,
+  "steps": [
+    { "op": "text", "id": "t1", "parent": "root", "options": {
+      "width": 40, "height": 3, "content": ""
+    } },
+    { "op": "text-node", "id": "n1", "parent": "t1", "options": { "fg": "#FF00FF" }, "text": "node1 " },
+    { "op": "text-node", "id": "n2", "parent": "t1", "options": { "attributes": ["bold", "underline"] }, "text": "node2-bold " },
+    { "op": "text-add", "target": "t1", "text": "plain-tail" },
+    { "op": "text-node", "id": "n3", "parent": "t1", "options": { "bg": "#005500", "fg": "white" }, "text": " bg-node" },
+    { "op": "text", "id": "t2", "parent": "root", "options": {
+      "width": 40, "height": 2, "fg": "#FF0000",
+      "nodeContent": { "children": [ "override-test " ] }
+    } },
+    { "op": "text-add", "target": "t2", "text": " joins-the-tree" }
+  ]
+}

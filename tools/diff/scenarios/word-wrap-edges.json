@@ -1,0 +1,20 @@
+{
+  "$schema": "opentui-diff scenario v1",
+  "name": "word-wrap-edges",
+  "width": 30,
+  "height": 14,
+  "steps": [
+    { "op": "text", "id": "t1", "parent": "root", "options": {
+      "width": 10, "height": 6,
+      "content": "supercalifragilistic hard-break word"
+    } },
+    { "op": "text", "id": "t2", "parent": "root", "options": {
+      "width": 10, "height": 4,
+      "content": "  leading spaces then words"
+    } },
+    { "op": "text", "id": "t3", "parent": "root", "options": {
+      "width": 10, "height": 4,
+      "content": "multi   spaces between and cjk 中文test混合 words"
+    } }
+  ]
+}

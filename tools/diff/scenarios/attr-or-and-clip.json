@@ -1,0 +1,26 @@
+{
+  "$schema": "opentui-diff scenario v1",
+  "name": "attr-or-and-clip",
+  "width": 24,
+  "height": 16,
+  "steps": [
+    { "op": "text", "id": "t1", "parent": "root", "options": {
+      "width": 14, "height": 4, "attributes": ["dim"],
+      "content": [
+        { "text": "d " },
+        { "text": "d+b ", "attributes": ["bold"] },
+        { "text": "d+i+u ", "attributes": ["italic", "underline"] },
+        { "text": "plain-again " },
+        { "text": "fg-keeps", "fg": "#00FF00" }
+      ]
+    } },
+    { "op": "text", "id": "t2", "parent": "root", "options": {
+      "width": 10, "height": 2,
+      "content": "line one wraps\nline two wraps\nline three wraps\nline four wraps"
+    } },
+    { "op": "text", "id": "t3", "parent": "root", "options": {
+      "width": 24, "height": 4,
+      "content": "above\n\nbelow\n\n"
+    } }
+  ]
+}
