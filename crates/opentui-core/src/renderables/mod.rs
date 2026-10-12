@@ -4,3 +4,4 @@ pub mod box_;
 pub mod scrollbar;
 pub mod scrollbox;
 pub mod text;
+pub mod textarea;

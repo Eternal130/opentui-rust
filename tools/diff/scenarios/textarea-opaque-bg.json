@@ -1,0 +1,35 @@
+{
+  "name": "textarea-opaque-bg",
+  "width": 16,
+  "height": 5,
+  "steps": [
+    {
+      "op": "textarea",
+      "id": "ta",
+      "parent": "root",
+      "options": {
+        "width": 8,
+        "height": 3,
+        "backgroundColor": "#112233",
+        "textColor": "#FFFFFF",
+        "selectionBg": "#FF0000",
+        "initialValue": "abcd\nefgh"
+      }
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [ { "op": "setSelection", "start": 1, "end": 3 } ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "clearSelection" },
+        { "op": "deleteRange", "startRow": 0, "startCol": 1, "endRow": 1, "endCol": 2 }
+      ]
+    }
+  ]
+}

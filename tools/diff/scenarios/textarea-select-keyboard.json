@@ -1,0 +1,69 @@
+{
+  "name": "textarea-select-keyboard",
+  "width": 24,
+  "height": 6,
+  "steps": [
+    {
+      "op": "textarea",
+      "id": "ta",
+      "parent": "root",
+      "options": {
+        "width": 24,
+        "height": 4,
+        "initialValue": "hello world foo\nsecond line"
+      }
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "key", "name": "right", "shift": true },
+        { "op": "key", "name": "right", "shift": true },
+        { "op": "key", "name": "right", "shift": true }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "key", "name": "right", "shift": true },
+        { "op": "key", "name": "down", "shift": true }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [ { "op": "key", "name": "a", "ctrl": true, "shift": true } ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [ { "op": "key", "name": "left" } ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "key", "name": "w", "ctrl": true },
+        { "op": "key", "name": "f", "meta": true },
+        { "op": "key", "name": "e", "ctrl": true },
+        { "op": "key", "name": "u", "ctrl": true }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "key", "name": "a", "super": true },
+        { "op": "key", "name": "x", "sequence": "x" },
+        { "op": "key", "name": "return" }
+      ]
+    }
+  ]
+}

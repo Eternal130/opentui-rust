@@ -1,0 +1,26 @@
+{
+  "name": "textarea-selection-swap",
+  "width": 24,
+  "height": 6,
+  "steps": [
+    {
+      "op": "textarea",
+      "id": "ta",
+      "parent": "root",
+      "options": {
+        "width": 24,
+        "height": 4,
+        "initialValue": "hello world foo\nsecond line here\nthird"
+      }
+    },
+    { "op": "ta-op", "target": "ta", "textOps": [ { "op": "setLocalSelection", "anchorX": 2, "anchorY": 0, "focusX": 8, "focusY": 0 } ] },
+    { "op": "frame" },
+    { "op": "ta-op", "target": "ta", "textOps": [ { "op": "updateLocalSelection", "anchorX": 2, "anchorY": 0, "focusX": 4, "focusY": 2 } ] },
+    { "op": "frame" },
+    { "op": "ta-op", "target": "ta", "textOps": [ { "op": "updateLocalSelection", "anchorX": 2, "anchorY": 0, "focusX": 1, "focusY": 0 } ] },
+    { "op": "frame" },
+    { "op": "ta-op", "target": "ta", "textOps": [ { "op": "setLocalSelection", "anchorX": 2, "anchorY": 0, "focusX": 5, "focusY": 0, "behavior": "word" } ] },
+    { "op": "frame" },
+    { "op": "ta-op", "target": "ta", "textOps": [ { "op": "setLocalSelection", "anchorX": 2, "anchorY": 0, "focusX": 5, "focusY": 1, "behavior": "line" } ] }
+  ]
+}

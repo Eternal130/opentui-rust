@@ -1,0 +1,19 @@
+{
+  "name": "textarea-multiline",
+  "width": 24,
+  "height": 8,
+  "steps": [
+    {
+      "op": "textarea",
+      "id": "ta",
+      "parent": "root",
+      "options": {
+        "width": 24,
+        "height": 5,
+        "initialValue": "hello\nworld\nthird line here",
+        "textColor": "#FFFFFF",
+        "backgroundColor": "transparent"
+      }
+    }
+  ]
+}

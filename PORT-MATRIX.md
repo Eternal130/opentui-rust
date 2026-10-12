@@ -34,16 +34,18 @@ spot-checks). Upstream is MIT.
 | renderables (Box/Text/…) | differential scenarios, growing per lane |
 | renderer (frames/SGR) | differential + vt-replay (SGR stream repaints the grid) |
 | keymap | unit tests citing keymap.ts/services/keys.ts lines (input-replay differential lanes later) |
+| scrollbox/scroll | SGR scenarios vs the real ScrollBox (11 scenarios: geometry, clipping, sticky, resize, hscroll) |
+| textarea/editor (O2e) | SGR scenarios vs the real textarea (12: multiline/scroll-follow/selection×3/placeholder/wrap/ops/keyboard-actions/opaque/unicode) + behavior suite (editor_tests.rs) porting upstream's edit-buffer/editor-view/keybinding tests with oracle-verified matrices |
 | solid glue | consumer-side: opencode-rust screens mount via builders (their PTY goldens) |
 
 ## Stats (bootstrap snapshot)
 
 | package | exports | tier 1 | done | partial | todo |
 |---|---|---|---|---|---|
-| @opentui/core | 279 | 55 | 21 | 4 | 254 |
+| @opentui/core | 279 | 55 | 26 | 8 | 245 |
 | @opentui/solid | 48 | 10 | 5 | 4 | 39 |
 | @opentui/keymap (+subpaths) | 12 | 14* | 4 | 2 | 6 |
-| **total** | **339** | **79** | **23** | **10** | **306** |
+| **total** | **339** | **79** | **35** | **18** | **286** |
 
 \* keymap subpath symbols land in the same Rust crate; counted once in
 the 79 tier-1 set.
@@ -97,10 +99,10 @@ tree-sitter styling, testing helpers.
 | `DebugOverlayCorner` | 2 | core/src/types.ts:92 | opentui-core | todo |
 | `DiffRenderable` | **1** | core/src/renderables/Diff.ts:55 | opentui-core::renderables | todo |
 | `DistortionEffect` | 2 | core/src/post/effects.ts:29 | opentui-core | todo |
-| `EditBuffer` | 2 | core/src/edit-buffer.ts:19 | opentui-core::buffer | todo |
-| `EditBufferRenderable` | 2 | core/src/renderables/EditBufferRenderable.ts:85 | opentui-core::renderables | todo |
-| `EditBufferRenderableEvents` | 2 | core/src/renderables/EditBufferRenderable.ts:36 | opentui-core::renderables | todo |
-| `EditorView` | 2 | core/src/editor-view.ts:23 | opentui-core | todo |
+| `EditBuffer` | 2 | core/src/edit-buffer.ts:19 | opentui-core::editor | done |
+| `EditBufferRenderable` | 2 | core/src/renderables/EditBufferRenderable.ts:85 | opentui-core::renderables::textarea | done |
+| `EditBufferRenderableEvents` | 2 | core/src/renderables/EditBufferRenderable.ts:36 | opentui-core::renderables::textarea | partial |
+| `EditorView` | 2 | core/src/editor-view.ts:23 | opentui-core::editor | done |
 | `EmbeddedTerminalRenderable` | **1** | core/src/renderables/EmbeddedTerminal.ts:42 | opentui-core::renderables | todo |
 | `ExtmarksController` | 2 | core/src/lib/extmarks.ts:33 | opentui-core | todo |
 | `FlamesEffect` | 2 | core/src/post/effects.ts:605 | opentui-core | todo |
@@ -162,7 +164,7 @@ tree-sitter styling, testing helpers.
 | `Select` | 2 | core/src/renderables/composition/constructs.ts:48 | opentui-core | todo |
 | `SelectRenderable` | 2 | core/src/renderables/Select.ts:66 | opentui-core::renderables | todo |
 | `SelectRenderableEvents` | 2 | core/src/renderables/Select.ts:61 | opentui-core::renderables | todo |
-| `Selection` | 2 | core/src/lib/selection.ts:27 | opentui-core | todo |
+| `Selection` | 2 | core/src/lib/selection.ts:27 | opentui-core::renderer | partial |
 | `SliderRenderable` | 2 | core/src/renderables/Slider.ts:20 | opentui-core::renderables | done |
 | `SlotRegistry` | 2 | core/src/plugins/registry.ts:40 | opentui-core | todo |
 | `SlotRenderable` | 2 | core/src/plugins/core-slot.ts:241 | opentui-core::renderables | todo |
@@ -181,13 +183,13 @@ tree-sitter styling, testing helpers.
 | `TerminalPalette` | 2 | core/src/lib/terminal-palette.ts:93 | opentui-core | todo |
 | `Text` | 2 | core/src/renderables/composition/constructs.ts:36 | opentui-core | done |
 | `TextAttributes` | **1** | core/src/types.ts:8 | opentui-core | done |
-| `TextBuffer` | **1** | core/src/text-buffer.ts:16 | opentui-core | todo |
+| `TextBuffer` | **1** | core/src/text-buffer.ts:16 | opentui-core::editor | partial |
 | `TextBufferRenderable` | 2 | core/src/renderables/TextBufferRenderable.ts:25 | opentui-core::renderables | todo |
 | `TextBufferView` | 2 | core/src/text-buffer-view.ts:12 | opentui-core | todo |
 | `TextNodeRenderable` | 2 | core/src/renderables/TextNode.ts:34 | opentui-core::text_node | done |
 | `TextRenderable` | **1** | core/src/renderables/Text.ts:13 | opentui-core::renderables | done |
 | `TextTableRenderable` | 2 | core/src/renderables/TextTable.ts:99 | opentui-core::renderables | todo |
-| `TextareaRenderable` | **1** | core/src/renderables/Textarea.ts:145 | opentui-core::renderables | todo |
+| `TextareaRenderable` | **1** | core/src/renderables/Textarea.ts:145 | opentui-core::renderables::textarea | done |
 | `TimeToFirstDrawRenderable` | 2 | core/src/renderables/TimeToFirstDraw.ts:40 | opentui-core::renderables | todo |
 | `Timeline` | 2 | core/src/animation/Timeline.ts:284 | opentui-core | todo |
 | `TreeSitterClient` | **1** | core/src/lib/tree-sitter/client.ts:74 | opentui-core | todo |
@@ -232,7 +234,7 @@ tree-sitter styling, testing helpers.
 | `buildTerminalPaletteSignature` | 2 | core/src/lib/terminal-palette.ts:432 | opentui-core | todo |
 | `capture` | 2 | core/src/console.ts:65 | opentui-core | todo |
 | `clearEnvCache` | 2 | core/src/lib/env.ts:130 | opentui-core | todo |
-| `convertGlobalToLocalSelection` | 2 | core/src/lib/selection.ts:167 | opentui-core | todo |
+| `convertGlobalToLocalSelection` | 2 | core/src/lib/selection.ts:167 | opentui-core::renderer | partial |
 | `convertThemeToStyles` | 2 | core/src/syntax-style.ts:41 | opentui-core | todo |
 | `coordinateToCharacterIndex` | 2 | core/src/lib/ascii.font.ts:196 | opentui-core | todo |
 | `createCliRenderer` | **1** | core/src/renderer.ts:723 | opentui-core::renderer | done |
@@ -249,7 +251,7 @@ tree-sitter styling, testing helpers.
 | `createTimeline` | 2 | core/src/animation/Timeline.ts:589 | opentui-core | todo |
 | `cyan` | 2 | core/src/lib/styled-text.ts:87 | opentui-core::styled_text::styles | done |
 | `decodePasteBytes` | **1** | core/src/lib/paste.ts:12 | opentui-core::renderer | todo |
-| `defaultTextareaKeyBindings` | 2 | core/src/renderables/Textarea.ts:58 | opentui-core::renderer | todo |
+| `defaultTextareaKeyBindings` | 2 | core/src/renderables/Textarea.ts:58 | opentui-core::renderables::textarea | done |
 | `delegate` | 2 | core/src/renderables/composition/vnode.ts:245 | opentui-core | todo |
 | `destroyTreeSitterClient` | 2 | core/src/lib/tree-sitter/index.ts:62 | opentui-core | todo |
 | `detectLinks` | 2 | core/src/lib/detect-links.ts:12 | opentui-core::ansi | todo |
