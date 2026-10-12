@@ -1,0 +1,18 @@
+[package]
+name = "opentui-diff"
+description = "Differential harness: opentui-core (Rust port) vs the REAL @opentui 0.5.14 (bun oracle)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+opentui-core = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+vt100 = { workspace = true }
+
+[[bin]]
+name = "opentui-diff"
+path = "src/main.rs"
