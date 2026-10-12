@@ -405,16 +405,39 @@ tree-sitter styling, testing helpers.
 
 | symbol | tier | upstream file:line | Rust target | status |
 |---|---|---|---|---|
-| `createDefaultOpenTuiKeymap` | **1** | keymap/src/opentui.ts:126 | opentui-keymap | todo |
-| `createOpenTuiKeymap` | 2 | keymap/src/opentui.ts:118 | opentui-keymap | todo |
-| `createOpenTuiKeymapHost` | 2 | keymap/src/opentui.ts:53 | opentui-keymap | todo |
+| `createDefaultOpenTuiKeymap` | **1** | keymap/src/opentui.ts:126 | opentui-keymap | done |
+| `createOpenTuiKeymap` | 2 | keymap/src/opentui.ts:118 | opentui-keymap | done |
+| `createOpenTuiKeymapHost` | 2 | keymap/src/opentui.ts:53 | opentui-keymap | done |
 
 ### keymap/solid (5 runtime exports)
 
 | symbol | tier | upstream file:line | Rust target | status |
 |---|---|---|---|---|
-| `KeymapProvider` | **1** | keymap/src/react/index.ts:34 | opentui-keymap | todo |
-| `reactiveMatcherFromSignal` | 2 | keymap/src/solid/index.ts:156 | opentui-keymap | todo |
-| `useBindings` | 2 | keymap/src/react/index.ts:102 | opentui-keymap | todo |
-| `useKeymap` | 2 | keymap/src/react/index.ts:54 | opentui-keymap | todo |
-| `useKeymapSelector` | **1** | keymap/src/solid/index.ts:85 | opentui-keymap | todo |
+| `KeymapProvider` | **1** | keymap/src/react/index.ts:34 | opentui-keymap | done |
+| `reactiveMatcherFromSignal` | 2 | keymap/src/solid/index.ts:156 | opentui-keymap | done |
+| `useBindings` | 2 | keymap/src/react/index.ts:102 | opentui-keymap | done |
+| `useKeymap` | 2 | keymap/src/react/index.ts:54 | opentui-keymap | done |
+| `useKeymapSelector` | **1** | keymap/src/solid/index.ts:85 | opentui-keymap | done |
+
+### keymap lane O2c additions (beyond the frozen 339; v2-integration surface)
+
+Ported by lane `lane/keymap` — the integrations v2's
+`packages/tui/src/context/keymap.tsx:78-146` + `config/keybind.ts`
+consume. Not counted in the 339.
+
+| symbol | upstream file:line | Rust target | status |
+|---|---|---|---|
+| `createBindingLookup` | keymap/src/extras/binding-lookup.ts:242 | opentui-keymap::extras | done |
+| `formatCommandBindings` | keymap/src/extras/formatting.ts:111 | opentui-keymap::extras | done |
+| `formatKeySequence` | keymap/src/extras/formatting.ts:95 | opentui-keymap::extras | done |
+| `commandBindings` | keymap/src/extras/command-bindings.ts:28 | opentui-keymap::extras | done |
+| `registerTimedLeader` | keymap/src/addons/universal/timed-leader.ts:14 | opentui-keymap::addons | done |
+| `registerEscapeClearsPendingSequence` | keymap/src/addons/universal/escape-clears-pending-sequence.ts:16 | opentui-keymap::addons | done |
+| `registerBackspacePopsPendingSequence` | keymap/src/addons/universal/backspace-pops-pending-sequence.ts:15 | opentui-keymap::addons | done |
+| `registerCommaBindings` | keymap/src/addons/universal/comma-bindings.ts:34 | opentui-keymap::addons | done |
+| `registerBaseLayoutFallback` | keymap/src/addons/opentui/base-layout.ts:28 | opentui-keymap::addons | done |
+| `registerManagedTextareaLayer` | keymap/src/addons/opentui/edit-buffer-bindings.ts:548 | opentui-keymap::textarea | done |
+| `registerEditBufferCommands` | keymap/src/addons/opentui/edit-buffer-bindings.ts:526 | opentui-keymap::textarea | done |
+| `registerLeader` | keymap/src/addons/universal/leader.ts:37 | opentui-keymap::addons | done |
+| `defaultBindingParser` | keymap/src/addons/universal/default-parser.ts:400 | opentui-keymap::parser | done |
+| `registerDefaultKeys` | keymap/src/addons/universal/default-parser.ts:529 | opentui-keymap::addons | done |
