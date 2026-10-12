@@ -1,17 +1,26 @@
 //! `TextRenderable` — `packages/core/src/renderables/Text.ts` over
 //! `TextBufferRenderable` (`TextBufferRenderable.ts`).
 //!
-//! Defaults (TextBufferRenderable.ts:41-54): fg white `fromValues(1,1,1,1)`
+//! Defaults (TextBufferRenderable.ts:48-60): fg white `fromValues(1,1,1,1)`
 //! (literal RGB intent), bg `fromValues(0,0,0,0)` (transparent black),
 //! attributes 0, wrapMode `"word"`, textAlign left.
 //!
-//! The slice models one styled chunk (the plain-string `content` path);
-//! multi-chunk `StyledText` spans are a tier-2 port target.
+//! The content model: a manual [`StyledText`] (`content` option —
+//! `_hasManualStyledText`, Text.ts:32) or a [`TextNodeRenderable`]
+//! tree whose gathered chunks own the text (Text.ts:85-97, ported in
+//! [`crate::text_node`]). Either way the raster target is the
+//! [`TextDocument`] + virtual-line view in [`crate::text_buffer`].
 
 use crate::buffer::OptimizedBuffer;
 use crate::color::Rgba;
 use crate::layout::Dimension;
-use unicode_segmentation::UnicodeSegmentation;
+use crate::styled_text::{string_to_styled_text, StyledText};
+use crate::text_buffer::{
+    compute_virtual_lines, draw_text_view, TextAlign, TextDefaults, TextDocument, TextViewState,
+    Viewport,
+};
+use crate::text_node::{NodeStyle, TextNodeRenderable};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WrapMode {
     None,
@@ -21,6 +30,7 @@ pub enum WrapMode {
 }
 
 impl WrapMode {
+    #[must_use]
     pub fn parse(s: &str) -> WrapMode {
         match s {
             "none" => WrapMode::None,
@@ -30,251 +40,263 @@ impl WrapMode {
     }
 }
 
-/// `TextOptions` — Text.ts:9-11 + TextBufferOptions.
+/// `content` — `TextOptions.content?: StyledText | string`. The port
+/// keeps the string/object distinction because `_hasManualStyledText`
+/// (Text.ts:32) is `content !== undefined && content !== ""`: a plain
+/// **empty string** is NOT manual (the node tree owns the text), while
+/// a `StyledText` object always is.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum ContentInput {
+    #[default]
+    None,
+    Str(String),
+    Styled(StyledText),
+}
+
+impl ContentInput {
+    /// `_hasManualStyledText` (Text.ts:32).
+    #[must_use]
+    pub fn is_manual(&self) -> bool {
+        match self {
+            ContentInput::None => false,
+            ContentInput::Str(s) => !s.is_empty(),
+            ContentInput::Styled(_) => true,
+        }
+    }
+
+    /// The constructor's `styledText` (Text.ts:29-31): strings wrap via
+    /// `stringToStyledText`.
+    #[must_use]
+    pub fn to_styled(&self) -> StyledText {
+        match self {
+            ContentInput::None | ContentInput::Str(_) => string_to_styled_text(match self {
+                ContentInput::Str(s) => s.as_str(),
+                _ => "",
+            }),
+            ContentInput::Styled(s) => s.clone(),
+        }
+    }
+}
+
+/// `TextOptions` — Text.ts:9-11 over `TextBufferOptions`
+/// (TextBufferRenderable.ts:11-23).
 #[derive(Debug, Clone, Default)]
 pub struct TextOptions {
     pub layout: crate::layout::LayoutOptions,
     pub width: Option<Dimension>,
     pub height: Option<Dimension>,
-    pub content: String,
+    /// `content` — a plain string or a multi-chunk `StyledText`.
+    pub content: ContentInput,
+    /// Node-tree content (`textNode.add` flows); used when `content`
+    /// is not manual (Text.ts:85-97).
+    pub node_tree: Option<TextNodeRenderable>,
     pub fg: Option<Rgba>,
     pub bg: Option<Rgba>,
     pub attributes: u32,
     pub wrap_mode: Option<WrapMode>,
-    pub text_align: Option<String>,
+    pub text_align: Option<TextAlign>,
+    /// `tabIndicator?: string | number` — pre-resolved codepoint (see
+    /// `tab_indicator_codepoint`).
+    pub tab_indicator: Option<u32>,
+    pub tab_indicator_color: Option<Rgba>,
+    pub truncate: bool,
 }
 
-fn grapheme_width(g: &str) -> u32 {
-    g.chars()
-        .map(|c| c.width().map(|w| w as u32).unwrap_or(0))
-        .max()
-        .unwrap_or(1)
-        .max(1)
-}
-
-fn display_width(s: &str) -> u32 {
-    s.graphemes(true).map(grapheme_width).sum()
-}
-
-/// Word wrap (greedy, whitespace-split) — the `wrapMode: "word"` default.
-/// "char" wraps per grapheme; "none" only splits on `\n`.
-pub fn wrap_text(text: &str, mode: WrapMode, width: u32) -> Vec<String> {
-    let mut lines = Vec::new();
-    for para in text.split('\n') {
-        if width == 0 || mode == WrapMode::None {
-            lines.push(para.to_owned());
-            continue;
-        }
-        match mode {
-            WrapMode::Char => {
-                let mut line = String::new();
-                let mut w = 0;
-                for g in para.graphemes(true) {
-                    let gw = grapheme_width(g);
-                    if w + gw > width && w > 0 {
-                        lines.push(core::mem::take(&mut line));
-                        w = 0;
-                    }
-                    line.push_str(g);
-                    w += gw;
-                }
-                lines.push(line);
-            }
-            _ => {
-                let mut line = String::new();
-                let mut w = 0;
-                for word in para.split_whitespace() {
-                    let ww = display_width(word);
-                    // words longer than the width hard-break
-                    if ww > width {
-                        if w > 0 {
-                            lines.push(core::mem::take(&mut line));
-                        }
-                        let mut piece = String::new();
-                        let mut pw = 0;
-                        for g in word.graphemes(true) {
-                            let gw = grapheme_width(g);
-                            if pw + gw > width && pw > 0 {
-                                lines.push(core::mem::take(&mut piece));
-                                pw = 0;
-                            }
-                            piece.push_str(g);
-                            pw += gw;
-                        }
-                        if !piece.is_empty() {
-                            line = piece;
-                            w = pw;
-                        }
-                        continue;
-                    }
-                    let sep = if line.is_empty() { 0 } else { 1 };
-                    if w + sep + ww > width {
-                        lines.push(core::mem::take(&mut line));
-                    }
-                    if !line.is_empty() {
-                        line.push(' ');
-                    }
-                    line.push_str(word);
-                    w = display_width(&line);
-                }
-                lines.push(line);
-            }
+impl TextOptions {
+    /// Plain-string convenience (the `content: string` shape).
+    #[must_use]
+    pub fn with_str_content(content: &str) -> Self {
+        TextOptions {
+            content: ContentInput::Str(content.to_owned()),
+            ..Default::default()
         }
     }
-    if lines.is_empty() {
-        lines.push(String::new());
-    }
-    lines
 }
 
-/// The measured text the taffy leaf measures from (the native measure
-/// target — TextBufferRenderable.ts:402-431).
+/// The measured text the taffy leaf measures from — the native measure
+/// target (`NativeMeasureTargetKind.TextBufferView` over
+/// `measureForDimensions`, TextBufferRenderable.ts:402-431 +
+/// native-renderable.zig:63-80).
 #[derive(Debug, Clone, Default)]
 pub struct MeasuredText {
-    pub content: String,
+    pub doc: TextDocument,
     pub wrap_mode: WrapMode,
 }
 
-/// The Text renderable's drawn state.
+/// The Text renderable's drawn state — the `TextBuffer` +
+/// `TextBufferView` pair TextBufferRenderable owns.
 pub struct TextRenderableState {
-    pub content: String,
+    pub doc: TextDocument,
     pub default_fg: Rgba,
     pub default_bg: Rgba,
     pub attributes: u32,
     pub wrap_mode: WrapMode,
-    pub text_align: String,
-    /// wrapped lines cache — set during `updateLayout` once width is known
-    pub lines: Option<Vec<String>>,
+    pub text_align: TextAlign,
+    pub tab_indicator: Option<u32>,
+    pub tab_indicator_color: Option<Rgba>,
+    pub truncate: bool,
+    /// `setViewport` state (TextBufferRenderable.ts:106-108 via
+    /// onResize) — None until first layout.
+    viewport: Option<Viewport>,
+    /// virtual lines cached for (mode, wrap width)
+    vlines: Vec<crate::text_buffer::VirtualLine>,
+    vlines_wrap_width: Option<u32>,
+    vlines_valid: bool,
 }
 
 impl TextRenderableState {
+    #[must_use]
     pub fn from_options(opts: &TextOptions) -> Self {
+        let default_fg = opts
+            .fg
+            .unwrap_or_else(|| Rgba::from_values(1.0, 1.0, 1.0, 1.0));
+        let default_bg = opts
+            .bg
+            .unwrap_or_else(|| Rgba::from_values(0.0, 0.0, 0.0, 0.0));
+        let defaults = TextDefaults {
+            fg: default_fg,
+            bg: default_bg,
+            attributes: opts.attributes,
+        };
+        // effective content: manual styled content, else the node tree
+        // (Text.ts:29-45 constructor + updateTextFromNodes 85-97)
+        let chunks: Vec<crate::styled_text::TextChunk> = if opts.content.is_manual() {
+            opts.content.to_styled().chunks
+        } else {
+            gather_tree(opts, &defaults)
+        };
+        let doc = TextDocument::from_styled(&chunks, defaults);
         TextRenderableState {
-            content: opts.content.clone(),
-            default_fg: opts
-                .fg
-                .unwrap_or_else(|| Rgba::from_values(1.0, 1.0, 1.0, 1.0)),
-            default_bg: opts
-                .bg
-                .unwrap_or_else(|| Rgba::from_values(0.0, 0.0, 0.0, 0.0)),
+            doc,
+            default_fg,
+            default_bg,
             attributes: opts.attributes,
             wrap_mode: opts.wrap_mode.unwrap_or(WrapMode::Word),
-            text_align: opts.text_align.clone().unwrap_or_else(|| "left".into()),
-            lines: None,
+            text_align: opts.text_align.unwrap_or(TextAlign::Left),
+            tab_indicator: opts.tab_indicator,
+            tab_indicator_color: opts.tab_indicator_color,
+            truncate: opts.truncate,
+            viewport: None,
+            vlines: Vec::new(),
+            vlines_wrap_width: None,
+            vlines_valid: false,
         }
     }
 
+    #[must_use]
     pub fn measured(&self) -> MeasuredText {
         MeasuredText {
-            content: self.content.clone(),
+            doc: self.doc.clone(),
             wrap_mode: self.wrap_mode,
         }
     }
 
-    /// Re-wrap at the laid-out width.
-    pub fn wrap_at(&mut self, width: u32) {
-        self.lines = Some(wrap_text(&self.content, self.wrap_mode, width));
+    /// `onResize` → `setViewport(0, 0, width, height)`
+    /// (TextBufferRenderable.ts:371-376): the viewport (clamped ≥ 1 —
+    /// Renderable.ts:1114-1115) also sets the wrap width
+    /// (text-buffer-view.zig:355-368).
+    pub fn update_layout(&mut self, width: u32, height: u32) {
+        let vp = Viewport {
+            x: 0,
+            y: 0,
+            width: width.max(1),
+            height: height.max(1),
+        };
+        if self.viewport != Some(vp) {
+            self.viewport = Some(vp);
+            self.vlines_valid = false;
+        }
     }
 
-    /// Intrinsic size for the measure function: wrap at available width
-    /// (definite) or natural width (max-content), return
-    /// (widest line, line count) — the text buffer measure contract.
+    /// Virtual lines at the current wrap width (or unwrapped before
+    /// the first layout).
+    #[must_use]
+    pub fn vlines(&mut self) -> &[crate::text_buffer::VirtualLine] {
+        if !self.vlines_valid {
+            let wrap_width = if self.wrap_mode == WrapMode::None {
+                None
+            } else {
+                Some(self.viewport.map_or(0, |vp| vp.width))
+            };
+            // constructor semantics (TextBufferRenderable.ts:102-104):
+            // wrap width only when > 0
+            let wrap_width = wrap_width.filter(|w| *w > 0);
+            self.vlines = compute_virtual_lines(&self.doc, self.wrap_mode, wrap_width);
+            self.vlines_wrap_width = wrap_width;
+            self.vlines_valid = true;
+        }
+        &self.vlines
+    }
+
+    /// Intrinsic size for the measure function — `measureForDimensions`
+    /// (text-buffer-view.zig:1450-1510) via the native measure
+    /// (native-renderable.zig:63-80): floor the available width,
+    /// measure, clamp ≥ 1; an undefined/0 width measures intrinsic.
     #[must_use]
     pub fn measure(
         text: &MeasuredText,
         known_width: Option<f32>,
         available_width: f32,
     ) -> (f32, f32) {
-        let wrap_width = match known_width {
-            Some(w) => w.max(0.0) as u32,
+        let avail = match known_width {
+            Some(w) => w.max(0.0),
             None => {
                 if available_width.is_finite() && available_width >= 0.0 {
-                    available_width as u32
+                    available_width
                 } else {
-                    u32::MAX / 4
+                    0.0
                 }
             }
         };
-        let lines = wrap_text(&text.content, text.wrap_mode, wrap_width);
-        let w = lines.iter().map(|l| display_width(l)).max().unwrap_or(0);
-        (w as f32, lines.len() as f32)
+        let measure_width = if avail.is_finite() && avail > 0.0 {
+            avail.floor() as u32
+        } else {
+            0
+        };
+        let (w, h) = text.doc.measure(text.wrap_mode, measure_width);
+        ((w.max(1)) as f32, (h.max(1)) as f32)
     }
 
     /// `renderSelf` (TextBufferRenderable.ts:504-511): draw the view at
-    /// screen coords, line by line.
+    /// screen coords through `drawTextBuffer`.
     pub fn paint(&self, buffer: &mut OptimizedBuffer, screen_x: i32, screen_y: i32) {
-        let effective: Vec<String> = match &self.lines {
-            Some(l) => l.clone(),
-            // not laid out yet: draw unwrapped
-            None => wrap_text(&self.content, self.wrap_mode, u32::MAX / 4),
+        let view = TextViewState {
+            text_align: self.text_align,
+            tab_indicator: self.tab_indicator,
+            tab_indicator_color: self.tab_indicator_color,
+            viewport: self.viewport,
         };
-        for (i, line) in effective.iter().enumerate() {
-            if line.is_empty() {
-                continue;
-            }
-            buffer.draw_text(
-                line,
-                screen_x.max(0) as u32,
-                (screen_y + i as i32).max(0) as u32,
-                self.default_fg,
-                Some(self.default_bg),
-                self.attributes,
-            );
-        }
+        // vlines() needs &mut; recompute cheaply via the cache
+        let vlines = if self.vlines_valid {
+            self.vlines.clone()
+        } else {
+            let wrap_width = if self.wrap_mode == WrapMode::None {
+                None
+            } else {
+                Some(self.viewport.map_or(0, |vp| vp.width))
+            };
+            let wrap_width = wrap_width.filter(|w| *w > 0);
+            compute_virtual_lines(&self.doc, self.wrap_mode, wrap_width)
+        };
+        // `truncate: true` (setTruncate + ensureTruncation,
+        // text-buffer-view.zig:1290-1445) is a scrollbox-lane target;
+        // vlines that fit the viewport need no truncation pass.
+        draw_text_view(buffer, &self.doc, &view, &vlines, screen_x, screen_y);
     }
 }
 
-use unicode_width::UnicodeWidthChar;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn defaults_match_textbuffer() {
-        let s = TextRenderableState::from_options(&TextOptions {
-            content: "hi".into(),
-            ..Default::default()
-        });
-        assert_eq!(s.default_fg, Rgba::from_values(1.0, 1.0, 1.0, 1.0));
-        assert_eq!(s.default_bg, Rgba::from_values(0.0, 0.0, 0.0, 0.0));
-        assert_eq!(s.wrap_mode, WrapMode::Word);
-    }
-
-    #[test]
-    fn word_wrap_greedy() {
-        assert_eq!(
-            wrap_text("hello world", WrapMode::Word, 5),
-            vec!["hello", "world"]
-        );
-        assert_eq!(
-            wrap_text("hello world", WrapMode::Word, 11),
-            vec!["hello world"]
-        );
-        assert_eq!(
-            wrap_text("hello world", WrapMode::Word, 6),
-            vec!["hello", "world"]
-        );
-        // overlong word hard-breaks
-        assert_eq!(
-            wrap_text("abcdefgh", WrapMode::Word, 3),
-            vec!["abc", "def", "gh"]
-        );
-        assert_eq!(wrap_text("a\nb", WrapMode::Word, 10), vec!["a", "b"]);
-    }
-
-    #[test]
-    fn measure_natural_and_wrapped() {
-        let m = MeasuredText {
-            content: "hello world".into(),
-            wrap_mode: WrapMode::Word,
-        };
-        // max-content: no wrap
-        assert_eq!(
-            TextRenderableState::measure(&m, None, f32::INFINITY),
-            (11.0, 1.0)
-        );
-        // definite 5 → two lines
-        assert_eq!(TextRenderableState::measure(&m, Some(5.0), 5.0), (5.0, 2.0));
+/// `updateTextFromNodes` (Text.ts:85-97): the gathered tree chunks
+/// inherit the text's defaults as the root style (Text.ts:34-43).
+fn gather_tree(opts: &TextOptions, defaults: &TextDefaults) -> Vec<crate::styled_text::TextChunk> {
+    match &opts.node_tree {
+        Some(tree) => tree.gather_with_inherited_style(
+            &NodeStyle {
+                fg: Some(defaults.fg),
+                bg: Some(defaults.bg),
+                attributes: defaults.attributes,
+            },
+            None,
+        ),
+        None => Vec::new(),
     }
 }

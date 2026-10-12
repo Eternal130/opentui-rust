@@ -1,11 +1,17 @@
 //! Scenario loading + the Rust-side capture (mirrors js/driver.ts).
 
 use anyhow::{Context, Result};
+use opentui_core::color::parse_color;
 use opentui_core::renderables::box_::BorderSpec;
-use opentui_core::renderables::text::WrapMode;
-use opentui_core::renderables::{box_::BoxOptions, text::TextOptions};
+use opentui_core::renderables::box_::BoxOptions;
+use opentui_core::renderables::text::ContentInput;
+use opentui_core::renderables::text::{TextOptions, WrapMode};
 use opentui_core::renderer::{create_cli_renderer, CliRenderer, CliRendererConfig};
+use opentui_core::styled_text::{StyledText, TextChunk};
+use opentui_core::text_buffer::TextAlign;
+use opentui_core::text_node::{TextNodeOptions, TextNodeRenderable};
 use serde::Deserialize;
+use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
 pub struct Scenario {
@@ -19,11 +25,17 @@ pub struct Scenario {
 #[derive(Debug, Deserialize)]
 pub struct Step {
     pub op: String,
+    #[serde(default)]
     pub id: String,
     #[serde(default)]
     pub parent: Option<String>,
+    /// target id for `text-add` (else the step's own id)
+    #[serde(default)]
+    pub target: Option<String>,
     #[serde(default)]
     pub options: serde_json::Value,
+    #[serde(default)]
+    pub text: Option<String>,
 }
 
 pub fn load(path: &std::path::Path) -> Result<Scenario> {
@@ -38,11 +50,145 @@ fn opt_f32(v: &serde_json::Value, key: &str) -> Option<opentui_core::layout::Dim
         .map(|f| opentui_core::layout::Dimension::Points(f as f32))
 }
 
+/// Attribute names → bits — the JSON spelling of `createTextAttributes`
+/// (utils.ts:4-29); raw numbers pass through.
+fn parse_attributes(v: Option<&serde_json::Value>) -> Result<u32> {
+    let Some(v) = v else { return Ok(0) };
+    match v {
+        serde_json::Value::Number(n) => Ok(n.as_u64().unwrap_or(0) as u32),
+        serde_json::Value::Array(names) => {
+            let mut bits = 0u32;
+            for name in names {
+                let Some(name) = name.as_str() else {
+                    anyhow::bail!("attribute names must be strings: {name}")
+                };
+                bits |= match name {
+                    "bold" => 1,
+                    "dim" => 1 << 1,
+                    "italic" => 1 << 2,
+                    "underline" => 1 << 3,
+                    "blink" => 1 << 4,
+                    "inverse" | "reverse" => 1 << 5,
+                    "hidden" => 1 << 6,
+                    "strikethrough" => 1 << 7,
+                    other => anyhow::bail!("unknown attribute: {other}"),
+                };
+            }
+            Ok(bits)
+        }
+        _ => anyhow::bail!("attributes must be a number or name array"),
+    }
+}
+
+/// One styled chunk from JSON: `{text, fg?, bg?, attributes?}` →
+/// `TextChunk` (fg/bg parsed like the driver's `parseColor`).
+fn parse_chunk(v: &serde_json::Value) -> Result<TextChunk> {
+    let text = v
+        .get("text")
+        .and_then(|t| t.as_str())
+        .context("chunk needs text")?;
+    Ok(TextChunk {
+        text: text.to_owned(),
+        fg: v.get("fg").and_then(|c| c.as_str()).map(parse_color),
+        bg: v.get("bg").and_then(|c| c.as_str()).map(parse_color),
+        attributes: parse_attributes(v.get("attributes"))?,
+        link: None,
+    })
+}
+
+/// `content` — string | chunk array. Strings keep their identity
+/// (`ContentInput::Str`): upstream's `_hasManualStyledText` treats an
+/// empty string as NOT manual (Text.ts:32).
+fn parse_styled_content(v: &serde_json::Value) -> Result<ContentInput> {
+    match v {
+        serde_json::Value::Null => Ok(ContentInput::None),
+        serde_json::Value::String(s) => Ok(ContentInput::Str(s.clone())),
+        serde_json::Value::Array(chunks) => Ok(ContentInput::Styled(StyledText::new(
+            chunks.iter().map(parse_chunk).collect::<Result<_>>()?,
+        ))),
+        _ => anyhow::bail!("content must be a string or chunk array"),
+    }
+}
+
+/// A node-tree child: string | node object (`{fg?, bg?, attributes?,
+/// children?}` → `TextNodeRenderable`).
+fn parse_node_tree(v: &serde_json::Value, id: &str) -> Result<TextNodeRenderable> {
+    let options = TextNodeOptions {
+        fg: v.get("fg").and_then(|c| c.as_str()).map(str::to_owned),
+        bg: v.get("bg").and_then(|c| c.as_str()).map(str::to_owned),
+        attributes: Some(parse_attributes(v.get("attributes"))?),
+        link: None,
+    };
+    let mut node = TextNodeRenderable::new(id, options);
+    if let Some(children) = v.get("children").and_then(|c| c.as_array()) {
+        for (i, child) in children.iter().enumerate() {
+            match child {
+                serde_json::Value::String(s) => {
+                    node.add_text(s);
+                }
+                serde_json::Value::Object(_) => {
+                    let child_id = format!("{id}-c{i}");
+                    node.add_node(parse_node_tree(child, &child_id)?);
+                }
+                _ => anyhow::bail!("node children must be strings or objects"),
+            }
+        }
+    }
+    Ok(node)
+}
+
 /// One scenario node pending mount (kind + options + children). The id
-/// lives in the staging maps; variants carry only their options.
+/// lives in the staging maps; variants carry only their options. Text
+/// entries stay mutable so later `text-node`/`text-add` steps patch the
+/// same options the mount reads (the JS driver patches the live object).
 enum PendingNode {
     Text(TextOptions),
     Box(BoxOptions),
+}
+
+fn text_options_from_json(o: &serde_json::Value) -> Result<TextOptions> {
+    let mut opts = TextOptions {
+        content: parse_styled_content(o.get("content").unwrap_or(&serde_json::Value::Null))?,
+        ..Default::default()
+    };
+    if let Some(tree) = o.get("nodeContent") {
+        opts.node_tree = Some(parse_node_tree(tree, "root-node")?);
+    }
+    if let Some(fg) = o.get("fg").and_then(|v| v.as_str()) {
+        opts.fg = Some(parse_color(fg));
+    }
+    if let Some(bg) = o.get("bg").and_then(|v| v.as_str()) {
+        opts.bg = Some(parse_color(bg));
+    }
+    if let Some(attrs) = o.get("attributes") {
+        opts.attributes = parse_attributes(Some(attrs))?;
+    }
+    if let Some(w) = opt_f32(o, "width") {
+        opts.width = Some(w);
+    }
+    if let Some(h) = opt_f32(o, "height") {
+        opts.height = Some(h);
+    }
+    if let Some(w) = o.get("wrapMode").and_then(|v| v.as_str()) {
+        opts.wrap_mode = Some(WrapMode::parse(w));
+    }
+    if let Some(a) = o.get("textAlign").and_then(|v| v.as_str()) {
+        opts.text_align = Some(TextAlign::parse(a));
+    }
+    if let Some(t) = o.get("tabIndicator") {
+        opts.tab_indicator = match t {
+            serde_json::Value::String(s) => Some(s.chars().next().map_or(0, |c| c as u32)),
+            serde_json::Value::Number(n) => Some(n.as_u64().unwrap_or(0) as u32),
+            _ => anyhow::bail!("tabIndicator must be a string or number"),
+        };
+    }
+    if let Some(c) = o.get("tabIndicatorColor").and_then(|v| v.as_str()) {
+        opts.tab_indicator_color = Some(parse_color(c));
+    }
+    if let Some(t) = o.get("truncate").and_then(|v| v.as_bool()) {
+        opts.truncate = t;
+    }
+    Ok(opts)
 }
 
 /// Build + render the scenario with opentui-core, dump the same capture
@@ -56,34 +202,14 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
 
     // Stage nodes with their parent links, then mount recursively in
     // step order (children after parents, like the JS driver's adds).
-    let mut by_id: std::collections::HashMap<String, PendingNode> =
-        std::collections::HashMap::new();
-    let mut children_of: std::collections::HashMap<String, Vec<String>> =
-        std::collections::HashMap::new();
+    let mut by_id: HashMap<String, PendingNode> = HashMap::new();
+    let mut children_of: HashMap<String, Vec<String>> = HashMap::new();
     let mut roots: Vec<String> = Vec::new();
     for step in &scenario.steps {
         let o = &step.options;
         let node = match step.op.as_str() {
             "text" => {
-                let mut opts = TextOptions::default();
-                if let Some(c) = o.get("content").and_then(|v| v.as_str()) {
-                    opts.content = c.to_owned();
-                }
-                if let Some(fg) = o.get("fg").and_then(|v| v.as_str()) {
-                    opts.fg = Some(opentui_core::color::parse_color(fg));
-                }
-                if let Some(bg) = o.get("bg").and_then(|v| v.as_str()) {
-                    opts.bg = Some(opentui_core::color::parse_color(bg));
-                }
-                if let Some(w) = opt_f32(o, "width") {
-                    opts.width = Some(w);
-                }
-                if let Some(h) = opt_f32(o, "height") {
-                    opts.height = Some(h);
-                }
-                if let Some(w) = o.get("wrapMode").and_then(|v| v.as_str()) {
-                    opts.wrap_mode = Some(WrapMode::parse(w));
-                }
+                let opts = text_options_from_json(o)?;
                 PendingNode::Text(opts)
             }
             "box" => {
@@ -126,6 +252,43 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
                     opts.layout.padding = Some(opentui_core::layout::Dimension::Points(p as f32));
                 }
                 PendingNode::Box(opts)
+            }
+            "text-node" => {
+                // attach a TextNodeRenderable to an existing text's tree
+                // (patches the staged options — the mount reads them after)
+                let target = step.parent.as_deref().context("text-node needs parent")?;
+                let Some(PendingNode::Text(opts)) = by_id.get_mut(target) else {
+                    anyhow::bail!("text-node parent {target} is not a text renderable");
+                };
+                let node_options = TextNodeOptions {
+                    fg: o.get("fg").and_then(|c| c.as_str()).map(str::to_owned),
+                    bg: o.get("bg").and_then(|c| c.as_str()).map(str::to_owned),
+                    attributes: Some(parse_attributes(o.get("attributes"))?),
+                    link: None,
+                };
+                let mut node = TextNodeRenderable::new(step.id.clone(), node_options);
+                if let Some(t) = &step.text {
+                    node.add_text(t);
+                }
+                opts.node_tree
+                    .get_or_insert_with(|| {
+                        TextNodeRenderable::new("root-node", TextNodeOptions::default())
+                    })
+                    .add_node(node);
+                continue;
+            }
+            "text-add" => {
+                let target = step.target.as_deref().context("text-add needs target")?;
+                let Some(PendingNode::Text(opts)) = by_id.get_mut(target) else {
+                    anyhow::bail!("text-add target {target} is not a text renderable");
+                };
+                let text = step.text.as_deref().context("text-add needs text")?;
+                opts.node_tree
+                    .get_or_insert_with(|| {
+                        TextNodeRenderable::new("root-node", TextNodeOptions::default())
+                    })
+                    .add_text(text);
+                continue;
             }
             other => anyhow::bail!("unknown op: {other}"),
         };
@@ -177,8 +340,8 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
 /// renderer root; otherwise the node nests inside `parent`.
 fn mount(
     renderer: &mut CliRenderer,
-    by_id: &std::collections::HashMap<String, PendingNode>,
-    children_of: &std::collections::HashMap<String, Vec<String>>,
+    by_id: &HashMap<String, PendingNode>,
+    children_of: &HashMap<String, Vec<String>>,
     parent: Option<&str>,
     ids: &[String],
 ) {

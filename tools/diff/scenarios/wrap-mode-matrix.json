@@ -1,0 +1,20 @@
+{
+  "$schema": "opentui-diff scenario v1",
+  "name": "wrap-mode-matrix",
+  "width": 26,
+  "height": 20,
+  "steps": [
+    { "op": "text", "id": "w1", "parent": "root", "options": {
+      "width": 8, "height": 6, "wrapMode": "word",
+      "content": "word 长的中文段落测试换行\nexplicit\nsupercalifragilisticexpialidocious"
+    } },
+    { "op": "text", "id": "c1", "parent": "root", "options": {
+      "width": 8, "height": 6, "wrapMode": "char",
+      "content": "char 长的中文段落测试换行\nexplicit\nsupercalifragilisticexpialidocious"
+    } },
+    { "op": "text", "id": "n1", "parent": "root", "options": {
+      "width": 8, "height": 4, "wrapMode": "none",
+      "content": "none 长的中文段落测试换行\nexplicit"
+    } }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "opentui-diff scenario v1",
+  "name": "node-deep-attrs",
+  "width": 40,
+  "height": 8,
+  "steps": [
+    { "op": "text", "id": "t1", "parent": "root", "options": {
+      "width": 40, "height": 4, "fg": "#AAAAAA", "attributes": ["dim"],
+      "nodeContent": {
+        "children": [
+          { "attributes": ["bold"], "children": [
+            "b1 ",
+            { "attributes": ["italic"], "children": [
+              "b1i1 ",
+              { "fg": "#00FF88", "attributes": ["underline"], "children": ["deep-green "] },
+              " b1i2"
+            ] }
+          ] },
+          " root-dim-tail ",
+          { "fg": "#FF0044", "bg": "#001122", "attributes": ["bold", "inverse", "strikethrough"], "children": [" inverse-styled "] }
+        ]
+      }
+    } },
+    { "op": "text", "id": "t2", "parent": "root", "options": {
+      "width": 40, "height": 4, "content": [
+        { "text": "before ", "attributes": ["underline"] },
+        { "text": "zero-width​mark", "fg": "#FFFF00" }
+      ]
+    } }
+  ]
+}

@@ -7,6 +7,7 @@
 //! actually paints what the buffer says.
 
 use crate::scenario::Capture;
+use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VtCell {
@@ -58,31 +59,56 @@ pub fn parse_sgr(bytes: &[u8], cols: usize, rows: usize) -> VtGrid {
 }
 
 /// Check: replay the rust capture's SGR stream; text must equal the
-/// capture's char frame (spaces normalized).
+/// capture's char frame (spaces normalized). Wide characters occupy two
+/// columns in the vt grid with a `wide_continuation` cell after them —
+/// the char frame drops continuations (`getSpanLines`' char walk), so
+/// both sides compare as per-row *visible cell* sequences.
+///
+/// Multi-codepoint grapheme clusters (ZWJ families, VS16 emoji, flag
+/// pairs) are beyond the `vt100` parser — it splits them into separate
+/// cells, so the replay drifts even though the emission is what a real
+/// terminal joins atomically. Frames containing them skip the strict
+/// check (the oracle byte-identity compare remains the acceptance
+/// gate).
 pub fn replay_matches(cap: &Capture) -> Result<(), String> {
+    let has_multi_cp_clusters = cap
+        .char_frame
+        .lines()
+        .any(|row| row.graphemes(true).any(|g| g.chars().count() > 1));
+    if has_multi_cp_clusters {
+        return Err("SKIP: multi-codepoint grapheme clusters exceed the vt100 parser (ZWJ/VS16/flags join atomically in real terminals)".into());
+    }
+
     let grid = parse_sgr(
         &cap.sgr_bytes,
         cap.renderer.width as usize,
         cap.renderer.height as usize,
     );
-    let expected: Vec<Vec<char>> = cap
-        .char_frame
-        .split('\n')
-        .map(|r| r.chars().collect())
-        .collect();
+    // rebuild the vt grid without continuation cells, pairing each
+    // visible cell with its column
+    let mut parser = vt100::Parser::new(cap.renderer.height as u16, cap.renderer.width as u16, 0);
+    parser.process(&cap.sgr_bytes);
+    let screen = parser.screen();
+
     for y in 0..grid.rows {
+        let row_text = cap.char_frame.split('\n').nth(y).unwrap_or("");
+        let mut expected = row_text.chars().peekable();
         for x in 0..grid.cols {
+            let cell = screen.cell(y as u16, x as u16);
+            let is_continuation = cell.is_some_and(|c| c.is_wide_continuation());
+            if is_continuation {
+                continue; // occupies a column, paints no char
+            }
             let got = grid.cells[y * grid.cols + x].ch;
-            let want = expected
-                .get(y)
-                .and_then(|r| r.get(x))
-                .copied()
-                .unwrap_or(' ');
+            let want = expected.next().unwrap_or(' ');
             if got != want {
                 return Err(format!(
                     "SGR replay mismatch at ({x},{y}): painted `{got:?}` expected `{want:?}`"
                 ));
             }
+        }
+        if expected.next().is_some() {
+            return Err(format!("SGR replay mismatch at row {y}: expected frame has more text than the replay painted"));
         }
     }
     Ok(())

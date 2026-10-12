@@ -1,0 +1,16 @@
+{
+  "$schema": "opentui-diff scenario v1",
+  "name": "wrap-char-cjk",
+  "width": 20,
+  "height": 12,
+  "steps": [
+    { "op": "text", "id": "t1", "parent": "root", "options": {
+      "width": 10, "height": 8, "wrapMode": "char",
+      "content": "こんにちは世界 characterwrap test 字"
+    } },
+    { "op": "text", "id": "t2", "parent": "root", "options": {
+      "width": 10, "height": 4, "wrapMode": "char",
+      "content": "mixed 字a界b mixed"
+    } }
+  ]
+}

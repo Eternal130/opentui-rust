@@ -88,6 +88,7 @@ fn main() -> Result<()> {
     // secondary: SGR replay of the rust frame
     match vt::replay_matches(&rust) {
         Ok(()) => println!("vt-replay: OK (SGR stream paints the cell grid)"),
+        Err(e) if e.starts_with("SKIP") => println!("vt-replay: {e}"),
         Err(e) => println!("vt-replay: MISMATCH — {e}"),
     }
 
