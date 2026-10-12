@@ -1,0 +1,22 @@
+{
+  "$schema": "opentui-diff scenario v1",
+  "name": "node-tree-nested",
+  "width": 44,
+  "height": 6,
+  "steps": [
+    { "op": "text", "id": "t1", "parent": "root", "options": {
+      "width": 44, "height": 4, "fg": "#888888", "attributes": ["dim"],
+      "nodeContent": {
+        "children": [
+          "before ",
+          { "fg": "#FF0000", "attributes": ["bold"], "children": [
+            "red-bold ",
+            { "fg": "#00FF00", "children": [ "green-inside ", { "bg": "#0000FF", "children": ["bluebg-leaf"] } ] }
+          ] },
+          " after",
+          { "fg": "yellow", "children": [" tail"] }
+        ]
+      }
+    } }
+  ]
+}

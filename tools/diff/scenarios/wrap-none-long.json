@@ -1,0 +1,20 @@
+{
+  "$schema": "opentui-diff scenario v1",
+  "name": "wrap-none-long",
+  "width": 20,
+  "height": 12,
+  "steps": [
+    { "op": "text", "id": "t1", "parent": "root", "options": {
+      "width": 20, "height": 6, "wrapMode": "none",
+      "content": "this line is far longer than twenty columns and will overflow\nshort\nsecond long line that overflows too 世界"
+    } },
+    { "op": "text", "id": "t2", "parent": "root", "options": {
+      "width": 20, "height": 3, "wrapMode": "none", "textAlign": "right",
+      "content": "ok\noverflowing-right-aligned-line"
+    } },
+    { "op": "text", "id": "t3", "parent": "root", "options": {
+      "width": 20, "height": 3, "wrapMode": "none", "textAlign": "center",
+      "content": "a very centered line that also overflows"
+    } }
+  ]
+}

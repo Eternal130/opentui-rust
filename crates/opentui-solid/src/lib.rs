@@ -105,7 +105,7 @@ pub fn text(id: &str, content: &str) -> Node {
     Node::Text {
         id: id.into(),
         opts: TextOptions {
-            content: content.into(),
+            content: opentui_core::renderables::text::ContentInput::Str(content.to_owned()),
             ..Default::default()
         },
     }

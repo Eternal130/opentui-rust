@@ -1,0 +1,19 @@
+{
+  "$schema": "opentui-diff scenario v1",
+  "name": "styled-multichunk",
+  "width": 40,
+  "height": 5,
+  "steps": [
+    { "op": "text", "id": "t1", "parent": "root", "options": {
+      "content": [
+        { "text": "plain ", "attributes": 0 },
+        { "text": "red ", "fg": "#FF0000" },
+        { "text": "greenbg ", "bg": "#00FF00" },
+        { "text": "both ", "fg": "#0000FF", "bg": "#FFFF00" },
+        { "text": "bold+under ", "attributes": ["bold", "underline"] },
+        { "text": "dim-red ", "fg": "red", "attributes": ["dim"] },
+        { "text": "done", "fg": "cyan", "bg": "blue", "attributes": ["bold", "italic", "strikethrough"] }
+      ]
+    } }
+  ]
+}

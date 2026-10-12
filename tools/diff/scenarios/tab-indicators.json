@@ -1,0 +1,24 @@
+{
+  "$schema": "opentui-diff scenario v1",
+  "name": "tab-indicators",
+  "width": 26,
+  "height": 10,
+  "steps": [
+    { "op": "text", "id": "t1", "parent": "root", "options": {
+      "width": 26, "height": 3,
+      "content": "a\tb\tc no indicator"
+    } },
+    { "op": "text", "id": "t2", "parent": "root", "options": {
+      "width": 26, "height": 3, "tabIndicator": "»", "tabIndicatorColor": "#FF8800",
+      "content": "a\tb\tc with indicator"
+    } },
+    { "op": "text", "id": "t3", "parent": "root", "options": {
+      "width": 26, "height": 3, "tabIndicator": 62, "fg": "#00FFFF", "bg": "#222222",
+      "content": "styled\ttabs here"
+    } },
+    { "op": "text", "id": "t4", "parent": "root", "options": {
+      "width": 26, "height": 1, "tabIndicator": "→", "wrapMode": "char",
+      "content": "wrap\ttab\ttest"
+    } }
+  ]
+}

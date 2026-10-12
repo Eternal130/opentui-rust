@@ -1,0 +1,21 @@
+{
+  "$schema": "opentui-diff scenario v1",
+  "name": "emoji-clusters",
+  "width": 24,
+  "height": 12,
+  "steps": [
+    { "op": "text", "id": "t1", "parent": "root", "options": {
+      "width": 12, "height": 6, "wrapMode": "char",
+      "content": [
+        { "text": "❤️fire\n" },
+        { "text": "family 👨‍👩‍👧‍👦 ok\n" },
+        { "text": "flags 🇺🇸🇯🇵 done\n" },
+        { "text": "combining e\u0301nd" }
+      ]
+    } },
+    { "op": "text", "id": "t2", "parent": "root", "options": {
+      "width": 12, "height": 6, "wrapMode": "word",
+      "content": "emoji ❤️ wrap 👨‍👩‍👧‍👦 words e\u0301x"
+    } }
+  ]
+}

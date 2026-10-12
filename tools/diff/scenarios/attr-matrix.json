@@ -1,0 +1,24 @@
+{
+  "$schema": "opentui-diff scenario v1",
+  "name": "attr-matrix",
+  "width": 30,
+  "height": 12,
+  "steps": [
+    { "op": "text", "id": "t1", "parent": "root", "options": {
+      "content": [
+        { "text": "bold\n", "attributes": ["bold"] },
+        { "text": "dim\n", "attributes": ["dim"] },
+        { "text": "italic\n", "attributes": ["italic"] },
+        { "text": "underline\n", "attributes": ["underline"] },
+        { "text": "blink\n", "attributes": ["blink"] },
+        { "text": "inverse\n", "attributes": ["inverse"] },
+        { "text": "hidden\n", "attributes": ["hidden"] },
+        { "text": "strikethrough\n", "attributes": ["strikethrough"] },
+        { "text": "B+D\n", "attributes": ["bold", "dim"] },
+        { "text": "I+U\n", "attributes": ["italic", "underline"] },
+        { "text": "ALL\n", "attributes": ["bold", "dim", "italic", "underline", "blink", "inverse", "hidden", "strikethrough"] },
+        { "text": "inv+fg\n", "fg": "#00FF00", "bg": "#0000FF", "attributes": ["inverse"] }
+      ]
+    } }
+  ]
+}

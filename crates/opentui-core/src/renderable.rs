@@ -17,7 +17,7 @@
 use crate::buffer::OptimizedBuffer;
 use crate::layout::{taffy_style, Dimension, LayoutOptions};
 use crate::renderables::box_::BoxRenderableState;
-use crate::renderables::text::{TextRenderableState, WrapMode};
+use crate::renderables::text::TextRenderableState;
 use taffy::prelude as tp;
 use taffy::tree::TaffyTree;
 
@@ -127,12 +127,12 @@ impl Renderable {
         // padding is already reflected in children positions
         self.screen_x = parent_screen.0 + self.x.round() as i32;
         self.screen_y = parent_screen.1 + self.y.round() as i32;
-        // mark measured text with the final width for wrapping
+        // onResize → setViewport (TextBufferRenderable.ts:371-376):
+        // the laid-out size (clamped ≥ 1) drives the viewport + wrap
+        // width. Note the width drives wrapping even for mode none
+        // (alignment + horizontal clip).
         if let Content::Text(state) = &mut self.content {
-            let w = self.w.max(0.0) as u32;
-            if state.wrap_mode != WrapMode::None || state.lines.is_none() {
-                state.wrap_at(w);
-            }
+            state.update_layout(self.w.max(0.0) as u32, self.h.max(0.0) as u32);
         }
         for child in &mut self.children {
             child.update_layout(tree, (self.screen_x, self.screen_y));
