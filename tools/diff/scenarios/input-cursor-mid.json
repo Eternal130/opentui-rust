@@ -1,0 +1,31 @@
+{
+  "name": "input-cursor-mid",
+  "width": 24,
+  "height": 3,
+  "steps": [
+    {
+      "op": "input",
+      "id": "in",
+      "parent": "root",
+      "options": {
+        "width": 20,
+        "value": "hello"
+      }
+    },
+    {
+      "op": "focus",
+      "id": "in"
+    },
+    {
+      "op": "key",
+      "sequence": [
+        27,
+        91,
+        68,
+        27,
+        91,
+        68
+      ]
+    }
+  ]
+}

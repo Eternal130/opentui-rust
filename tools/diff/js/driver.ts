@@ -8,6 +8,7 @@
 import { Writable } from "node:stream"
 import {
   createCliRenderer,
+  InputRenderable,
   TextRenderable,
   BoxRenderable,
   TextNodeRenderable,
@@ -119,7 +120,7 @@ const setup = await createTestRenderer({
 })
 const renderer = setup.renderer
 
-// scenario steps → real renderables
+// scenario steps → real renderables, IN ORDER (mount, focus, key feed)
 const nodes = new Map()
 function node(id) {
   if (id === "root") return renderer.root
@@ -159,7 +160,50 @@ for (const step of scenario.steps) {
     stdout.rows = step.height
     continue
   }
+  if (step.op === "flush") {
+    await setup.flush()
+    continue
+  }
+  if (step.op === "focus") {
+    const target = node(step.id)
+    if (!target) throw new Error(`focus: unknown id ${step.id}`)
+    target.focus()
+    continue
+  }
+  if (step.op === "key") {
+    // raw bytes through the REAL stdin parser -> key handler pipeline
+    renderer.stdin.emit("data", Buffer.from(Uint8Array.from(step.sequence ?? [])))
+    continue
+  }
+  if (step.op === "text-node") {
+    // attach a TextNodeRenderable to an existing text renderable
+    const target = nodes.get(step.parent)
+    if (!(target instanceof TextRenderable)) {
+      throw new Error(`text-node parent ${step.parent} is not a TextRenderable`)
+    }
+    const o = step.options ?? {}
+    const options = {}
+    if (o.fg !== undefined) options.fg = o.fg
+    if (o.bg !== undefined) options.bg = o.bg
+    if (o.attributes !== undefined) options.attributes = parseAttributes(o.attributes)
+    const n = new TextNodeRenderable(options)
+    if (step.text !== undefined) n.add(step.text)
+    target.add(n)
+    continue
+  }
+  if (step.op === "text-add") {
+    const target = nodes.get(step.target)
+    if (!(target instanceof TextRenderable)) {
+      throw new Error(`text-add target ${step.target} is not a TextRenderable`)
+    }
+    if (step.text === undefined) throw new Error("text-add needs text")
+    target.add(step.text)
+    continue
+  }
+
   const parent = node(step.parent ?? "root")
+  if (!parent) throw new Error(`parent ${step.parent} not found for ${step.id}`)
+  let r
   if (step.op === "text") {
     const o = step.options ?? {}
     const options = {
@@ -175,15 +219,13 @@ for (const step of scenario.steps) {
       ...(o.tabIndicatorColor !== undefined ? { tabIndicatorColor: o.tabIndicatorColor } : {}),
       ...(o.truncate !== undefined ? { truncate: o.truncate } : {}),
     }
-    const r = new TextRenderable(renderer, options)
+    r = new TextRenderable(renderer, options)
     if (o.nodeContent !== undefined) {
       r.add(parseNodeTree(o.nodeContent, `${step.id}-node`))
     }
-    parent.add(r)
-    nodes.set(step.id, r)
   } else if (step.op === "box") {
     const o = step.options ?? {}
-    const r = new BoxRenderable(renderer, {
+    r = new BoxRenderable(renderer, {
       ...(o.backgroundColor !== undefined ? { backgroundColor: o.backgroundColor } : {}),
       ...(o.border !== undefined ? { border: o.border } : {}),
       ...(o.borderStyle !== undefined ? { borderStyle: o.borderStyle } : {}),
@@ -196,32 +238,6 @@ for (const step of scenario.steps) {
       ...(o.flexDirection !== undefined ? { flexDirection: o.flexDirection } : {}),
       ...(o.padding !== undefined ? { padding: o.padding } : {}),
     })
-    parent.add(r)
-    nodes.set(step.id, r)
-  } else if (step.op === "text-node") {
-    // attach a TextNodeRenderable to an existing text renderable
-    const target = nodes.get(step.parent)
-    if (!(target instanceof TextRenderable)) {
-      throw new Error(`text-node parent ${step.parent} is not a TextRenderable`)
-    }
-    const o = step.options ?? {}
-    const options = {}
-    if (o.fg !== undefined) options.fg = o.fg
-    if (o.bg !== undefined) options.bg = o.bg
-    if (o.attributes !== undefined) options.attributes = parseAttributes(o.attributes)
-    const n = new TextNodeRenderable(options)
-    if (step.text !== undefined) n.add(step.text)
-    target.add(n)
-  } else if (step.op === "text-add") {
-    const target = nodes.get(step.target)
-    if (!(target instanceof TextRenderable)) {
-      throw new Error(`text-add target ${step.target} is not a TextRenderable`)
-    }
-    if (step.text === undefined) throw new Error("text-add needs text")
-    target.add(step.text)
-  } else {
-    throw new Error(`unknown op: ${step.op}`)
-  }
   } else if (step.op === "scrollbox") {
     const o = step.options ?? {}
     const boxish = {
@@ -252,9 +268,19 @@ for (const step of scenario.steps) {
       ...(o.contentOptions !== undefined ? { contentOptions: sub("contentOptions") } : {}),
       ...(o.wrapperOptions !== undefined ? { wrapperOptions: sub("wrapperOptions") } : {}),
     })
-  } else if (step.op === "flush") {
-    await setup.flush()
-    continue
+  } else if (step.op === "input") {
+    const o = step.options ?? {}
+    r = new InputRenderable(renderer, {
+      id: step.id,
+      ...(o.value !== undefined ? { value: o.value } : {}),
+      ...(o.placeholder !== undefined ? { placeholder: o.placeholder } : {}),
+      ...(o.width !== undefined ? { width: o.width } : {}),
+      ...(o.maxLength !== undefined ? { maxLength: o.maxLength } : {}),
+      ...(o.textColor !== undefined ? { textColor: o.textColor } : {}),
+      ...(o.focusedTextColor !== undefined ? { focusedTextColor: o.focusedTextColor } : {}),
+      ...(o.backgroundColor !== undefined ? { backgroundColor: o.backgroundColor } : {}),
+      ...(o.placeholderColor !== undefined ? { placeholderColor: o.placeholderColor } : {}),
+    })
   } else {
     throw new Error(`unknown op: ${step.op}`)
   }
@@ -278,12 +304,23 @@ const spans = buf.getSpanLines().map((line) => ({
   })),
 }))
 
+// terminal cursor: the frame's cursor CUP + show sequence
+// (setCursorPosition writes `ESC [<row>;<col> H` before `ESC[?25h`)
+const cursorMatch = [...stdout.bytes().toString("latin1").matchAll(/\x1b\[(\d+);(\d+)H\x1b\[\?25h/g)]
+
 const out = {
   oracle: "@opentui/core@0.5.14",
   renderer: { width: buf.width, height: buf.height },
   lines: spans,
   charFrame: setup.captureCharFrame(),
   sgrBytes: Array.from(stdout.bytes()),
+  cursor: cursorMatch.length
+    ? {
+        row: Number(cursorMatch[cursorMatch.length - 1][1]),
+        col: Number(cursorMatch[cursorMatch.length - 1][2]),
+        visible: true,
+      }
+    : { row: 0, col: 0, visible: false },
 }
 await Bun.write(outPath, JSON.stringify(out))
 console.log(`oracle: ${out.renderer.width}x${out.renderer.height}, ${out.sgrBytes.length} SGR bytes -> ${outPath}`)

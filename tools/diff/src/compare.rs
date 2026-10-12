@@ -58,6 +58,8 @@ pub struct Report {
     pub diffs: Vec<CellDiff>,
     pub oracle_frame: String,
     pub rust_frame: String,
+    /// terminal cursor comparison (input scenarios)
+    pub cursor_diff: Option<String>,
 }
 
 fn rgba_str(w: &[u16; 4]) -> String {
@@ -149,13 +151,27 @@ pub fn compare(oracle: &Capture, rust: &Capture) -> Report {
         .map(|d| (d.y, d.x))
         .collect::<std::collections::HashSet<_>>()
         .len();
+    // terminal cursor (input scenarios): compare when either side
+    // captured one; hidden-vs-hidden counts as equal
+    let cursor_diff = match (&oracle.cursor, &rust.cursor) {
+        (Some(o), Some(r)) if o == r => None,
+        (Some(o), Some(r)) => Some(format!(
+            "oracle (row {}, col {}, visible {}) vs rust (row {}, col {}, visible {})",
+            o.row, o.col, o.visible, r.row, r.col, r.visible
+        )),
+        (None, None) => None,
+        (Some(o), None) => Some(format!("oracle has cursor {o:?}, rust captured none")),
+        (None, Some(r)) => Some(format!("rust has cursor {r:?}, oracle captured none")),
+    };
+    let identical = diffs.is_empty() && cursor_diff.is_none();
     Report {
-        identical: diffs.is_empty(),
+        identical,
         total_cells,
         mismatched_cells: mismatched,
         diffs,
         oracle_frame: oracle.char_frame.clone(),
         rust_frame: rust.char_frame.clone(),
+        cursor_diff,
     }
 }
 
@@ -164,7 +180,7 @@ impl Report {
     pub fn to_markdown(&self, name: &str) -> String {
         let mut md = String::new();
         md.push_str(&format!(
-            "# diff report: {name}\n\n**{}** — {}/{} cells differ ({} field diffs)\n\n",
+            "# diff report: {name}\n\n**{}** — {}/{} cells differ ({} field diffs){}\n\n",
             if self.identical {
                 "IDENTICAL"
             } else {
@@ -172,8 +188,16 @@ impl Report {
             },
             self.mismatched_cells,
             self.total_cells,
-            self.diffs.len()
+            self.diffs.len(),
+            if self.cursor_diff.is_some() {
+                " + cursor mismatch"
+            } else {
+                ""
+            }
         ));
+        if let Some(cd) = &self.cursor_diff {
+            md.push_str(&format!("- cursor: {cd}\n"));
+        }
         let show = self.diffs.len().min(40);
         for d in &self.diffs[..show] {
             md.push_str(&format!(

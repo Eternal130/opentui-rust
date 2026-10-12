@@ -1,0 +1,27 @@
+{
+  "name": "input-delete-word",
+  "width": 24,
+  "height": 3,
+  "steps": [
+    {
+      "op": "input",
+      "id": "in",
+      "parent": "root",
+      "options": {
+        "width": 20,
+        "value": "hello world"
+      }
+    },
+    {
+      "op": "focus",
+      "id": "in"
+    },
+    {
+      "op": "key",
+      "sequence": [
+        23,
+        127
+      ]
+    }
+  ]
+}

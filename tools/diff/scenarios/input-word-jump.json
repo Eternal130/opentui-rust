@@ -1,0 +1,34 @@
+{
+  "name": "input-word-jump",
+  "width": 24,
+  "height": 3,
+  "steps": [
+    {
+      "op": "input",
+      "id": "in",
+      "parent": "root",
+      "options": {
+        "width": 20,
+        "value": "hello world again"
+      }
+    },
+    {
+      "op": "focus",
+      "id": "in"
+    },
+    {
+      "op": "key",
+      "sequence": [
+        1,
+        27,
+        102
+      ]
+    },
+    {
+      "op": "key",
+      "sequence": [
+        88
+      ]
+    }
+  ]
+}

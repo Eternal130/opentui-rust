@@ -13,18 +13,33 @@
 //!    (renderer.ts:4726, RootRenderable.render:1789+),
 //! 3. swap current/next (the diff loop syncs current=next,
 //!    renderer.zig:2833),
-//! 4. [`render_frame_sgr`] emits the diff-based SGR byte stream
-//!    (`prepareRenderFrameWithWriter`, renderer.zig:2584-2838).
+//! 4. [`CliRenderer::render_frame_sgr`] emits the diff-based SGR byte
+//!    stream (`prepareRenderFrameWithWriter`, renderer.zig:2584-2838).
+//!
+//! The events lane adds the interactive half: the render scheduler
+//! ([`crate::scheduler`]), focus tracking
+//! (`focusRenderable`/`blurRenderable`, renderer.ts:1407-1439), the
+//! hit grid + mouse dispatch (`processSingleMouseEvent`,
+//! renderer.ts:3632-3817), and the input feed (bytes → parsed keys →
+//! the key handler → the focused renderable, the slice of
+//! `StdinParser` + `handleStdinEvent`, stdin-parser.ts:1833-1849,
+//! renderer.ts:3498-3545).
 
 use crate::buffer::OptimizedBuffer;
 use crate::color::Rgba;
+use crate::events::{KeyEvent, KeyHandler, MouseButton, MouseEvent, PasteEvent};
+use crate::input::{InputOptions, InputRenderableState};
 use crate::layout::Dimension;
+use crate::parse_keypress::{parse_keypress, ParseKeypressOptions};
+use crate::parse_mouse::{MouseParser, RawMouseEvent};
+use crate::paste::BracketedPasteCollector;
 use crate::renderable::{
     Content, MeasureCtx, MeasureKind, Renderable, RootRenderable, WalkEffects,
 };
 use crate::renderables::box_::{BoxOptions, BoxRenderableState};
 use crate::renderables::scrollbox;
 use crate::renderables::text::{MeasuredText, TextOptions, TextRenderableState};
+use std::sync::Arc;
 use taffy::prelude as tp;
 use taffy::tree::TaffyTree;
 
@@ -35,6 +50,19 @@ pub struct CliRendererConfig {
     pub height: u32,
     /// renderer.ts:217 `backgroundColor`
     pub background_color: Rgba,
+    /// `targetFps` (renderer.ts:169-172; `|| 30` at 1196)
+    pub target_fps: f64,
+    /// `maxFps` (renderer.ts:174-177; `|| 60` at 1197)
+    pub max_fps: f64,
+    /// `autoFocus` (renderer.ts:198, 1223) — focus the nearest
+    /// focusable renderable on left click.
+    pub auto_focus: bool,
+    /// `useMouse` (renderer.ts:205-206, 1222).
+    pub use_mouse: bool,
+    /// `useKittyKeyboard` (renderer.ts:214) — `None` disables the
+    /// kitty protocol; `Some(options)` enables it (the parser's
+    /// `useKittyForParsing = kittyConfig !== null`, renderer.ts:1247).
+    pub kitty_keyboard: Option<KittyKeyboardOptions>,
 }
 
 impl Default for CliRendererConfig {
@@ -43,6 +71,11 @@ impl Default for CliRendererConfig {
             width: 80,
             height: 24,
             background_color: Rgba::from_ints(0, 0, 0, 0),
+            target_fps: 30.0,
+            max_fps: 60.0,
+            auto_focus: true,
+            use_mouse: true,
+            kitty_keyboard: None,
         }
     }
 }
@@ -52,6 +85,99 @@ impl Default for CliRendererConfig {
 pub enum RenderTarget {
     Headless,
 }
+
+/// `KittyKeyboardOptions` (renderer.ts:597-608).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct KittyKeyboardOptions {
+    /// Disambiguate escape codes. Default: true.
+    pub disambiguate: Option<bool>,
+    /// Report alternate keys. Default: true.
+    pub alternate_keys: Option<bool>,
+    /// Report event types (press/repeat/release). Default: false.
+    pub events: Option<bool>,
+    /// Report all keys as escape codes. Default: false.
+    pub all_keys_as_escapes: Option<bool>,
+    /// Report text associated with key events. Default: false.
+    pub report_text: Option<bool>,
+}
+
+// The kitty protocol's progressive-enhancement bits (renderer.ts:584-588)
+const KITTY_FLAG_DISAMBIGUATE: u32 = 0b1;
+const KITTY_FLAG_EVENT_TYPES: u32 = 0b10;
+const KITTY_FLAG_ALTERNATE_KEYS: u32 = 0b100;
+const KITTY_FLAG_ALL_KEYS_AS_ESCAPES: u32 = 0b1000;
+const KITTY_FLAG_REPORT_TEXT: u32 = 0b10000;
+
+/// `buildKittyKeyboardFlags` (renderer.ts:616-651): disambiguate and
+/// alternateKeys default ON (disabled only when explicitly `false`);
+/// the rest default OFF (enabled only when explicitly `true`).
+/// Returns 0 for `None` (protocol disabled).
+#[must_use]
+pub fn build_kitty_keyboard_flags(config: Option<&KittyKeyboardOptions>) -> u32 {
+    let Some(config) = config else {
+        return 0;
+    };
+    let mut flags = 0u32;
+    if config.disambiguate != Some(false) {
+        flags |= KITTY_FLAG_DISAMBIGUATE;
+    }
+    if config.alternate_keys != Some(false) {
+        flags |= KITTY_FLAG_ALTERNATE_KEYS;
+    }
+    if config.events == Some(true) {
+        flags |= KITTY_FLAG_EVENT_TYPES;
+    }
+    if config.all_keys_as_escapes == Some(true) {
+        flags |= KITTY_FLAG_ALL_KEYS_AS_ESCAPES;
+    }
+    if config.report_text == Some(true) {
+        flags |= KITTY_FLAG_REPORT_TEXT;
+    }
+    flags
+}
+
+/// `CliRenderEvents` (renderer.ts:750-767) — the renderer's own event
+/// stream (the slice the input lane emits).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CliRenderEvent {
+    /// `FRAME` — `{ frameId }` (renderer.ts:4761-4765).
+    Frame {
+        frame_id: u64,
+    },
+    /// `FOCUSED_RENDERABLE` — (current, previous) by renderable id
+    /// (renderer.ts:1423).
+    FocusedRenderable {
+        current: Option<String>,
+        previous: Option<String>,
+    },
+    /// `FOCUSED_EDITOR` — (current, previous) by editor id
+    /// (renderer.ts:1419-1421); editors are the EditBuffer family
+    /// (Input counts).
+    FocusedEditor {
+        current: Option<String>,
+        previous: Option<String>,
+    },
+    /// `FOCUS` / `BLUR` — terminal focus sequences `[I` / `[O`
+    /// (renderer.ts:3446-3471).
+    TerminalFocus,
+    TerminalBlur,
+}
+
+/// One hit-grid rect, in paint order (later rects win).
+#[derive(Debug, Clone)]
+struct HitRect {
+    x: i32,
+    y: i32,
+    w: u32,
+    h: u32,
+    id: String,
+}
+
+/// A per-renderable mouse handler (the `onMouseDown`/`processMouseEvent`
+/// side of the tree — Renderable.ts mouse event plumbing).
+pub type MouseEventHandler = Box<dyn FnMut(&mut MouseEvent) + Send>;
+
+type RendererEventListener = Box<dyn FnMut(&CliRenderEvent) + Send>;
 
 /// `CliRenderer` — the render loop owner.
 pub struct CliRenderer {
@@ -69,7 +195,41 @@ pub struct CliRenderer {
     /// scrollbox root id → content node id (`ScrollBox.add` routes user
     /// children into the content viewport, ScrollBox.ts:514-516)
     content_of: std::collections::HashMap<String, String>,
+    // ----- events lane -----
+    /// `_keyHandler` (renderer.ts:861, 1248) — the priority key
+    /// dispatcher.
+    pub key_input: Arc<KeyHandler>,
+    /// `currentFocusedRenderable` id (renderer.ts:935, 1382).
+    focused: Option<String>,
+    /// hit grid in paint order (renderer.ts:1448-1453 + native)
+    hit_grid: Vec<HitRect>,
+    /// mouse handlers per renderable id
+    mouse_handlers: HashMap<String, MouseEventHandler>,
+    /// renderer event listeners (CliRenderEvents)
+    event_listeners: Vec<RendererEventListener>,
+    /// `capturedRenderable` id (renderer.ts:3765-3792)
+    captured: Option<String>,
+    /// `lastOverRenderableNum` (renderer.ts:3678-3679) — the
+    /// same-element check for over/out
+    last_over: Option<String>,
+    /// `lastOverRenderable` (renderer.ts:3754) — the renderable that
+    /// last received `over` (the `out` target)
+    last_over_hover: Option<String>,
+    /// pointer tracking for `recheckHoverState` (renderer.ts:3824-3863)
+    latest_pointer: (i32, i32),
+    has_pointer: bool,
+    /// terminal cursor (`setCursorPosition`, renderer.ts:4149-4155)
+    terminal_cursor: (u32, u32, bool),
+    /// the mouse parser half of StdinParser
+    mouse_parser: MouseParser,
+    /// incomplete-unit bytes carried across feeds (the StdinParser's
+    /// single pending unit: lone ESC, split UTF-8, unterminated OSC)
+    feed_pending: Vec<u8>,
+    /// bracketed paste collector (stdin-parser.ts:552+)
+    paste_collector: Option<BracketedPasteCollector>,
 }
+
+use std::collections::HashMap;
 
 impl Default for CliRenderer {
     fn default() -> Self {
@@ -95,6 +255,20 @@ pub fn create_cli_renderer(config: CliRendererConfig) -> CliRenderer {
         sgr_history: String::new(),
         frame_id: 0,
         content_of: std::collections::HashMap::new(),
+        key_input: Arc::new(KeyHandler::new()),
+        focused: None,
+        hit_grid: Vec::new(),
+        mouse_handlers: HashMap::new(),
+        event_listeners: Vec::new(),
+        captured: None,
+        last_over: None,
+        last_over_hover: None,
+        latest_pointer: (0, 0),
+        has_pointer: false,
+        terminal_cursor: (0, 0, false),
+        mouse_parser: MouseParser::new(),
+        paste_collector: None,
+        feed_pending: Vec::new(),
     }
 }
 
@@ -137,6 +311,7 @@ impl CliRenderer {
         let ctx = MeasureCtx {
             kind: MeasureKind::Text,
             text: Some(state.measured()),
+            ..Default::default()
         };
         Renderable::new(
             &mut self.tree,
@@ -164,6 +339,53 @@ impl CliRenderer {
             Content::Box(state),
             None,
         )
+    }
+
+    /// Construct an input renderable without mounting.
+    #[must_use]
+    pub fn make_input(&mut self, id: &str, opts: &InputOptions) -> Renderable {
+        let state = InputRenderableState::new(opts);
+        let ctx = MeasureCtx {
+            kind: MeasureKind::Input,
+            input_width_cols: state.edit_width_cols(),
+            ..Default::default()
+        };
+        let width = opts
+            .width
+            .map(|w| Dimension::Points(w as f32))
+            .unwrap_or(Dimension::Auto);
+        Renderable::new(
+            &mut self.tree,
+            id,
+            crate::layout::LayoutOptions::default(),
+            width,
+            Dimension::Points(1.0), // single-line constraint (Input.ts:78)
+            Content::Input(state),
+            Some(ctx),
+        )
+    }
+
+    /// Mount convenience: construct + mount an input renderable.
+    pub fn add_input(&mut self, id: &str, opts: &InputOptions) {
+        let r = self.make_input(id, opts);
+        self.add(r);
+    }
+
+    /// Update an input leaf's measure context after its value changed
+    /// (`content-changed` → `yogaNode.markDirty`,
+    /// EditBufferRenderable.ts:203-210).
+    pub fn refresh_input_measure(&mut self, id: &str) {
+        let Some(node) = Self::find_node_mut(&mut self.root.inner, id) else {
+            return;
+        };
+        if let Content::Input(state) = &node.content {
+            let w = state.edit_width_cols();
+            let n = node.node;
+            if let Some(ctx) = self.tree.get_node_context_mut(n) {
+                ctx.input_width_cols = w;
+            }
+            let _ = self.tree.mark_dirty(n);
+        }
     }
 
     /// `requestRender` → `loop()` tick: one deterministic frame.
@@ -211,8 +433,13 @@ impl CliRenderer {
             guard += 1;
         }
 
-        // pass 3: paint into next buffer
+        // pass 3: paint into next buffer; the hit grid rebuilds in
+        // paint order (addToHitGrid, Renderable.ts:1493)
+        self.hit_grid.clear();
+        let captured = self.captured.clone();
+        Self::collect_hit_rects(&self.root.inner, captured.as_deref(), &mut self.hit_grid);
         self.root.inner.paint(&mut self.next_render_buffer);
+        self.update_terminal_cursor();
 
         // 3. SGR emission (diff current vs next) — before the swap
         let mut sgr = String::new();
@@ -228,6 +455,10 @@ impl CliRenderer {
         );
 
         self.frame_id += 1;
+        // FRAME event (renderer.ts:4761-4765)
+        self.emit_event(CliRenderEvent::Frame {
+            frame_id: self.frame_id,
+        });
         self.frame_id
     }
 
@@ -529,6 +760,676 @@ impl CliRenderer {
         }
         root.children.iter().find_map(|c| self.find_node(c, id))
     }
+
+    fn find_node_mut<'a>(root: &'a mut Renderable, id: &str) -> Option<&'a mut Renderable> {
+        if root.id.0 == id {
+            return Some(root);
+        }
+        root.children
+            .iter_mut()
+            .find_map(|c| Self::find_node_mut(c, id))
+    }
+
+    // -----------------------------------------------------------------
+    // Hit grid + mouse dispatch — renderer.ts:1448-1453, 3602-3817
+    // -----------------------------------------------------------------
+
+    /// `addToHitGrid` walk: every VISIBLE renderable adds its rect in
+    /// paint order (Renderable.ts:1481-1493). The captured renderable
+    /// is skipped (renderer.ts:1450-1452).
+    fn collect_hit_rects(node: &Renderable, captured: Option<&str>, grid: &mut Vec<HitRect>) {
+        if !node.visible {
+            return;
+        }
+        if captured != Some(node.id.0.as_str()) {
+            grid.push(HitRect {
+                x: node.screen_x,
+                y: node.screen_y,
+                w: node.w.max(0.0) as u32,
+                h: node.h.max(0.0) as u32,
+                id: node.id.0.clone(),
+            });
+        }
+        for child in &node.children {
+            Self::collect_hit_rects(child, captured, grid);
+        }
+    }
+
+    /// `hitTest` (renderer.ts:3869-3871): the top-most rect containing
+    /// the point (later paint order wins).
+    #[must_use]
+    pub fn hit_test(&self, x: i32, y: i32) -> Option<String> {
+        self.hit_grid
+            .iter()
+            .rev()
+            .find(|r| x >= r.x && x < r.x + r.w as i32 && y >= r.y && y < r.y + r.h as i32)
+            .map(|r| r.id.clone())
+    }
+
+    /// `onMouseDown` and friends — register a handler for a
+    /// renderable id (`Renderable.processMouseEvent` +
+    /// `renderable.on("mouse-down")`).
+    pub fn on_mouse<F>(&mut self, id: &str, handler: F)
+    where
+        F: FnMut(&mut MouseEvent) + Send + 'static,
+    {
+        self.mouse_handlers.insert(id.to_owned(), Box::new(handler));
+    }
+
+    /// `sendMouseEvent` (renderer.ts:3623-3630): deliver to the
+    /// target's handler.
+    fn send_mouse_event(&mut self, target: &str, event: &mut MouseEvent) {
+        if let Some(handler) = self.mouse_handlers.get_mut(target) {
+            handler(event);
+        }
+    }
+
+    /// `dispatchMouseEvent` (renderer.ts:3602-3621): deliver, then the
+    /// autoFocus walk — the nearest focusable ancestor of the target
+    /// receives focus on an un-prevented left down.
+    fn dispatch_mouse_event(&mut self, target: &str, attributes: &RawMouseEvent) {
+        let source = self.captured.clone();
+        let mut event = MouseEvent::new(Some(target), attributes, source.as_deref(), false);
+        self.send_mouse_event(target, &mut event);
+
+        if self.config.auto_focus
+            && event.event_type == crate::parse_mouse::MouseEventType::Down
+            && event.button == MouseButton::Left as i32
+            && !event.default_prevented()
+        {
+            // walk target → parents for the first focusable
+            // (renderer.ts:3609-3618)
+            if let Some(path) = self.ancestor_path(target) {
+                for id in path {
+                    if let Some(node) = self.find_node(&self.root.inner, &id) {
+                        if node.focusable {
+                            self.focus_renderable(&id);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The target id followed by its ancestors (target first, root last).
+    fn ancestor_path(&self, target: &str) -> Option<Vec<String>> {
+        fn walk(node: &Renderable, target: &str, path: &mut Vec<String>) -> bool {
+            if node.id.0 == target {
+                return true;
+            }
+            for child in &node.children {
+                if walk(child, target, path) {
+                    path.insert(0, node.id.0.clone());
+                    return true;
+                }
+            }
+            false
+        }
+        let mut path = vec![target.to_owned()];
+        if walk(&self.root.inner, target, &mut path) {
+            Some(path)
+        } else {
+            None
+        }
+    }
+
+    /// `processSingleMouseEvent` (renderer.ts:3632-3817) — the
+    /// selection/console/split-footer branches are the textarea lane;
+    /// the core routing (scroll fallback, over/out, drag capture,
+    /// drop) is ported order-exact.
+    pub fn process_mouse_event(&mut self, event: RawMouseEvent) -> bool {
+        // pointer tracking (renderer.ts:3640-3643)
+        self.latest_pointer = (event.x, event.y);
+        self.has_pointer = true;
+
+        if event.event_type == crate::parse_mouse::MouseEventType::Scroll {
+            // scroll → hit target, falling back to the focused
+            // renderable (renderer.ts:3659-3674)
+            let maybe = self.hit_test(event.x, event.y);
+            let fallback = self
+                .focused
+                .clone()
+                .filter(|id| self.find_node(&self.root.inner, id).is_some());
+            let scroll_target = maybe.or(fallback);
+            if let Some(target) = scroll_target {
+                let mut evt = MouseEvent::new(Some(&target), &event, None, false);
+                self.send_mouse_event(&target, &mut evt);
+            }
+            return true;
+        }
+
+        let maybe_id = self.hit_test(event.x, event.y);
+        let same_element = maybe_id == self.last_over;
+        // hit tracking updates even when nothing is hit (None == None)
+        self.last_over = maybe_id.clone();
+        let maybe_id = maybe_id.filter(|id| self.find_node(&self.root.inner, id).is_some());
+
+        // over/out on target change for move/drag (renderer.ts:3742-3763)
+        if !same_element
+            && (event.event_type == crate::parse_mouse::MouseEventType::Drag
+                || event.event_type == crate::parse_mouse::MouseEventType::Move)
+        {
+            let prev = self.last_over_hover.take();
+            if let Some(prev_id) = prev {
+                if Some(&prev_id) != self.captured.as_ref() {
+                    let mut out = MouseEvent::new(Some(&prev_id), &event, None, false)
+                        .with_type(crate::parse_mouse::MouseEventType::Out);
+                    self.send_mouse_event(&prev_id, &mut out);
+                }
+            }
+            if let Some(id) = &maybe_id {
+                let mut over = MouseEvent::new(Some(id), &event, self.captured.as_deref(), false)
+                    .with_type(crate::parse_mouse::MouseEventType::Over);
+                self.send_mouse_event(id, &mut over);
+            }
+            self.last_over_hover = maybe_id.clone();
+        }
+
+        // captured renderable routing (renderer.ts:3765-3792)
+        if let Some(captured) = self.captured.clone() {
+            if event.event_type != crate::parse_mouse::MouseEventType::Up {
+                let mut evt = MouseEvent::new(Some(&captured), &event, None, false);
+                self.send_mouse_event(&captured, &mut evt);
+                return true;
+            }
+            // drag-end + up + drop (renderer.ts:3771-3792)
+            let mut drag_end = MouseEvent::new(Some(&captured), &event, None, false)
+                .with_type(crate::parse_mouse::MouseEventType::DragEnd);
+            self.send_mouse_event(&captured, &mut drag_end);
+            let mut up = MouseEvent::new(Some(&captured), &event, None, false);
+            self.send_mouse_event(&captured, &mut up);
+            if let Some(id) = &maybe_id {
+                let mut drop = MouseEvent::new(Some(id), &event, Some(&captured), false)
+                    .with_type(crate::parse_mouse::MouseEventType::Drop);
+                self.send_mouse_event(id, &mut drop);
+            }
+            self.last_over = Some(captured.clone());
+            self.last_over_hover = Some(captured);
+            self.captured = None;
+            return true;
+        }
+
+        if let Some(id) = maybe_id {
+            // drag with the left button captures the target
+            // (renderer.ts:3795-3800)
+            if event.event_type == crate::parse_mouse::MouseEventType::Drag
+                && event.button == MouseButton::Left as i32
+            {
+                self.captured = Some(id.clone());
+            }
+            self.dispatch_mouse_event(&id, &event);
+        }
+        true
+    }
+
+    // -----------------------------------------------------------------
+    // Focus — renderer.ts:1407-1439
+    // -----------------------------------------------------------------
+
+    /// `focusRenderable(renderable)` (renderer.ts:1407-1424).
+    pub fn focus_renderable(&mut self, id: &str) {
+        if self.focused.as_deref() == Some(id) {
+            return;
+        }
+        let previous = self.focused.clone();
+        let previous_editor = self.current_focused_editor();
+        self.focused = Some(id.to_owned());
+
+        // blur the previous renderable's state (Renderable.blur,
+        // Renderable.ts:445-460)
+        if let Some(prev_id) = &previous {
+            self.apply_focus_state(prev_id, false);
+        }
+        // focus the new one (Renderable.focus, Renderable.ts:399-430)
+        self.apply_focus_state(id, true);
+
+        let current_editor = self.current_focused_editor();
+        if previous_editor != current_editor {
+            self.emit_event(CliRenderEvent::FocusedEditor {
+                current: current_editor,
+                previous: previous_editor,
+            });
+        }
+        self.emit_event(CliRenderEvent::FocusedRenderable {
+            current: Some(id.to_owned()),
+            previous,
+        });
+    }
+
+    /// `blurRenderable(renderable)` (renderer.ts:1426-1439).
+    pub fn blur_renderable(&mut self, id: &str) {
+        if self.focused.as_deref() != Some(id) {
+            return;
+        }
+        let previous_editor = self.current_focused_editor();
+        self.focused = None;
+        self.apply_focus_state(id, false);
+        if previous_editor.is_some() {
+            self.emit_event(CliRenderEvent::FocusedEditor {
+                current: None,
+                previous: previous_editor,
+            });
+        }
+        self.emit_event(CliRenderEvent::FocusedRenderable {
+            current: None,
+            previous: Some(id.to_owned()),
+        });
+    }
+
+    fn apply_focus_state(&mut self, id: &str, focused: bool) {
+        if let Some(node) = Self::find_node_mut(&mut self.root.inner, id) {
+            node.focused = focused;
+            if let Content::Input(state) = &mut node.content {
+                if focused {
+                    state.focus();
+                } else {
+                    state.blur();
+                }
+            }
+        }
+    }
+
+    /// `currentFocusedRenderable` (renderer.ts:1381-1382).
+    #[must_use]
+    pub fn current_focused_renderable(&self) -> Option<&str> {
+        self.focused.as_deref()
+    }
+
+    /// Observe an input renderable's value (`input.value`).
+    #[must_use]
+    pub fn input_value(&self, id: &str) -> Option<String> {
+        let node = self.find_node(&self.root.inner, id)?;
+        match &node.content {
+            Content::Input(state) => Some(state.value().to_owned()),
+            _ => None,
+        }
+    }
+
+    /// Run an edit action on an input renderable — the host-side
+    /// application of keymap edit commands (`withFocusedEditor`,
+    /// edit-buffer-bindings.ts:433-440).
+    pub fn run_input_action(&mut self, id: &str, action: crate::input::InputAction) -> bool {
+        let Some(node) = Self::find_node_mut(&mut self.root.inner, id) else {
+            return false;
+        };
+        match &mut node.content {
+            Content::Input(state) => state.run_action(action),
+            _ => false,
+        }
+    }
+
+    /// Toggle the textarea mapping suspension on an input — the
+    /// renderer side of `registerTextareaMappingSuspension`
+    /// (edit-buffer-bindings.ts:374-431): with the keymap owning the
+    /// keys, the input's own binding map stands down.
+    pub fn set_input_mapping_suspension(&mut self, id: &str, suspended: bool) {
+        if let Some(node) = Self::find_node_mut(&mut self.root.inner, id) {
+            if let Content::Input(state) = &mut node.content {
+                state.suspend_mappings = suspended;
+            }
+        }
+    }
+
+    /// `currentFocusedEditor` (renderer.ts:1384-1388) — the focused
+    /// renderable when it is an EditBuffer family member (Input).
+    #[must_use]
+    pub fn current_focused_editor(&self) -> Option<String> {
+        let id = self.focused.as_ref()?;
+        let node = self.find_node(&self.root.inner, id)?;
+        match node.content {
+            Content::Input(_) => Some(id.clone()),
+            _ => None,
+        }
+    }
+
+    /// Focus tree snapshot — the queries `@opentui/keymap`'s host
+    /// needs (`getParentTarget`, `getFocusedTarget`,
+    /// keymap opentui.ts:60-71): node → parent links plus the focused
+    /// id. Feeds [`opentui_keymap`]'s `OpenTuiHost::add`/`set_focused`.
+    #[must_use]
+    pub fn focus_tree(&self) -> (HashMap<String, Option<String>>, Option<String>) {
+        let mut parents = HashMap::new();
+        fn walk(
+            node: &Renderable,
+            parent: Option<&str>,
+            parents: &mut HashMap<String, Option<String>>,
+        ) {
+            parents.insert(node.id.0.clone(), parent.map(str::to_owned));
+            for child in &node.children {
+                walk(child, Some(node.id.0.as_str()), parents);
+            }
+        }
+        walk(&self.root.inner, None, &mut parents);
+        (parents, self.focused.clone())
+    }
+
+    // -----------------------------------------------------------------
+    // Renderer events — CliRenderEvents (renderer.ts:750-767)
+    // -----------------------------------------------------------------
+
+    /// `renderer.on(CliRenderEvents.X, listener)`.
+    pub fn on_event<F>(&mut self, listener: F)
+    where
+        F: FnMut(&CliRenderEvent) + Send + 'static,
+    {
+        self.event_listeners.push(Box::new(listener));
+    }
+
+    fn emit_event(&mut self, event: CliRenderEvent) {
+        for listener in &mut self.event_listeners {
+            listener(&event);
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Terminal cursor — setCursorPosition (renderer.ts:4149-4155)
+    // -----------------------------------------------------------------
+
+    fn update_terminal_cursor(&mut self) {
+        // renderCursor (EditBufferRenderable.ts:1010-1022): only the
+        // focused editor shows the cursor; +1 for 1-based terminal
+        // coordinates (line 1017-1018)
+        if let Some(id) = self.focused.clone() {
+            if let Some(node) = self.find_node(&self.root.inner, &id) {
+                if let Content::Input(state) = &node.content {
+                    let x = node.screen_x + state.visual_cursor_col() as i32;
+                    let y = node.screen_y;
+                    self.terminal_cursor = ((x + 1).max(0) as u32, (y + 1).max(0) as u32, true);
+                    return;
+                }
+            }
+        }
+        self.terminal_cursor = (0, 0, false);
+    }
+
+    /// The terminal cursor position (1-based, upstream coordinates)
+    /// and visibility — `renderCursor` + `setCursorPosition`.
+    #[must_use]
+    pub fn terminal_cursor(&self) -> (u32, u32, bool) {
+        self.terminal_cursor
+    }
+
+    // -----------------------------------------------------------------
+    // Input feed — the StdinParser slice (stdin-parser.ts) +
+    // handleStdinEvent (renderer.ts:3498-3545)
+    // -----------------------------------------------------------------
+
+    /// Feed raw stdin bytes. The events lane's parser handles the unit
+    /// classes the input family produces: mouse sequences (SGR + X10,
+    /// runs included), bracketed paste with partial-chunk reassembly,
+    /// terminal focus sequences, and complete key units. Incomplete
+    /// units (a lone ESC awaiting timeout disambiguation, split UTF-8
+    /// codepoints, lone high bytes) stay pending across feeds —
+    /// matching the oracle's immediate-event behavior. The full
+    /// protocol-context state machine (CPR/DA/pixel-resolution
+    /// deferral) is the tier-2 `StdinParser` follow-up port.
+    pub fn feed_bytes(&mut self, bytes: &[u8]) {
+        if bytes.is_empty() {
+            // Preserve the existing empty-chunk → empty-keypress
+            // behavior (stdin-parser.ts:735-740)
+            let parsed = parse_keypress(
+                "",
+                ParseKeypressOptions {
+                    use_kitty_keyboard: self.use_kitty_keyboard(),
+                },
+            );
+            if let Some(key) = parsed {
+                self.dispatch_key(key);
+            }
+            return;
+        }
+        // Active paste: everything flows through the collector
+        // (stdin-parser.ts:744-747)
+        if let Some(mut collector) = self.paste_collector.take() {
+            match collector.consume(bytes) {
+                Some((paste, remainder)) => {
+                    self.dispatch_paste(paste);
+                    if !remainder.is_empty() {
+                        self.feed_bytes(&remainder);
+                    }
+                }
+                None => {
+                    self.paste_collector = Some(collector);
+                }
+            }
+            return;
+        }
+        self.feed_pending.extend_from_slice(bytes);
+        self.drain_feed_units();
+    }
+
+    /// `renderer.useKittyKeyboard` (renderer.ts:1975-1983): the parser
+    /// flag — true when the protocol is configured at all.
+    #[must_use]
+    pub fn use_kitty_keyboard(&self) -> bool {
+        self.config.kitty_keyboard.is_some()
+    }
+
+    /// The configured kitty flags (`buildKittyKeyboardFlags`,
+    /// renderer.ts:1131-1133).
+    #[must_use]
+    pub fn kitty_keyboard_flags(&self) -> u32 {
+        build_kitty_keyboard_flags(self.config.kitty_keyboard.as_ref())
+    }
+
+    /// Process complete units off the pending buffer (the
+    /// `scanPending` loop's unit classes, stdin-parser.ts:905+).
+    fn drain_feed_units(&mut self) {
+        loop {
+            // Paste start at a unit boundary (stdin-parser.ts:753-756)
+            if self
+                .feed_pending
+                .starts_with(crate::paste::BRACKETED_PASTE_START)
+            {
+                let start_len = crate::paste::BRACKETED_PASTE_START.len();
+                self.feed_pending.drain(..start_len);
+                self.paste_collector = Some(BracketedPasteCollector::new());
+                let rest = std::mem::take(&mut self.feed_pending);
+                if !rest.is_empty() {
+                    self.feed_bytes(&rest);
+                }
+                return;
+            }
+
+            // Mouse sequences route before keys (handleStdinEvent,
+            // renderer.ts:3521-3527)
+            if let Some(consumed) = self
+                .mouse_parser
+                .parse_mouse_sequence_len(&self.feed_pending, 0)
+            {
+                let events = self
+                    .mouse_parser
+                    .parse_all_mouse_events(&self.feed_pending[..consumed]);
+                if !events.is_empty() {
+                    if self.config.use_mouse {
+                        for event in events {
+                            self.process_mouse_event(event);
+                        }
+                    }
+                    self.feed_pending.drain(..consumed);
+                    continue;
+                }
+            }
+
+            let buf = self.feed_pending.clone();
+            if buf.is_empty() {
+                return;
+            }
+
+            // Terminal focus sequences (renderer.ts:3446-3471)
+            if buf == b"\x1b[I" || buf == b"\x1b[O" {
+                let focus = buf == b"\x1b[I";
+                self.emit_event(if focus {
+                    CliRenderEvent::TerminalFocus
+                } else {
+                    CliRenderEvent::TerminalBlur
+                });
+                self.feed_pending.drain(..buf.len());
+                continue;
+            }
+
+            let Some(unit_len) = complete_unit_len(&buf) else {
+                return; // incomplete unit stays pending
+            };
+            if unit_len == 0 {
+                return;
+            }
+            let unit: Vec<u8> = self.feed_pending.drain(..unit_len).collect();
+            // Valid UTF-8 decodes as such (the parser's KEY_DECODER,
+            // stdin-parser.ts:548-550); non-UTF-8 bytes take the
+            // latin1 path (decodeLatin1, stdin-parser.ts:544-546)
+            let raw = match String::from_utf8(unit.clone()) {
+                Ok(text) => text,
+                Err(_) => unit
+                    .iter()
+                    .map(|b| char::from_u32(u32::from(*b)).unwrap_or('\u{fffd}'))
+                    .collect(),
+            };
+            let parsed = parse_keypress(
+                &raw,
+                ParseKeypressOptions {
+                    use_kitty_keyboard: self.use_kitty_keyboard(),
+                },
+            );
+            if let Some(key) = parsed {
+                self.dispatch_key(key);
+            }
+            // response/unknown sequences produce no key event (the
+            // sequence handler chain is a follow-up port)
+        }
+    }
+
+    /// `handleStdinEvent` key branch (renderer.ts:3514-3520): global
+    /// key listeners first (KeyHandler), then the focused
+    /// renderable's `handleKeyPress` (the internal-handler
+    /// registration of Renderable.focus, Renderable.ts:406-427).
+    fn dispatch_key(&mut self, key: crate::parse_keypress::ParsedKey) {
+        let mut event = KeyEvent::new(key);
+        // globals (KeyHandler global listeners)
+        self.key_input.process_parsed_key(event.key.clone());
+        // the focused renderable only when the globals did not
+        // prevent or stop the event (KeyHandler.ts:179-181)
+        if event.default_prevented() || event.propagation_stopped() {
+            return;
+        }
+        self.deliver_key_to_focused(&mut event);
+    }
+
+    fn deliver_key_to_focused(&mut self, event: &mut KeyEvent) {
+        let Some(id) = self.focused.clone() else {
+            return;
+        };
+        let Some(node) = Self::find_node_mut(&mut self.root.inner, &id) else {
+            return;
+        };
+        if let Content::Input(state) = &mut node.content {
+            state.handle_key(event);
+        }
+    }
+
+    /// The paste branch (renderer.ts:3528-3530).
+    fn dispatch_paste(&mut self, bytes: Vec<u8>) {
+        // global paste listeners
+        self.key_input.process_paste(bytes.clone(), None);
+        // focused renderable
+        let Some(id) = self.focused.clone() else {
+            return;
+        };
+        let Some(node) = Self::find_node_mut(&mut self.root.inner, &id) else {
+            return;
+        };
+        if let Content::Input(state) = &mut node.content {
+            let mut event = PasteEvent::new(bytes, None);
+            state.handle_paste(&mut event);
+        }
+    }
+}
+
+/// The length of the first complete protocol unit in `data`, or
+/// `None` while the unit is incomplete (the StdinParser keeps at most
+/// one incomplete unit pending — stdin-parser.ts:579-586). Unit
+/// classes: single ASCII bytes, `ESC` + final / CSI / SS3 / OSC / DCS
+/// sequences, and complete UTF-8 codepoints. Lone ESC, unterminated
+/// OSC/DCS, and bytes that cannot start a unit (continuation bytes,
+/// invalid leads) stay pending — upstream resolves them on timeout.
+fn complete_unit_len(data: &[u8]) -> Option<usize> {
+    let first = *data.first()?;
+    if first != 0x1b {
+        // UTF-8 lead byte: complete when all continuation bytes exist
+        let len = match first {
+            0x00..=0x7f => 1,
+            0xc0..=0xdf => 2,
+            0xe0..=0xef => 3,
+            0xf0..=0xf7 => 4,
+            // continuation bytes without a lead / invalid leads wait
+            // for the timeout (emitLegacyHighByte, stdin-parser.ts:1870)
+            _ => return None,
+        };
+        if data.len() < len {
+            return None;
+        }
+        if len > 1 && !data[1..len].iter().all(|b| (0x80..=0xbf).contains(b)) {
+            // broken sequence: the maximal subpart is its own unit
+            return Some(1);
+        }
+        return Some(len);
+    }
+
+    // The esc state consumes EVERY leading ESC (ESC ESC stays in esc —
+    // terminals encode Alt+ESC as ESC ESC [...], stdin-parser.ts:1043-1047)
+    let mut i = 0;
+    while i < data.len() && data[i] == 0x1b {
+        i += 1;
+    }
+    if i == data.len() {
+        return None; // lone ESC(s): timeout resolution (follow-up port)
+    }
+    // The byte after the ESCs determines the sub-protocol
+    // (stdin-parser.ts:1020-1042)
+    match data[i] {
+        b'[' => {
+            // CSI: any bytes then a final byte 0x40-0x7e. A second `[`
+            // right after ESC[ (absolute index 2) is PAYLOAD, not a
+            // final byte — the cygwin `ESC [[ A` variants
+            // (stdin-parser.ts:1186-1193).
+            let mut j = i + 1;
+            if j == 2 && data.get(2) == Some(&b'[') {
+                j = 3;
+            }
+            while j < data.len() {
+                let b = data[j];
+                if (0x40..=0x7e).contains(&b) {
+                    return Some(j + 1);
+                }
+                j += 1;
+            }
+            None
+        }
+        b'O' | b'N' => {
+            if data.len() >= i + 2 {
+                Some(i + 2)
+            } else {
+                None
+            }
+        }
+        b']' | b'P' | b'X' | b'^' | b'_' => {
+            // OSC / DCS / SOS / PM / APC: to BEL (OSC only) or ST
+            let is_osc = data[i] == b']';
+            let mut j = i + 1;
+            while j < data.len() {
+                if is_osc && data[j] == 0x07 {
+                    return Some(j + 1);
+                }
+                if data[j] == 0x1b && data.get(j + 1) == Some(&b'\\') {
+                    return Some(j + 2);
+                }
+                j += 1;
+            }
+            None
+        }
+        _ => Some(i + 1), // ESC + byte: a complete two-byte escape
+    }
 }
 
 #[cfg(test)]
@@ -548,6 +1449,7 @@ mod tests {
         let ctx = MeasureCtx {
             kind: MeasureKind::Text,
             text: Some(state.measured()),
+            ..Default::default()
         };
         Renderable::new(
             &mut TaffyTree::new(),
@@ -570,6 +1472,7 @@ mod tests {
         let ctx = MeasureCtx {
             kind: MeasureKind::Text,
             text: Some(state.measured()),
+            ..Default::default()
         };
         let r = Renderable::new(
             &mut renderer.tree,
@@ -711,6 +1614,34 @@ mod tests {
         // flexGrow 1 in a 20-wide row → fills the row with red
         let cell = renderer.current_render_buffer.get(19, 0).unwrap();
         assert_eq!(cell.bg, Rgba::rgb(255, 0, 0));
+    }
+
+    #[test]
+    fn kitty_keyboard_flags_defaults() {
+        // renderer.ts:616-651 — None → 0 (disabled)
+        assert_eq!(build_kitty_keyboard_flags(None), 0);
+        // empty options: disambiguate + alternate keys default ON
+        let flags = build_kitty_keyboard_flags(Some(&KittyKeyboardOptions::default()));
+        assert_eq!(flags, 0b101);
+        // explicit false disables a default flag
+        let flags = build_kitty_keyboard_flags(Some(&KittyKeyboardOptions {
+            disambiguate: Some(false),
+            ..Default::default()
+        }));
+        assert_eq!(flags, 0b100);
+        // optional flags only when explicitly true
+        let flags = build_kitty_keyboard_flags(Some(&KittyKeyboardOptions {
+            events: Some(true),
+            report_text: Some(true),
+            ..Default::default()
+        }));
+        assert_eq!(flags, 0b10000 | 0b10 | 0b101);
+        // allKeysAsEscapes alone
+        let flags = build_kitty_keyboard_flags(Some(&KittyKeyboardOptions {
+            all_keys_as_escapes: Some(true),
+            ..Default::default()
+        }));
+        assert_eq!(flags, 0b1000 | 0b101);
     }
 
     #[test]

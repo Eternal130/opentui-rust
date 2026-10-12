@@ -5,6 +5,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[dev-dependencies]
+opentui-keymap = { path = "../opentui-keymap" }
+
 [dependencies]
 taffy = { workspace = true }
 unicode-width = { workspace = true }

@@ -1,0 +1,36 @@
+{
+  "name": "input-typed-text",
+  "width": 24,
+  "height": 3,
+  "steps": [
+    {
+      "op": "input",
+      "id": "in",
+      "parent": "root",
+      "options": {
+        "width": 20,
+        "placeholder": "Type here"
+      }
+    },
+    {
+      "op": "focus",
+      "id": "in"
+    },
+    {
+      "op": "key",
+      "sequence": [
+        104,
+        101,
+        108,
+        108,
+        111,
+        32,
+        119,
+        111,
+        114,
+        108,
+        100
+      ]
+    }
+  ]
+}

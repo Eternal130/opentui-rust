@@ -114,11 +114,11 @@ tree-sitter styling, testing helpers.
 | `ImageLoadError` | 2 | core/src/image.ts:16 | opentui-core | todo |
 | `ImageRenderable` | 2 | core/src/renderables/Image.ts:41 | opentui-core::renderables | todo |
 | `Input` | 2 | core/src/renderables/composition/constructs.ts:44 | opentui-core | todo |
-| `InputRenderable` | **1** | core/src/renderables/Input.ts:46 | opentui-core::renderables | todo |
-| `InputRenderableEvents` | 2 | core/src/renderables/Input.ts:29 | opentui-core::renderables | todo |
-| `InternalKeyHandler` | 2 | core/src/lib/KeyHandler.ts:134 | opentui-core::renderer | todo |
-| `KeyEvent` | **1** | core/src/lib/KeyHandler.ts:5 | opentui-core::renderer | partial |
-| `KeyHandler` | 2 | core/src/lib/KeyHandler.ts:99 | opentui-core::renderer | todo |
+| `InputRenderable` | **1** | core/src/renderables/Input.ts:46 | opentui-core::input | done |
+| `InputRenderableEvents` | 2 | core/src/renderables/Input.ts:29 | opentui-core::input | done |
+| `InternalKeyHandler` | 2 | core/src/lib/KeyHandler.ts:134 | opentui-core::events | done |
+| `KeyEvent` | **1** | core/src/lib/KeyHandler.ts:5 | opentui-core::events | done |
+| `KeyHandler` | 2 | core/src/lib/KeyHandler.ts:99 | opentui-core::events | done |
 | `LayoutEvents` | 2 | core/src/Renderable.ts:39 | opentui-core | todo |
 | `LineNumberRenderable` | **1** | core/src/renderables/LineNumberRenderable.ts:365 | opentui-core::renderables | todo |
 | `LinearScrollAccel` | 2 | core/src/lib/scroll-acceleration.ts:6 | opentui-core | done |
@@ -126,9 +126,9 @@ tree-sitter styling, testing helpers.
 | `MAX_LINK_URL_BYTES` | 2 | core/src/zig.ts:105 | opentui-core::ansi | todo |
 | `MacOSScrollAccel` | **1** | core/src/lib/scroll-acceleration.ts:34 | opentui-core | done |
 | `MarkdownRenderable` | **1** | core/src/renderables/Markdown.ts:270 | opentui-core::renderables | todo |
-| `MouseButton` | **1** | core/src/renderer.ts:705 | opentui-core::renderer | partial |
-| `MouseEvent` | **1** | core/src/renderer.ts:653 | opentui-core::renderer | partial |
-| `MouseParser` | 2 | core/src/lib/parse.mouse.ts:22 | opentui-core::renderer | todo |
+| `MouseButton` | **1** | core/src/renderer.ts:705 | opentui-core::events | done |
+| `MouseEvent` | **1** | core/src/renderer.ts:653 | opentui-core::events | done |
+| `MouseParser` | 2 | core/src/lib/parse.mouse.ts:22 | opentui-core::parse_mouse | done |
 | `NativeAudioStreamCloseReason` | 2 | core/src/zig.ts:97 | opentui-core | todo |
 | `NativeAudioStreamFormat` | 2 | core/src/zig.ts:99 | opentui-core | todo |
 | `NativeAudioStreamState` | 2 | core/src/zig.ts:95 | opentui-core | todo |
@@ -145,7 +145,7 @@ tree-sitter styling, testing helpers.
 | `OptimizedBuffer` | **1** | core/src/buffer.ts:54 | opentui-core::buffer | done |
 | `PROTANOPIA_COMP_MATRIX` | 2 | core/src/post/matrices.ts:106 | opentui-core | todo |
 | `PROTANOPIA_SIM_MATRIX` | 2 | core/src/post/matrices.ts:26 | opentui-core | todo |
-| `PasteEvent` | **1** | core/src/lib/KeyHandler.ts:64 | opentui-core::renderer | partial |
+| `PasteEvent` | **1** | core/src/lib/KeyHandler.ts:64 | opentui-core::events | done |
 | `RGBA` | **1** | core/src/lib/RGBA.ts:90 | opentui-core::color | done |
 | `RainbowTextEffect` | 2 | core/src/post/effects.ts:840 | opentui-core | todo |
 | `Renderable` | **1** | core/src/Renderable.ts:225 | opentui-core::renderables | done |
@@ -166,7 +166,7 @@ tree-sitter styling, testing helpers.
 | `SliderRenderable` | 2 | core/src/renderables/Slider.ts:20 | opentui-core::renderables | done |
 | `SlotRegistry` | 2 | core/src/plugins/registry.ts:40 | opentui-core | todo |
 | `SlotRenderable` | 2 | core/src/plugins/core-slot.ts:241 | opentui-core::renderables | todo |
-| `StdinParser` | 2 | core/src/lib/stdin-parser.ts:587 | opentui-core | todo |
+| `StdinParser` | 2 | core/src/lib/stdin-parser.ts:587 | opentui-core::renderer | partial |
 | `StyledText` | **1** | core/src/lib/styled-text.ts:26 | opentui-core::styled_text | done |
 | `SyntaxStyle` | **1** | core/src/syntax-style.ts:76 | opentui-core | todo |
 | `SystemClock` | 2 | core/src/lib/clock.ts:11 | opentui-core | todo |
@@ -187,7 +187,7 @@ tree-sitter styling, testing helpers.
 | `TextNodeRenderable` | 2 | core/src/renderables/TextNode.ts:34 | opentui-core::text_node | done |
 | `TextRenderable` | **1** | core/src/renderables/Text.ts:13 | opentui-core::renderables | done |
 | `TextTableRenderable` | 2 | core/src/renderables/TextTable.ts:99 | opentui-core::renderables | todo |
-| `TextareaRenderable` | **1** | core/src/renderables/Textarea.ts:145 | opentui-core::renderables | todo |
+| `TextareaRenderable` | **1** | core/src/renderables/Textarea.ts:145 | opentui-core::input | partial |
 | `TimeToFirstDrawRenderable` | 2 | core/src/renderables/TimeToFirstDraw.ts:40 | opentui-core::renderables | todo |
 | `Timeline` | 2 | core/src/animation/Timeline.ts:284 | opentui-core | todo |
 | `TreeSitterClient` | **1** | core/src/lib/tree-sitter/client.ts:74 | opentui-core | todo |
@@ -228,7 +228,7 @@ tree-sitter styling, testing helpers.
 | `brightRed` | 2 | core/src/lib/styled-text.ts:92 | opentui-core::styled_text::styles | done |
 | `brightWhite` | 2 | core/src/lib/styled-text.ts:98 | opentui-core::styled_text::styles | done |
 | `brightYellow` | 2 | core/src/lib/styled-text.ts:94 | opentui-core::styled_text::styles | done |
-| `buildKittyKeyboardFlags` | 2 | core/src/renderer.ts:616 | opentui-core::renderer | todo |
+| `buildKittyKeyboardFlags` | 2 | core/src/renderer.ts:616 | opentui-core::renderer | done |
 | `buildTerminalPaletteSignature` | 2 | core/src/lib/terminal-palette.ts:432 | opentui-core | todo |
 | `capture` | 2 | core/src/console.ts:65 | opentui-core | todo |
 | `clearEnvCache` | 2 | core/src/lib/env.ts:130 | opentui-core | todo |
@@ -248,8 +248,8 @@ tree-sitter styling, testing helpers.
 | `createTextAttributes` | 2 | core/src/utils.ts:4 | opentui-core::styled_text | done |
 | `createTimeline` | 2 | core/src/animation/Timeline.ts:589 | opentui-core | todo |
 | `cyan` | 2 | core/src/lib/styled-text.ts:87 | opentui-core::styled_text::styles | done |
-| `decodePasteBytes` | **1** | core/src/lib/paste.ts:12 | opentui-core::renderer | todo |
-| `defaultTextareaKeyBindings` | 2 | core/src/renderables/Textarea.ts:58 | opentui-core::renderer | todo |
+| `decodePasteBytes` | **1** | core/src/lib/paste.ts:12 | opentui-core::paste | done |
+| `defaultTextareaKeyBindings` | 2 | core/src/renderables/Textarea.ts:58 | opentui-core::input | done |
 | `delegate` | 2 | core/src/renderables/composition/vnode.ts:245 | opentui-core | todo |
 | `destroyTreeSitterClient` | 2 | core/src/lib/tree-sitter/index.ts:62 | opentui-core | todo |
 | `detectLinks` | 2 | core/src/lib/detect-links.ts:12 | opentui-core::ansi | todo |
@@ -289,7 +289,7 @@ tree-sitter styling, testing helpers.
 | `magenta` | 2 | core/src/lib/styled-text.ts:86 | opentui-core::styled_text::styles | done |
 | `maybeMakeRenderable` | 2 | core/src/renderables/composition/vnode.ts:136 | opentui-core::renderables | todo |
 | `measureText` | 2 | core/src/lib/ascii.font.ts:105 | opentui-core | todo |
-| `nonAlphanumericKeys` | 2 | core/src/lib/parse.keypress.ts:125 | opentui-core::renderer | todo |
+| `nonAlphanumericKeys` | 2 | core/src/lib/parse.keypress.ts:125 | opentui-core::parse_keypress | done |
 | `normalizeColorValue` | 2 | core/src/lib/RGBA.ts:217 | opentui-core::color | todo |
 | `normalizeIndexedColorIndex` | 2 | core/src/lib/RGBA.ts:63 | opentui-core::color | done |
 | `normalizeTerminalPalette` | 2 | core/src/lib/terminal-palette.ts:415 | opentui-core | todo |
@@ -305,7 +305,7 @@ tree-sitter styling, testing helpers.
 | `parseFlexDirection` | 2 | core/src/lib/yoga.options.ts:188 | opentui-core::layout | todo |
 | `parseGutter` | 2 | core/src/lib/yoga.options.ts:206 | opentui-core::layout | todo |
 | `parseJustify` | 2 | core/src/lib/yoga.options.ts:222 | opentui-core::layout | todo |
-| `parseKeypress` | 2 | core/src/lib/parse.keypress.ts:214 | opentui-core::renderer | todo |
+| `parseKeypress` | 2 | core/src/lib/parse.keypress.ts:214 | opentui-core::parse_keypress | done |
 | `parseLogLevel` | 2 | core/src/lib/yoga.options.ts:244 | opentui-core | todo |
 | `parseMeasureMode` | 2 | core/src/lib/yoga.options.ts:266 | opentui-core::layout | todo |
 | `parseOverflow` | 2 | core/src/lib/yoga.options.ts:282 | opentui-core::layout | todo |
@@ -327,9 +327,9 @@ tree-sitter styling, testing helpers.
 | `setupAudio` | 2 | core/src/audio.ts:3685 | opentui-core | todo |
 | `strikethrough` | 2 | core/src/lib/styled-text.ts:114 | opentui-core::styled_text::styles | done |
 | `stringToStyledText` | 2 | core/src/lib/styled-text.ts:36 | opentui-core::styled_text | done |
-| `stripAnsiSequences` | 2 | core/src/lib/paste.ts:16 | opentui-core | todo |
+| `stripAnsiSequences` | 2 | core/src/lib/paste.ts:16 | opentui-core::paste | done |
 | `t` | 2 | core/src/lib/styled-text.ts:150 | opentui-core::styled_text | done |
-| `terminalNamedSingleStrokeKeys` | 2 | core/src/lib/parse.keypress.ts:127 | opentui-core::renderer | todo |
+| `terminalNamedSingleStrokeKeys` | 2 | core/src/lib/parse.keypress.ts:127 | opentui-core::parse_keypress | done |
 | `treeSitterToStyledText` | 2 | core/src/lib/tree-sitter-styled-text.ts:293 | opentui-core | todo |
 | `treeSitterToTextChunks` | 2 | core/src/lib/tree-sitter-styled-text.ts:40 | opentui-core | todo |
 | `underline` | 2 | core/src/lib/styled-text.ts:113 | opentui-core::styled_text::styles | done |

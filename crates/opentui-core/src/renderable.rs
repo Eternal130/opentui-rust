@@ -24,6 +24,7 @@
 //!   borders (Box.ts:296-315).
 
 use crate::buffer::OptimizedBuffer;
+use crate::input::InputRenderableState;
 use crate::layout::{taffy_style, Dimension, LayoutOptions};
 use crate::renderables::box_::BoxRenderableState;
 use crate::renderables::scrollbar::{ArrowState, ScrollBarState, SliderState};
@@ -39,6 +40,8 @@ pub struct MeasureCtx {
     pub kind: MeasureKind,
     /// wrapped text for Text leaves
     pub text: Option<crate::renderables::text::MeasuredText>,
+    /// the single-line content width for Input leaves
+    pub input_width_cols: u32,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -46,6 +49,7 @@ pub enum MeasureKind {
     #[default]
     None,
     Text,
+    Input,
 }
 
 /// What a renderable paints.
@@ -70,6 +74,8 @@ pub enum Content {
     /// BoxRenderable subclass, ScrollBox.ts:109) + carries the scroll
     /// machine state.
     ScrollBox(BoxRenderableState, ScrollBoxState),
+    /// `InputRenderable` (Input.ts:46) — the single-line input.
+    Input(InputRenderableState),
 }
 
 /// `OverflowString` — Renderable.ts:71 ("visible" | "hidden" | "scroll");
@@ -136,6 +142,12 @@ pub struct Renderable {
     pub width: Dimension,
     pub height: Dimension,
     pub visible: bool,
+    /// `focusable` (Renderable.ts:399-400; Input/EditBuffer default true,
+    /// plain Renderable default false).
+    pub focusable: bool,
+    /// `_focused` (Renderable.ts:399-430) — set via the renderer's
+    /// focus tracking.
+    pub focused: bool,
     pub content: Content,
     pub children: Vec<Renderable>,
     /// `_translateX/_translateY` (Renderable.ts:230-231) — paint-only
@@ -184,6 +196,8 @@ impl Renderable {
             width,
             height,
             visible: true,
+            focusable: matches!(content, Content::Input(_)),
+            focused: false,
             content,
             children: Vec::new(),
             translate_x: 0.0,
@@ -328,6 +342,10 @@ impl Renderable {
                 parent_size.1.max(0.0) as u32,
             );
         }
+        // `onResize` → `setViewportSize` (EditBufferRenderable.ts:481-483)
+        if let Content::Input(state) = &mut self.content {
+            state.resize(self.w.max(0.0) as u32, self.h.max(0.0) as u32);
+        }
         for child in &mut self.children {
             child.update_layout(tree, (sx, sy), (self.w, self.h), effects);
         }
@@ -412,6 +430,7 @@ impl Renderable {
                 self.h as u32,
             ),
             Content::Arrow(state) => state.paint(buffer, self.screen_x, self.screen_y),
+            Content::Input(state) => state.paint(buffer, self.screen_x, self.screen_y),
         }
     }
 

@@ -1,0 +1,27 @@
+{
+  "name": "input-overflow-scroll",
+  "width": 20,
+  "height": 3,
+  "steps": [
+    {
+      "op": "input",
+      "id": "in",
+      "parent": "root",
+      "options": {
+        "width": 10,
+        "value": "0123456789abcdefghij"
+      }
+    },
+    {
+      "op": "focus",
+      "id": "in"
+    },
+    {
+      "op": "key",
+      "sequence": [
+        88,
+        89
+      ]
+    }
+  ]
+}

@@ -39,6 +39,10 @@ fn run_oracle(scenario_path: &Path, out_path: &Path) -> Result<()> {
         .arg(scenario_path)
         .arg(out_path)
         .current_dir(sandbox)
+        // bun's install/cache dir must live under the invoking user's
+        // HOME — a leaked BUN_INSTALL pointing at another user's root
+        // breaks cache writes with a cryptic FileNotFound
+        .env_remove("BUN_INSTALL")
         .status()
         .context("spawning bun (is it on PATH?)")?;
     if !status.success() {

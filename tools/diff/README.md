@@ -27,6 +27,19 @@ cargo run -q -- scenarios/box-border-text.json --refresh-oracle  # re-run oracle
 Oracle captures cache under `out/oracle/` (gitignored); reports under
 `out/reports/` (gitignored — diff noise; regenerate on demand).
 
+## Event-injection mode (input lane)
+
+`tools/diff/js/char-corpus.ts` + `event-corpus.ts` drive the REAL
+parsers/renderer and freeze the oracle outputs under
+`crates/opentui-core/tests/data/` (see ARCHITECTURE.md "The events
+family"). Regenerate with:
+
+```sh
+cd tools/diff/sandbox
+bun ../js/char-corpus.ts  ../../crates/opentui-core/tests/data/char-corpus.json
+bun ../js/event-corpus.ts ../../crates/opentui-core/tests/data/event-corpus.json
+```
+
 ## Scenario vocabulary (grows per lane)
 
 ```json
@@ -63,3 +76,10 @@ branching, only option plumbing):
 * `{ "op": "resize", "width": w, "height": h }` — `renderer.resize`,
   then the next flush captures the reflow.
 
+The input lane adds: `input` (options: value, placeholder, width,
+maxLength, textColor, focusedTextColor, backgroundColor,
+placeholderColor), `focus` (focus a renderable — id), and `key`
+(`sequence`: raw bytes through the REAL stdin → parser → key-handler
+pipeline on both sides). Input captures additionally compare the
+**terminal cursor** (row/col/visible) parsed from the oracle's SGR
+stream vs the port's `setCursorPosition` state.
