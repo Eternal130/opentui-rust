@@ -1,0 +1,44 @@
+{
+  "name": "textarea-cursor-scroll",
+  "width": 24,
+  "height": 8,
+  "steps": [
+    {
+      "op": "textarea",
+      "id": "ta",
+      "parent": "root",
+      "options": { "width": 24, "height": 4 }
+    },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "setText", "text": "line 0\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9" }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "setCursor", "row": 8, "col": 3 }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "setCursor", "row": 0, "col": 0 }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "setCursorByOffset", "offset": 30 }
+      ]
+    }
+  ]
+}

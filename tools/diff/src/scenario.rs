@@ -2,17 +2,19 @@
 
 use anyhow::{Context, Result};
 use opentui_core::color::parse_color;
-use opentui_core::renderables::box_::BorderSpec;
-use opentui_core::renderables::text::ContentInput;
+use opentui_core::editor::SelectionBehavior;
+use opentui_core::keybinding::KeyEvent;
+use opentui_core::renderables::box_::{BorderSpec, BoxOptions};
 use opentui_core::renderables::scrollbar::ScrollUnit;
 use opentui_core::renderables::scrollbox::{ScrollBoxOptions, StickyStart};
-use opentui_core::renderables::text::WrapMode;
-use opentui_core::renderables::{box_::BoxOptions, text::TextOptions};
+use opentui_core::renderables::text::{ContentInput, TextOptions, WrapMode};
+use opentui_core::renderables::textarea::TextareaOptions;
 use opentui_core::renderer::{create_cli_renderer, CliRenderer, CliRendererConfig};
 use opentui_core::styled_text::{StyledText, TextChunk};
 use opentui_core::text_buffer::TextAlign;
 use opentui_core::text_node::{TextNodeOptions, TextNodeRenderable};
 use serde::Deserialize;
+use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
 pub struct Scenario {
@@ -30,7 +32,7 @@ pub struct Step {
     pub id: Option<String>,
     #[serde(default)]
     pub parent: Option<String>,
-    /// target id for `text-add` (else the step's own id)
+    /// target id for `text-add`/`ta-op` (else the step's own id)
     #[serde(default)]
     pub target: Option<String>,
     #[serde(default)]
@@ -45,15 +47,95 @@ pub struct Step {
     #[serde(default)]
     pub args: Option<Vec<serde_json::Value>>,
     #[serde(default)]
-    pub width: Option<u32>,
-    #[serde(default)]
-    pub height: Option<u32>,
-    #[serde(default)]
     pub resize_width: Option<u32>,
     #[serde(default)]
     pub resize_height: Option<u32>,
     #[serde(default)]
     pub resize: Option<(u32, u32)>,
+    #[serde(default)]
+    pub width: Option<u32>,
+    #[serde(default)]
+    pub height: Option<u32>,
+    /// `textarea`/`ta-op`: ordered edit ops (the shared vocabulary)
+    #[serde(default, rename = "textOps")]
+    pub text_ops: Vec<TextOp>,
+}
+
+/// One `textOps` entry — the EditBufferRenderable/Textarea public
+/// surface, mirrored 1:1 with the JS driver's `textareaOp`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextOp {
+    pub op: String,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub row: Option<u32>,
+    #[serde(default)]
+    pub col: Option<u32>,
+    #[serde(default)]
+    pub offset: Option<u32>,
+    #[serde(default)]
+    pub select: Option<bool>,
+    #[serde(default)]
+    pub line: Option<u32>,
+    #[serde(default)]
+    pub start: Option<u32>,
+    #[serde(default)]
+    pub end: Option<u32>,
+    #[serde(default)]
+    pub start_row: Option<u32>,
+    #[serde(default)]
+    pub start_col: Option<u32>,
+    #[serde(default)]
+    pub end_row: Option<u32>,
+    #[serde(default)]
+    pub end_col: Option<u32>,
+    #[serde(default)]
+    pub anchor_x: Option<i32>,
+    #[serde(default)]
+    pub anchor_y: Option<i32>,
+    #[serde(default)]
+    pub focus_x: Option<i32>,
+    #[serde(default)]
+    pub focus_y: Option<i32>,
+    #[serde(default)]
+    pub update_cursor: Option<bool>,
+    #[serde(default)]
+    pub follow_cursor: Option<bool>,
+    #[serde(default)]
+    pub behavior: Option<String>,
+    #[serde(default)]
+    pub x: Option<u32>,
+    #[serde(default)]
+    pub y: Option<u32>,
+    #[serde(default)]
+    pub width: Option<u32>,
+    #[serde(default)]
+    pub height: Option<u32>,
+    #[serde(default)]
+    pub move_cursor: Option<bool>,
+    #[serde(default)]
+    pub direction: Option<String>,
+    #[serde(default)]
+    pub delta: Option<u32>,
+    #[serde(default)]
+    pub value: Option<String>,
+    #[serde(default)]
+    pub mode: Option<String>,
+    // key op
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub ctrl: Option<bool>,
+    #[serde(default)]
+    pub shift: Option<bool>,
+    #[serde(default)]
+    pub meta: Option<bool>,
+    #[serde(default, rename = "super")]
+    pub super_key: Option<bool>,
+    #[serde(default)]
+    pub sequence: Option<String>,
 }
 
 pub fn load(path: &std::path::Path) -> Result<Scenario> {
@@ -239,6 +321,11 @@ fn text_options_from_json(o: &serde_json::Value) -> Result<TextOptions> {
 
 /// Build + render the scenario with opentui-core, dump the same capture
 /// shape the JS oracle emits.
+///
+/// Execution is step-sequential (mirroring the JS driver): legacy
+/// text/box nodes stage and mount lazily at the next flush point (a
+/// textarea/ta-op/frame step or the end) — behaviorally identical to
+/// the old single-pass mount when a scenario has no flush points.
 pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
     let mut renderer = create_cli_renderer(CliRendererConfig {
         width: scenario.width,
@@ -247,19 +334,46 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
     });
 
     // Stage nodes with their parent links; mount lazily — before the
-    // first action step (flush/set/call/resize) and once more at the end —
-    // so scripted mutations observe the mounted tree like the JS driver's
-    // strictly sequential adds.
-    let mut by_id: std::collections::HashMap<String, PendingNode> =
-        std::collections::HashMap::new();
-    let mut children_of: std::collections::HashMap<String, Vec<String>> =
-        std::collections::HashMap::new();
+    // first action step (flush/frame/set/call/resize/textarea/ta-op)
+    // and once more at the end — so scripted mutations observe the
+    // mounted tree like the JS driver's strictly sequential adds.
+    let mut by_id: HashMap<String, PendingNode> = HashMap::new();
+    let mut children_of: HashMap<String, Vec<String>> = HashMap::new();
     let mut roots: Vec<String> = Vec::new();
+
     for step in &scenario.steps {
         match step.op.as_str() {
-            "flush" => {
+            "flush" | "frame" => {
                 mount(&mut renderer, &mut by_id, &children_of, None, &roots);
                 renderer.render();
+                continue;
+            }
+            "textarea" => {
+                mount(&mut renderer, &mut by_id, &children_of, None, &roots);
+                let opts = textarea_options_from_json(&step.options)?;
+                let id = step.id.clone().context("textarea step needs id")?;
+                let r = renderer.make_textarea(&id, &opts);
+                match step.parent.as_deref() {
+                    None | Some("root") => renderer.add(r),
+                    Some(parent) => {
+                        if !renderer.mount_child(parent, r) {
+                            eprintln!(
+                                "warning: parent {parent} not found for {id}; mounting at root"
+                            );
+                        }
+                    }
+                }
+                apply_text_ops(&mut renderer, &id, &step.text_ops)?;
+                continue;
+            }
+            "ta-op" => {
+                mount(&mut renderer, &mut by_id, &children_of, None, &roots);
+                let target = step
+                    .target
+                    .clone()
+                    .or_else(|| step.id.clone())
+                    .context("ta-op needs target")?;
+                apply_text_ops(&mut renderer, &target, &step.text_ops)?;
                 continue;
             }
             "set" => {
@@ -366,52 +480,8 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
             _ => {}
         }
         let o = &step.options;
-        let node = match step.op.as_str() {
-            "text" => {
-                let opts = text_options_from_json(o)?;
-                PendingNode::Text(opts)
-            }
-            "box" => {
-                let mut opts = BoxOptions::default();
-                if let Some(c) = o.get("backgroundColor").and_then(|v| v.as_str()) {
-                    opts.background_color = Some(c.to_owned());
-                }
-                if let Some(b) = o.get("border") {
-                    opts.border = Some(if b.as_bool().unwrap_or(false) {
-                        BorderSpec::All
-                    } else {
-                        BorderSpec::Off
-                    });
-                }
-                if let Some(s) = o.get("borderStyle").and_then(|v| v.as_str()) {
-                    opts.border_style = Some(s.to_owned());
-                }
-                if let Some(c) = o.get("borderColor").and_then(|v| v.as_str()) {
-                    opts.border_color = Some(c.to_owned());
-                }
-                if let Some(f) = o.get("shouldFill").and_then(|v| v.as_bool()) {
-                    opts.should_fill = Some(f);
-                }
-                if let Some(t) = o.get("title").and_then(|v| v.as_str()) {
-                    opts.title = Some(t.to_owned());
-                }
-                if let Some(a) = o.get("titleAlignment").and_then(|v| v.as_str()) {
-                    opts.title_alignment = Some(a.to_owned());
-                }
-                if let Some(w) = opt_f32(o, "width") {
-                    opts.width = Some(w);
-                }
-                if let Some(h) = opt_f32(o, "height") {
-                    opts.height = Some(h);
-                }
-                if let Some(d) = o.get("flexDirection").and_then(|v| v.as_str()) {
-                    opts.layout.flex_direction = Some(d.to_owned());
-                }
-                if let Some(p) = o.get("padding").and_then(|v| v.as_f64()) {
-                    opts.layout.padding = Some(opentui_core::layout::Dimension::Points(p as f32));
-                }
-                PendingNode::Box(opts)
-            }
+        // text-node/text-add patch STAGED nodes (no mount, no node yield)
+        match step.op.as_str() {
             "text-node" => {
                 // attach a TextNodeRenderable to an existing text's tree
                 // (patches the staged options — the mount reads them after)
@@ -452,6 +522,11 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
                     .add_text(text);
                 continue;
             }
+            _ => {}
+        }
+        let node = match step.op.as_str() {
+            "text" => PendingNode::Text(text_options_from_json(o)?),
+            "box" => PendingNode::Box(box_options_from_json(o)?),
             "scrollbox" => {
                 let mut opts = ScrollBoxOptions {
                     viewport_culling: true,
@@ -540,7 +615,6 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
     }
 
     mount(&mut renderer, &mut by_id, &children_of, None, &roots);
-
     renderer.render();
 
     let buf = &renderer.current_render_buffer;
@@ -573,6 +647,379 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
         // recorded stdout stream (multi-frame scroll scenarios)
         sgr_bytes: renderer.full_sgr_stream().bytes().collect(),
     })
+}
+
+/// The `textarea` option subset (Textarea.ts:132-143 over
+/// EditBufferOptions:64-83).
+fn textarea_options_from_json(o: &serde_json::Value) -> Result<TextareaOptions> {
+    let mut opts = TextareaOptions::default();
+    if let Some(v) = o.get("initialValue").and_then(|v| v.as_str()) {
+        opts.initial_value = Some(v.to_owned());
+    }
+    if let Some(c) = o.get("textColor").and_then(|v| v.as_str()) {
+        opts.text_color = Some(parse_color(c));
+    }
+    if let Some(c) = o.get("backgroundColor").and_then(|v| v.as_str()) {
+        opts.background_color = Some(parse_color(c));
+    }
+    if let Some(c) = o.get("focusedTextColor").and_then(|v| v.as_str()) {
+        opts.focused_text_color = Some(parse_color(c));
+    }
+    if let Some(c) = o.get("focusedBackgroundColor").and_then(|v| v.as_str()) {
+        opts.focused_background_color = Some(parse_color(c));
+    }
+    if let Some(c) = o.get("placeholderColor").and_then(|v| v.as_str()) {
+        opts.placeholder_color = Some(parse_color(c));
+    }
+    if let Some(p) = o.get("placeholder").and_then(|v| v.as_str()) {
+        opts.placeholder = Some(vec![TextChunk {
+            text: p.to_owned(),
+            ..Default::default()
+        }]);
+    }
+    if let Some(c) = o.get("selectionBg").and_then(|v| v.as_str()) {
+        opts.selection_bg = Some(parse_color(c));
+    }
+    if let Some(c) = o.get("selectionFg").and_then(|v| v.as_str()) {
+        opts.selection_fg = Some(parse_color(c));
+    }
+    if let Some(m) = o.get("wrapMode").and_then(|v| v.as_str()) {
+        opts.wrap_mode = Some(WrapMode::parse(m));
+    }
+    if let Some(m) = o.get("scrollMargin").and_then(|v| v.as_f64()) {
+        opts.scroll_margin = Some(m as f32);
+    }
+    if let Some(v) = o.get("showCursor").and_then(|v| v.as_bool()) {
+        opts.show_cursor = Some(v);
+    }
+    if let Some(c) = o.get("cursorColor").and_then(|v| v.as_str()) {
+        opts.cursor_color = Some(parse_color(c));
+    }
+    if let Some(w) = opt_f32(o, "width") {
+        opts.width = Some(w);
+    }
+    if let Some(h) = opt_f32(o, "height") {
+        opts.height = Some(h);
+    }
+    Ok(opts)
+}
+
+/// The action-name mapping for vocabulary motion/delete ops (each maps
+/// to the same EditBufferRenderable method the action handler calls).
+fn op_to_action(op: &str, select: bool) -> Option<&'static str> {
+    Some(match op {
+        "moveCursorLeft" => {
+            if select {
+                "select-left"
+            } else {
+                "move-left"
+            }
+        }
+        "moveCursorRight" => {
+            if select {
+                "select-right"
+            } else {
+                "move-right"
+            }
+        }
+        "moveCursorUp" => {
+            if select {
+                "select-up"
+            } else {
+                "move-up"
+            }
+        }
+        "moveCursorDown" => {
+            if select {
+                "select-down"
+            } else {
+                "move-down"
+            }
+        }
+        "moveWordForward" => {
+            if select {
+                "select-word-forward"
+            } else {
+                "word-forward"
+            }
+        }
+        "moveWordBackward" => {
+            if select {
+                "select-word-backward"
+            } else {
+                "word-backward"
+            }
+        }
+        "gotoLineHome" => {
+            if select {
+                "select-line-home"
+            } else {
+                "line-home"
+            }
+        }
+        "gotoLineEnd" => {
+            if select {
+                "select-line-end"
+            } else {
+                "line-end"
+            }
+        }
+        "gotoVisualLineHome" => {
+            if select {
+                "select-visual-line-home"
+            } else {
+                "visual-line-home"
+            }
+        }
+        "gotoVisualLineEnd" => {
+            if select {
+                "select-visual-line-end"
+            } else {
+                "visual-line-end"
+            }
+        }
+        "gotoBufferHome" => {
+            if select {
+                "select-buffer-home"
+            } else {
+                "buffer-home"
+            }
+        }
+        "gotoBufferEnd" => {
+            if select {
+                "select-buffer-end"
+            } else {
+                "buffer-end"
+            }
+        }
+        "selectAll" => "select-all",
+        "deleteChar" => "delete",
+        "deleteCharBackward" => "backspace",
+        "deleteLine" => "delete-line",
+        "deleteToLineEnd" => "delete-to-line-end",
+        "deleteToLineStart" => "delete-to-line-start",
+        "deleteWordForward" => "delete-word-forward",
+        "deleteWordBackward" => "delete-word-backward",
+        "newLine" => "newline",
+        "undo" => "undo",
+        "redo" => "redo",
+        _ => return None,
+    })
+}
+
+fn apply_text_ops(renderer: &mut CliRenderer, id: &str, ops: &[TextOp]) -> Result<()> {
+    for op in ops {
+        let select = op.select.unwrap_or(false);
+        if let Some(action) = op_to_action(&op.op, select) {
+            renderer.textarea_action(id, action);
+            renderer.refresh_textarea_measure(id);
+            continue;
+        }
+        match op.op.as_str() {
+            "setText" => {
+                let text = op.text.as_deref().unwrap_or("");
+                renderer.textarea_state_mut(id, |ta| ta.set_text(text));
+            }
+            "replaceText" => {
+                let text = op.text.as_deref().unwrap_or("");
+                renderer.textarea_state_mut(id, |ta| ta.replace_text(text));
+            }
+            "insertText" => {
+                let text = op.text.as_deref().unwrap_or("");
+                renderer.textarea_state_mut(id, |ta| ta.insert_text(text));
+            }
+            "insertChar" => {
+                let text = op.text.as_deref().unwrap_or("");
+                renderer.textarea_state_mut(id, |ta| ta.insert_char(text));
+            }
+            "setCursor" => {
+                let (row, col) = (op.row.unwrap_or(0), op.col.unwrap_or(0));
+                renderer.textarea_state_mut(id, |ta| ta.set_cursor(row, col));
+            }
+            "setCursorByOffset" => {
+                let offset = op.offset.unwrap_or(0);
+                renderer.textarea_state_mut(id, |ta| ta.set_cursor_offset(offset));
+            }
+            "gotoLine" => {
+                let line = op.line.unwrap_or(0);
+                renderer.textarea_state_mut(id, |ta| ta.goto_line(line));
+            }
+            "deleteRange" => {
+                renderer.textarea_state_mut(id, |ta| {
+                    ta.delete_range(
+                        op.start_row.unwrap_or(0),
+                        op.start_col.unwrap_or(0),
+                        op.end_row.unwrap_or(0),
+                        op.end_col.unwrap_or(0),
+                    );
+                });
+            }
+            "clear" => {
+                renderer.textarea_state_mut(id, |ta| ta.clear());
+            }
+            "setSelection" => {
+                let (start, end) = (op.start.unwrap_or(0), op.end.unwrap_or(0));
+                renderer.textarea_state_mut(id, |ta| ta.set_selection(start, end));
+            }
+            "setSelectionInclusive" => {
+                let (start, end) = (op.start.unwrap_or(0), op.end.unwrap_or(0));
+                renderer.textarea_state_mut(id, |ta| ta.set_selection_inclusive(start, end));
+            }
+            "updateSelection" => {
+                let end = op.end.unwrap_or(0);
+                renderer.textarea_state_mut(id, |ta| {
+                    ta.view.update_selection(end, None, None);
+                });
+            }
+            "clearSelection" => {
+                renderer.textarea_state_mut(id, |ta| {
+                    ta.clear_selection();
+                });
+            }
+            "deleteSelection" => {
+                renderer.textarea_state_mut(id, |ta| {
+                    ta.delete_selection();
+                });
+            }
+            "setLocalSelection" => {
+                let behavior = parse_behavior(op.behavior.as_deref())?;
+                renderer.textarea_state_mut(id, |ta| {
+                    ta.view.set_local_selection(
+                        (op.anchor_x.unwrap_or(0), op.anchor_y.unwrap_or(0)),
+                        (op.focus_x.unwrap_or(0), op.focus_y.unwrap_or(0)),
+                        (None, None),
+                        op.update_cursor.unwrap_or(false),
+                        op.follow_cursor.unwrap_or(false),
+                        behavior,
+                    );
+                });
+            }
+            "updateLocalSelection" => {
+                let behavior = parse_behavior(op.behavior.as_deref())?;
+                renderer.textarea_state_mut(id, |ta| {
+                    ta.view.update_local_selection(
+                        (op.anchor_x.unwrap_or(0), op.anchor_y.unwrap_or(0)),
+                        (op.focus_x.unwrap_or(0), op.focus_y.unwrap_or(0)),
+                        (None, None),
+                        op.update_cursor.unwrap_or(false),
+                        op.follow_cursor.unwrap_or(false),
+                        behavior,
+                    );
+                });
+            }
+            "setViewport" => {
+                let vp = renderer
+                    .textarea_state(id, |ta| ta.get_viewport())
+                    .context("setViewport target missing")?;
+                let (x, y) = (op.x.unwrap_or(0), op.y.unwrap_or(0));
+                let (w, h) = (op.width.unwrap_or(vp.width), op.height.unwrap_or(vp.height));
+                let move_cursor = op.move_cursor.unwrap_or(true);
+                renderer.textarea_state_mut(id, |ta| {
+                    ta.set_viewport(x, y, w, h, move_cursor);
+                });
+            }
+            "scrollBy" => {
+                let direction = op
+                    .direction
+                    .as_deref()
+                    .context("scrollBy needs direction")?;
+                let delta = op.delta.unwrap_or(0);
+                renderer.textarea_state_mut(id, |ta| {
+                    ta.scroll_by(direction, delta);
+                });
+            }
+            "focus" => {
+                renderer.textarea_state_mut(id, |ta| ta.focus());
+            }
+            "blur" => {
+                renderer.textarea_state_mut(id, |ta| ta.blur());
+            }
+            "placeholder" => {
+                let value = op.value.clone();
+                renderer.textarea_state_mut(id, |ta| {
+                    let chunks = value.as_ref().map(|v| {
+                        vec![TextChunk {
+                            text: v.clone(),
+                            ..Default::default()
+                        }]
+                    });
+                    ta.set_placeholder(chunks);
+                });
+            }
+            "setWrapMode" => {
+                let mode = op.mode.as_deref().context("setWrapMode needs mode")?;
+                let mode = WrapMode::parse(mode);
+                renderer.textarea_state_mut(id, |ta| ta.set_wrap_mode(mode));
+            }
+            "key" => {
+                let name = op.name.as_deref().context("key op needs name")?;
+                let key = KeyEvent {
+                    name: name.to_owned(),
+                    ctrl: op.ctrl.unwrap_or(false),
+                    shift: op.shift.unwrap_or(false),
+                    meta: op.meta.unwrap_or(false),
+                    super_: op.super_key.unwrap_or(false),
+                    hyper: false,
+                    base_code: None,
+                    sequence: op.sequence.clone(),
+                };
+                renderer.textarea_key_press(id, &key);
+            }
+            other => anyhow::bail!("unknown textarea op: {other}"),
+        }
+        renderer.refresh_textarea_measure(id);
+    }
+    Ok(())
+}
+
+fn parse_behavior(s: Option<&str>) -> Result<SelectionBehavior> {
+    Ok(match s {
+        Some("word") => SelectionBehavior::Word,
+        Some("line") => SelectionBehavior::Line,
+        _ => SelectionBehavior::Cell,
+    })
+}
+
+fn box_options_from_json(o: &serde_json::Value) -> Result<BoxOptions> {
+    let mut opts = BoxOptions::default();
+    if let Some(c) = o.get("backgroundColor").and_then(|v| v.as_str()) {
+        opts.background_color = Some(c.to_owned());
+    }
+    if let Some(b) = o.get("border") {
+        opts.border = Some(if b.as_bool().unwrap_or(false) {
+            BorderSpec::All
+        } else {
+            BorderSpec::Off
+        });
+    }
+    if let Some(s) = o.get("borderStyle").and_then(|v| v.as_str()) {
+        opts.border_style = Some(s.to_owned());
+    }
+    if let Some(c) = o.get("borderColor").and_then(|v| v.as_str()) {
+        opts.border_color = Some(c.to_owned());
+    }
+    if let Some(f) = o.get("shouldFill").and_then(|v| v.as_bool()) {
+        opts.should_fill = Some(f);
+    }
+    if let Some(t) = o.get("title").and_then(|v| v.as_str()) {
+        opts.title = Some(t.to_owned());
+    }
+    if let Some(a) = o.get("titleAlignment").and_then(|v| v.as_str()) {
+        opts.title_alignment = Some(a.to_owned());
+    }
+    if let Some(w) = opt_f32(o, "width") {
+        opts.width = Some(w);
+    }
+    if let Some(h) = opt_f32(o, "height") {
+        opts.height = Some(h);
+    }
+    if let Some(d) = o.get("flexDirection").and_then(|v| v.as_str()) {
+        opts.layout.flex_direction = Some(d.to_owned());
+    }
+    if let Some(p) = o.get("padding").and_then(|v| v.as_f64()) {
+        opts.layout.padding = Some(opentui_core::layout::Dimension::Points(p as f32));
+    }
+    Ok(opts)
 }
 
 /// Recursively mount staged nodes: `parent: None` mounts under the

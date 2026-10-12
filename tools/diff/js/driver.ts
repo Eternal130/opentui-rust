@@ -8,8 +8,10 @@
 import { Writable } from "node:stream"
 import {
   createCliRenderer,
+  InputRenderable,
   TextRenderable,
   BoxRenderable,
+  TextareaRenderable,
   TextNodeRenderable,
   StyledText,
   parseColor,
@@ -37,6 +39,182 @@ class RecordingStream extends Writable {
   }
   bytes() {
     return Buffer.concat(this.chunks)
+  }
+}
+
+
+// textarea text-op vocabulary — mirrors the Rust scenario runner 1:1
+// (the EditBufferRenderable/Textarea public surface)
+function textareaOp(ta, op) {
+  switch (op.op) {
+    case "setText":
+      ta.setText(op.text)
+      break
+    case "replaceText":
+      ta.replaceText(op.text)
+      break
+    case "insertText":
+      ta.insertText(op.text)
+      break
+    case "insertChar":
+      ta.insertChar(op.text)
+      break
+    case "setCursor":
+      ta.setCursor(op.row, op.col)
+      break
+    case "setCursorByOffset":
+      ta.cursorOffset = op.offset
+      break
+    case "moveCursorLeft":
+      ta.moveCursorLeft({ select: !!op.select })
+      break
+    case "moveCursorRight":
+      ta.moveCursorRight({ select: !!op.select })
+      break
+    case "moveCursorUp":
+      ta.moveCursorUp({ select: !!op.select })
+      break
+    case "moveCursorDown":
+      ta.moveCursorDown({ select: !!op.select })
+      break
+    case "moveWordForward":
+      ta.moveWordForward({ select: !!op.select })
+      break
+    case "moveWordBackward":
+      ta.moveWordBackward({ select: !!op.select })
+      break
+    case "gotoLine":
+      ta.gotoLine(op.line)
+      break
+    case "gotoLineHome":
+      ta.gotoLineHome({ select: !!op.select })
+      break
+    case "gotoLineEnd":
+      ta.gotoLineEnd({ select: !!op.select })
+      break
+    case "gotoVisualLineHome":
+      ta.gotoVisualLineHome({ select: !!op.select })
+      break
+    case "gotoVisualLineEnd":
+      ta.gotoVisualLineEnd({ select: !!op.select })
+      break
+    case "gotoBufferHome":
+      ta.gotoBufferHome({ select: !!op.select })
+      break
+    case "gotoBufferEnd":
+      ta.gotoBufferEnd({ select: !!op.select })
+      break
+    case "selectAll":
+      ta.selectAll()
+      break
+    case "deleteChar":
+      ta.deleteChar()
+      break
+    case "deleteCharBackward":
+      ta.deleteCharBackward()
+      break
+    case "deleteLine":
+      ta.deleteLine()
+      break
+    case "deleteToLineEnd":
+      ta.deleteToLineEnd()
+      break
+    case "deleteToLineStart":
+      ta.deleteToLineStart()
+      break
+    case "deleteWordForward":
+      ta.deleteWordForward()
+      break
+    case "deleteWordBackward":
+      ta.deleteWordBackward()
+      break
+    case "newLine":
+      ta.newLine()
+      break
+    case "deleteRange":
+      ta.deleteRange(op.startRow, op.startCol, op.endRow, op.endCol)
+      break
+    case "undo":
+      ta.undo()
+      break
+    case "redo":
+      ta.redo()
+      break
+    case "clear":
+      ta.clear()
+      break
+    case "setSelection":
+      ta.setSelection(op.start, op.end)
+      break
+    case "setSelectionInclusive":
+      ta.setSelectionInclusive(op.start, op.end)
+      break
+    case "updateSelection":
+      ta.editorView.updateSelection(op.end, undefined, undefined)
+      break
+    case "clearSelection":
+      ta.clearSelection()
+      break
+    case "deleteSelection":
+      ta.deleteSelection()
+      break
+    case "setLocalSelection":
+      ta.editorView.setLocalSelection(
+        op.anchorX, op.anchorY, op.focusX, op.focusY,
+        undefined, undefined, !!op.updateCursor, !!op.followCursor, op.behavior ?? "cell",
+      )
+      break
+    case "updateLocalSelection":
+      ta.editorView.updateLocalSelection(
+        op.anchorX, op.anchorY, op.focusX, op.focusY,
+        undefined, undefined, !!op.updateCursor, !!op.followCursor, op.behavior ?? "cell",
+      )
+      break
+    case "setViewport": {
+      const vp = ta.editorView.getViewport()
+      ta.editorView.setViewport(op.x ?? 0, op.y ?? 0, op.width ?? vp.width, op.height ?? vp.height, op.moveCursor !== false)
+      break
+    }
+    case "scrollBy":
+      {
+        // EditBufferRenderable.handleScroll semantics (450-479)
+        const vp = ta.editorView.getViewport()
+        if (op.direction === "up") {
+          const newOffsetY = Math.max(0, vp.offsetY - op.delta)
+          ta.editorView.setViewport(vp.offsetX, newOffsetY, vp.width, vp.height, true)
+        } else if (op.direction === "down") {
+          const total = ta.editorView.getTotalVirtualLineCount()
+          const maxOffsetY = Math.max(0, total - vp.height)
+          const newOffsetY = Math.min(vp.offsetY + op.delta, maxOffsetY)
+          ta.editorView.setViewport(vp.offsetX, newOffsetY, vp.width, vp.height, true)
+        }
+      }
+      break
+    case "focus":
+      ta.focus()
+      break
+    case "blur":
+      ta.blur()
+      break
+    case "placeholder":
+      ta.placeholder = op.value ?? null
+      break
+    case "key":
+      ta.handleKeyPress({
+        name: op.name,
+        ctrl: !!op.ctrl,
+        shift: !!op.shift,
+        meta: !!op.meta,
+        super: !!op.super,
+        hyper: false,
+        sequence: op.sequence,
+      })
+      break
+    case "setWrapMode":
+      ta.wrapMode = op.mode
+      break
+    default:
+      throw new Error(`unknown textarea op: ${op.op}`)
   }
 }
 
@@ -119,7 +297,7 @@ const setup = await createTestRenderer({
 })
 const renderer = setup.renderer
 
-// scenario steps → real renderables
+// scenario steps → real renderables, IN ORDER (mount, focus, key feed)
 const nodes = new Map()
 function node(id) {
   if (id === "root") return renderer.root
@@ -159,7 +337,86 @@ for (const step of scenario.steps) {
     stdout.rows = step.height
     continue
   }
+  if (step.op === "flush") {
+    await setup.flush()
+    continue
+  }
+  if (step.op === "frame") {
+    // one deterministic render tick (multi-frame textarea scenarios)
+    await setup.renderOnce()
+    continue
+  }
+  if (step.op === "textarea") {
+    const o = step.options ?? {}
+    const options = {}
+    if (o.width !== undefined) options.width = o.width
+    if (o.height !== undefined) options.height = o.height
+    if (o.initialValue !== undefined) options.initialValue = o.initialValue
+    if (o.textColor !== undefined) options.textColor = o.textColor
+    if (o.backgroundColor !== undefined) options.backgroundColor = o.backgroundColor
+    if (o.focusedTextColor !== undefined) options.focusedTextColor = o.focusedTextColor
+    if (o.focusedBackgroundColor !== undefined) options.focusedBackgroundColor = o.focusedBackgroundColor
+    if (o.placeholder !== undefined) options.placeholder = o.placeholder
+    if (o.placeholderColor !== undefined) options.placeholderColor = o.placeholderColor
+    if (o.selectionBg !== undefined) options.selectionBg = o.selectionBg
+    if (o.selectionFg !== undefined) options.selectionFg = o.selectionFg
+    if (o.wrapMode !== undefined) options.wrapMode = o.wrapMode
+    if (o.showCursor !== undefined) options.showCursor = o.showCursor
+    if (o.cursorColor !== undefined) options.cursorColor = o.cursorColor
+    if (o.scrollMargin !== undefined) options.scrollMargin = o.scrollMargin
+    const parent = node(step.parent ?? "root")
+    const r = new TextareaRenderable(renderer, options)
+    parent.add(r)
+    nodes.set(step.id, r)
+    for (const op of step.textOps ?? []) textareaOp(r, op)
+    continue
+  }
+  if (step.op === "ta-op") {
+    const target = nodes.get(step.target ?? step.id)
+    if (!target) throw new Error(`ta-op target ${step.target ?? step.id} not found`)
+    for (const op of step.textOps ?? []) textareaOp(target, op)
+    continue
+  }
+  if (step.op === "focus") {
+    const target = node(step.id)
+    if (!target) throw new Error(`focus: unknown id ${step.id}`)
+    target.focus()
+    continue
+  }
+  if (step.op === "key") {
+    // raw bytes through the REAL stdin parser -> key handler pipeline
+    renderer.stdin.emit("data", Buffer.from(Uint8Array.from(step.sequence ?? [])))
+    continue
+  }
+  if (step.op === "text-node") {
+    // attach a TextNodeRenderable to an existing text renderable
+    const target = nodes.get(step.parent)
+    if (!(target instanceof TextRenderable)) {
+      throw new Error(`text-node parent ${step.parent} is not a TextRenderable`)
+    }
+    const o = step.options ?? {}
+    const options = {}
+    if (o.fg !== undefined) options.fg = o.fg
+    if (o.bg !== undefined) options.bg = o.bg
+    if (o.attributes !== undefined) options.attributes = parseAttributes(o.attributes)
+    const n = new TextNodeRenderable(options)
+    if (step.text !== undefined) n.add(step.text)
+    target.add(n)
+    continue
+  }
+  if (step.op === "text-add") {
+    const target = nodes.get(step.target)
+    if (!(target instanceof TextRenderable)) {
+      throw new Error(`text-add target ${step.target} is not a TextRenderable`)
+    }
+    if (step.text === undefined) throw new Error("text-add needs text")
+    target.add(step.text)
+    continue
+  }
+
   const parent = node(step.parent ?? "root")
+  if (!parent) throw new Error(`parent ${step.parent} not found for ${step.id}`)
+  let r
   if (step.op === "text") {
     const o = step.options ?? {}
     const options = {
@@ -175,15 +432,13 @@ for (const step of scenario.steps) {
       ...(o.tabIndicatorColor !== undefined ? { tabIndicatorColor: o.tabIndicatorColor } : {}),
       ...(o.truncate !== undefined ? { truncate: o.truncate } : {}),
     }
-    const r = new TextRenderable(renderer, options)
+    r = new TextRenderable(renderer, options)
     if (o.nodeContent !== undefined) {
       r.add(parseNodeTree(o.nodeContent, `${step.id}-node`))
     }
-    parent.add(r)
-    nodes.set(step.id, r)
   } else if (step.op === "box") {
     const o = step.options ?? {}
-    const r = new BoxRenderable(renderer, {
+    r = new BoxRenderable(renderer, {
       ...(o.backgroundColor !== undefined ? { backgroundColor: o.backgroundColor } : {}),
       ...(o.border !== undefined ? { border: o.border } : {}),
       ...(o.borderStyle !== undefined ? { borderStyle: o.borderStyle } : {}),
@@ -196,32 +451,6 @@ for (const step of scenario.steps) {
       ...(o.flexDirection !== undefined ? { flexDirection: o.flexDirection } : {}),
       ...(o.padding !== undefined ? { padding: o.padding } : {}),
     })
-    parent.add(r)
-    nodes.set(step.id, r)
-  } else if (step.op === "text-node") {
-    // attach a TextNodeRenderable to an existing text renderable
-    const target = nodes.get(step.parent)
-    if (!(target instanceof TextRenderable)) {
-      throw new Error(`text-node parent ${step.parent} is not a TextRenderable`)
-    }
-    const o = step.options ?? {}
-    const options = {}
-    if (o.fg !== undefined) options.fg = o.fg
-    if (o.bg !== undefined) options.bg = o.bg
-    if (o.attributes !== undefined) options.attributes = parseAttributes(o.attributes)
-    const n = new TextNodeRenderable(options)
-    if (step.text !== undefined) n.add(step.text)
-    target.add(n)
-  } else if (step.op === "text-add") {
-    const target = nodes.get(step.target)
-    if (!(target instanceof TextRenderable)) {
-      throw new Error(`text-add target ${step.target} is not a TextRenderable`)
-    }
-    if (step.text === undefined) throw new Error("text-add needs text")
-    target.add(step.text)
-  } else {
-    throw new Error(`unknown op: ${step.op}`)
-  }
   } else if (step.op === "scrollbox") {
     const o = step.options ?? {}
     const boxish = {
@@ -252,9 +481,19 @@ for (const step of scenario.steps) {
       ...(o.contentOptions !== undefined ? { contentOptions: sub("contentOptions") } : {}),
       ...(o.wrapperOptions !== undefined ? { wrapperOptions: sub("wrapperOptions") } : {}),
     })
-  } else if (step.op === "flush") {
-    await setup.flush()
-    continue
+  } else if (step.op === "input") {
+    const o = step.options ?? {}
+    r = new InputRenderable(renderer, {
+      id: step.id,
+      ...(o.value !== undefined ? { value: o.value } : {}),
+      ...(o.placeholder !== undefined ? { placeholder: o.placeholder } : {}),
+      ...(o.width !== undefined ? { width: o.width } : {}),
+      ...(o.maxLength !== undefined ? { maxLength: o.maxLength } : {}),
+      ...(o.textColor !== undefined ? { textColor: o.textColor } : {}),
+      ...(o.focusedTextColor !== undefined ? { focusedTextColor: o.focusedTextColor } : {}),
+      ...(o.backgroundColor !== undefined ? { backgroundColor: o.backgroundColor } : {}),
+      ...(o.placeholderColor !== undefined ? { placeholderColor: o.placeholderColor } : {}),
+    })
   } else {
     throw new Error(`unknown op: ${step.op}`)
   }
@@ -278,12 +517,23 @@ const spans = buf.getSpanLines().map((line) => ({
   })),
 }))
 
+// terminal cursor: the frame's cursor CUP + show sequence
+// (setCursorPosition writes `ESC [<row>;<col> H` before `ESC[?25h`)
+const cursorMatch = [...stdout.bytes().toString("latin1").matchAll(/\x1b\[(\d+);(\d+)H\x1b\[\?25h/g)]
+
 const out = {
   oracle: "@opentui/core@0.5.14",
   renderer: { width: buf.width, height: buf.height },
   lines: spans,
   charFrame: setup.captureCharFrame(),
   sgrBytes: Array.from(stdout.bytes()),
+  cursor: cursorMatch.length
+    ? {
+        row: Number(cursorMatch[cursorMatch.length - 1][1]),
+        col: Number(cursorMatch[cursorMatch.length - 1][2]),
+        visible: true,
+      }
+    : { row: 0, col: 0, visible: false },
 }
 await Bun.write(outPath, JSON.stringify(out))
 console.log(`oracle: ${out.renderer.width}x${out.renderer.height}, ${out.sgrBytes.length} SGR bytes -> ${outPath}`)

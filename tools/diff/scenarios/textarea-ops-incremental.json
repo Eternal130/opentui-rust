@@ -1,0 +1,81 @@
+{
+  "name": "textarea-ops-incremental",
+  "width": 24,
+  "height": 6,
+  "steps": [
+    {
+      "op": "textarea",
+      "id": "ta",
+      "parent": "root",
+      "options": { "width": 24, "height": 4 }
+    },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [ { "op": "setText", "text": "alpha beta" } ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "setCursor", "row": 0, "col": 10 },
+        { "op": "insertText", "text": " gamma" }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "moveWordBackward" },
+        { "op": "deleteWordBackward" }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "newLine" },
+        { "op": "insertText", "text": "second" }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "setCursor", "row": 0, "col": 5 },
+        { "op": "deleteWordForward" }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "undo" },
+        { "op": "undo" }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "redo" },
+        { "op": "replaceText", "text": "fresh" }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "undo" },
+        { "op": "deleteLine" }
+      ]
+    }
+  ]
+}

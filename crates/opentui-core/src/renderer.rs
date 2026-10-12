@@ -18,6 +18,7 @@
 
 use crate::buffer::OptimizedBuffer;
 use crate::color::Rgba;
+use crate::editor::SelectionBehavior;
 use crate::layout::Dimension;
 use crate::renderable::{
     Content, MeasureCtx, MeasureKind, Renderable, RootRenderable, WalkEffects,
@@ -25,6 +26,7 @@ use crate::renderable::{
 use crate::renderables::box_::{BoxOptions, BoxRenderableState};
 use crate::renderables::scrollbox;
 use crate::renderables::text::{MeasuredText, TextOptions, TextRenderableState};
+use crate::renderables::textarea::{TextareaOptions, TextareaState};
 use taffy::prelude as tp;
 use taffy::tree::TaffyTree;
 
@@ -47,6 +49,136 @@ impl Default for CliRendererConfig {
     }
 }
 
+/// The renderer's global selection — `Selection`
+/// (lib/selection.ts:27) reduced to the keyboard-selection state: an
+/// anchor pinned relative to its renderable + a focus.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RendererSelection {
+    pub anchor_renderable: String,
+    /// anchor relative to the renderable's layout position
+    /// (`SelectionAnchor`, lib/selection.ts:5-25)
+    pub anchor_relative: (i32, i32),
+    /// focus in the anchor's coordinate space
+    pub focus: (i32, i32),
+    pub behavior: SelectionBehavior,
+    pub is_start: bool,
+    pub is_dragging: bool,
+}
+
+/// Terminal cursor state — `Terminal.state.cursor` (terminal.zig) as
+/// the renderer sees it: position (1-based), visibility, style, color,
+/// plus the emission diff cache (`lastCursor*`, renderer.zig:325, 2968+).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CursorOutputState {
+    pub x: u32,
+    pub y: u32,
+    pub visible: bool,
+    pub style: crate::renderables::textarea::CursorStyle,
+    pub blinking: bool,
+    pub color: Rgba,
+    // diff cache (None = never emitted)
+    last_x: Option<u32>,
+    last_y: Option<u32>,
+    last_visible: Option<bool>,
+    last_style_tag: Option<u8>,
+    last_blinking: Option<bool>,
+    last_color: Option<[u8; 3]>,
+}
+
+impl Default for CursorOutputState {
+    fn default() -> Self {
+        CursorOutputState {
+            x: 1,
+            y: 1,
+            visible: false,
+            style: crate::renderables::textarea::CursorStyle::Block,
+            blinking: true,
+            color: Rgba::rgb(255, 255, 255),
+            last_x: None,
+            last_y: None,
+            last_visible: None,
+            last_style_tag: None,
+            last_blinking: None,
+            last_color: None,
+        }
+    }
+}
+
+impl CursorOutputState {
+    /// `Terminal.setCursorPosition` (terminal.zig:1458-1468).
+    pub fn set_position(&mut self, x: u32, y: u32, visible: bool) {
+        self.x = x.max(1);
+        self.y = y.max(1);
+        self.visible = visible;
+    }
+
+    /// `Terminal.setCursorStyle` + `setCursorColor`.
+    pub fn set_style(
+        &mut self,
+        style: crate::renderables::textarea::CursorStyle,
+        blinking: bool,
+        color: Rgba,
+    ) {
+        self.style = style;
+        self.blinking = blinking;
+        self.color = color;
+    }
+
+    /// The cursor emission tail (renderer.zig:2932-3016) — appended to
+    /// the frame's SGR stream. `frame_started` mirrors the cell-run
+    /// emission state.
+    fn emit(&mut self, out: &mut String, frame_started: bool) {
+        let style_tag: u8 = match self.style {
+            crate::renderables::textarea::CursorStyle::Block => 1,
+            crate::renderables::textarea::CursorStyle::Line => 3,
+            crate::renderables::textarea::CursorStyle::Underline => 5,
+        };
+        if self.visible {
+            let (cr, cg, cb) = (self.color.red(), self.color.green(), self.color.blue());
+            let style_changed =
+                self.last_style_tag != Some(style_tag) || self.last_blinking != Some(self.blinking);
+            let color_changed = self.last_color != Some([cr, cg, cb]);
+            let position_changed = self.last_x != Some(self.x) || self.last_y != Some(self.y);
+            let visibility_changed = self.last_visible != Some(true);
+            // If any visual output was produced this frame, cursor state
+            // must be restored (renderer.zig:2975-2978)
+            let needs_restore = frame_started
+                || style_changed
+                || color_changed
+                || position_changed
+                || visibility_changed;
+            if needs_restore {
+                if color_changed {
+                    out.push_str(&format!("\x1b]12;#{cr:02x}{cg:02x}{cb:02x}\x07"));
+                    self.last_color = Some([cr, cg, cb]);
+                }
+                if style_changed {
+                    // DECSCUSR: 1/2 block, 3/4 line, 5/6 underline (blink/steady)
+                    let code = style_tag + u8::from(!self.blinking);
+                    out.push_str(&format!("\x1b[{code} q"));
+                    self.last_style_tag = Some(style_tag);
+                    self.last_blinking = Some(self.blinking);
+                }
+                out.push_str(&format!("\x1b[{};{}H", self.y, self.x));
+                out.push_str("\x1b[?25h");
+            }
+            self.last_x = Some(self.x);
+            self.last_y = Some(self.y);
+            self.last_visible = Some(true);
+        } else {
+            if !frame_started && self.last_visible.is_none_or(|v| v) {
+                out.push_str("\x1b[?25l");
+            }
+            self.last_style_tag = None;
+            self.last_blinking = None;
+            self.last_color = None;
+            self.last_x = None;
+            self.last_y = None;
+            self.last_visible = Some(false);
+        }
+    }
+}
+
 /// Where output goes — the headless slice has two targets: the cell grid
 /// (differential harness) and an in-memory SGR byte stream.
 pub enum RenderTarget {
@@ -60,6 +192,10 @@ pub struct CliRenderer {
     pub root: RootRenderable,
     pub next_render_buffer: OptimizedBuffer,
     pub current_render_buffer: OptimizedBuffer,
+    /// the global selection (renderer.ts:471 `currentSelection`)
+    pub selection: Option<RendererSelection>,
+    /// terminal cursor state + emission diff cache
+    pub cursor_state: CursorOutputState,
     /// SGR bytes emitted by the last [`CliRenderer::render`]
     last_frame_sgr: String,
     /// every frame's SGR concatenated — the full terminal emission
@@ -91,6 +227,8 @@ pub fn create_cli_renderer(config: CliRendererConfig) -> CliRenderer {
         root,
         next_render_buffer: OptimizedBuffer::new(config.width, config.height),
         current_render_buffer: OptimizedBuffer::new(config.width, config.height),
+        selection: None,
+        cursor_state: CursorOutputState::default(),
         last_frame_sgr: String::new(),
         sgr_history: String::new(),
         frame_id: 0,
@@ -137,6 +275,7 @@ impl CliRenderer {
         let ctx = MeasureCtx {
             kind: MeasureKind::Text,
             text: Some(state.measured()),
+            editor: None,
         };
         Renderable::new(
             &mut self.tree,
@@ -163,6 +302,37 @@ impl CliRenderer {
             opts.height.unwrap_or(Dimension::Auto),
             Content::Box(state),
             None,
+        )
+    }
+
+    /// Construct a textarea renderable without mounting
+    /// (EditBufferRenderable.ts:157 — `EditorView.create(editBuffer,
+    /// this.width || 80, this.height || 24)`; the explicit width/height
+    /// options are the renderable's numeric size).
+    #[must_use]
+    pub fn make_textarea(&mut self, id: &str, opts: &TextareaOptions) -> Renderable {
+        let vp_w = match opts.width {
+            Some(Dimension::Points(w)) => w.max(0.0) as u32,
+            _ => 80,
+        };
+        let vp_h = match opts.height {
+            Some(Dimension::Points(h)) => h.max(0.0) as u32,
+            _ => 24,
+        };
+        let state = TextareaState::from_options(id, opts, vp_w, vp_h);
+        let ctx = MeasureCtx {
+            kind: MeasureKind::Editor,
+            editor: Some(state.measured()),
+            text: None,
+        };
+        Renderable::new(
+            &mut self.tree,
+            id,
+            opts.layout.clone(),
+            opts.width.unwrap_or(Dimension::Auto),
+            opts.height.unwrap_or(Dimension::Auto),
+            Content::Textarea(state),
+            Some(ctx),
         )
     }
 
@@ -211,8 +381,33 @@ impl CliRenderer {
             guard += 1;
         }
 
+        // pass 2.5: textarea prepare (renderSelf snapshot + renderCursor,
+        // EditBufferRenderable.ts:991-1004) — the cursor is renderer
+        // state, so it is collected before the paint walk
+        let mut cursor_positions: Vec<(String, u32, u32)> = Vec::new();
+        self.root.inner.prepare_paint(&mut cursor_positions);
+
         // pass 3: paint into next buffer
         self.root.inner.paint(&mut self.next_render_buffer);
+
+        // renderCursor: each focused editor sets the terminal cursor;
+        // the last one wins (upstream sets it during render order,
+        // EditBufferRenderable.ts:1010-1022). A focused editor that
+        // blurred/hidden set `setCursorPosition(0,0,false)` itself
+        // (1030-1034); with no focused editor at all the port's only
+        // cursor writers are textareas, so the cursor hides.
+        for (id, x, y) in &cursor_positions {
+            if let Some(node) = self.find_node(&self.root.inner, id) {
+                if let Content::Textarea(state) = &node.content {
+                    let (style, blinking, color) = state.cursor_style();
+                    self.cursor_state.set_style(style, blinking, color);
+                }
+            }
+            self.cursor_state.set_position(*x, *y, true);
+        }
+        if cursor_positions.is_empty() {
+            self.cursor_state.visible = false;
+        }
 
         // 3. SGR emission (diff current vs next) — before the swap
         let mut sgr = String::new();
@@ -371,7 +566,8 @@ impl CliRenderer {
     }
 
     /// The taffy measure function: Text leaves measure their wrapped
-    /// content; everything else uses taffy defaults.
+    /// content; Editor leaves measure through the EditorView target
+    /// (native-renderable.zig:63-88); everything else taffy defaults.
     fn measure_text(
         known_dimensions: tp::Size<Option<f32>>,
         available_space: tp::Size<tp::AvailableSpace>,
@@ -382,27 +578,51 @@ impl CliRenderer {
         let Some(ctx) = ctx else {
             return tp::Size::ZERO;
         };
-        if ctx.kind != MeasureKind::Text {
-            return tp::Size::ZERO;
+        if ctx.kind == MeasureKind::Text {
+            let text = ctx.text.clone().unwrap_or(MeasuredText {
+                doc: crate::text_buffer::TextDocument::default(),
+                wrap_mode: Default::default(),
+            });
+            let avail_w = match available_space.width {
+                tp::AvailableSpace::Definite(w) => w,
+                tp::AvailableSpace::MaxContent => f32::INFINITY,
+                tp::AvailableSpace::MinContent => 0.0,
+            };
+            let (w, h) = crate::renderables::text::TextRenderableState::measure(
+                &text,
+                known_dimensions.width,
+                avail_w,
+            );
+            return tp::Size {
+                width: w,
+                height: h,
+            };
         }
-        let text = ctx.text.clone().unwrap_or(MeasuredText {
-            doc: crate::text_buffer::TextDocument::default(),
-            wrap_mode: Default::default(),
-        });
-        let avail_w = match available_space.width {
-            tp::AvailableSpace::Definite(w) => w,
-            tp::AvailableSpace::MaxContent => f32::INFINITY,
-            tp::AvailableSpace::MinContent => 0.0,
-        };
-        let (w, h) = crate::renderables::text::TextRenderableState::measure(
-            &text,
-            known_dimensions.width,
-            avail_w,
-        );
-        tp::Size {
-            width: w,
-            height: h,
+        if ctx.kind == MeasureKind::Editor {
+            let editor = ctx.editor.clone().unwrap_or_default();
+            let avail_w = match available_space.width {
+                tp::AvailableSpace::Definite(w) => w,
+                tp::AvailableSpace::MaxContent => f32::INFINITY,
+                tp::AvailableSpace::MinContent => 0.0,
+            };
+            let avail_h = match available_space.height {
+                tp::AvailableSpace::Definite(h) => h,
+                tp::AvailableSpace::MaxContent => f32::INFINITY,
+                tp::AvailableSpace::MinContent => 0.0,
+            };
+            let (w, h) = TextareaState::measure(
+                &editor.doc,
+                editor.wrap_mode,
+                known_dimensions.width,
+                avail_w,
+                avail_h,
+            );
+            return tp::Size {
+                width: w,
+                height: h,
+            };
         }
+        tp::Size::ZERO
     }
 
     /// The SGR frame writer — `prepareRenderFrameWithWriter` simplified to
@@ -487,6 +707,10 @@ impl CliRenderer {
         if run_length > 0 {
             out.push_str(crate::ansi::ansi_consts::RESET);
         }
+        // the cursor emission tail (renderer.zig:2932-3016) — `frame_
+        // started` mirrors whether any cell bytes were written
+        let frame_started = run_length > 0;
+        self.cursor_state.emit(out, frame_started);
     }
 
     /// SGR bytes of the last rendered frame (harness observability).
@@ -499,6 +723,13 @@ impl CliRenderer {
     /// consumed (the harness's vt-replay validates this end-to-end).
     #[must_use]
     pub fn full_sgr_stream(&self) -> &str {
+        &self.sgr_history
+    }
+
+    /// Alias of [`Self::full_sgr_stream`] (the textarea lane's original
+    /// name; kept for the lane's callers).
+    #[must_use]
+    pub fn sgr_stream(&self) -> &str {
         &self.sgr_history
     }
 
@@ -523,12 +754,199 @@ impl CliRenderer {
         }
     }
 
+    /// Update a textarea leaf's measure context after content changes
+    /// (`content-changed` → `yogaNode.markDirty`, EditBufferRenderable.ts:203-210).
+    pub fn refresh_textarea_measure(&mut self, id: &str) {
+        let Some(node) = self.find_node(&self.root.inner, id) else {
+            return;
+        };
+        if let Content::Textarea(state) = &node.content {
+            let m = state.measured();
+            let n = node.node;
+            if let Some(ctx) = self.tree.get_node_context_mut(n) {
+                ctx.editor = Some(m);
+            }
+            let _ = self.tree.mark_dirty(n);
+        }
+    }
+
+    /// The terminal cursor state (upstream `renderer.cursor` /
+    /// `setCursorPosition` on the RenderContext).
+    pub fn set_cursor_position(&mut self, x: u32, y: u32, visible: bool) {
+        self.cursor_state.set_position(x, y, visible);
+    }
+
+    pub fn set_cursor_style(
+        &mut self,
+        style: crate::renderables::textarea::CursorStyle,
+        blinking: bool,
+        color: Rgba,
+    ) {
+        self.cursor_state.set_style(style, blinking, color);
+    }
+
+    pub fn cursor_position(&self) -> (u32, u32, bool) {
+        (
+            self.cursor_state.x,
+            self.cursor_state.y,
+            self.cursor_state.visible,
+        )
+    }
+
+    // -- textarea actions + selection delivery ---------------------------------
+
+    /// Execute one of the 36 edit-buffer actions on a mounted textarea
+    /// (the `withFocusedEditor` host path, edit-buffer-bindings.ts:433-440).
+    /// Delivers the pending global-selection update to the anchor
+    /// renderable afterwards (upstream notifies inside updateSelection;
+    /// deferred here — see `TextareaState::update_selection_for_movement`).
+    pub fn textarea_action(&mut self, id: &str, action: &str) -> bool {
+        let mut dirty = false;
+        let result = self.with_textarea_mut(id, |state, pos, selection| {
+            let mut ctx = crate::renderables::textarea::ActionCtx {
+                selection,
+                node_x: pos.0,
+                node_y: pos.1,
+                selection_dirty: false,
+            };
+            let result = state.execute_action(action, &mut ctx);
+            dirty = ctx.selection_dirty;
+            result
+        });
+        if result.is_some_and(|_| dirty) {
+            self.deliver_selection();
+        }
+        result.unwrap_or(false)
+    }
+
+    /// `handleKeyPress` on a mounted textarea.
+    pub fn textarea_key_press(&mut self, id: &str, key: &crate::keybinding::KeyEvent) -> bool {
+        let mut dirty = false;
+        let result = self.with_textarea_mut(id, |state, pos, selection| {
+            let mut ctx = crate::renderables::textarea::ActionCtx {
+                selection,
+                node_x: pos.0,
+                node_y: pos.1,
+                selection_dirty: false,
+            };
+            let result = state.handle_key_press(key, &mut ctx);
+            dirty = ctx.selection_dirty;
+            result
+        });
+        if result.is_some_and(|_| dirty) {
+            self.deliver_selection();
+        }
+        result.unwrap_or(false)
+    }
+
+    /// Borrow a textarea's state with the selection moved out (the
+    /// tree and the selection are both renderer-owned; moving the
+    /// selection out keeps the borrows disjoint).
+    fn with_textarea_mut(
+        &mut self,
+        id: &str,
+        f: impl FnOnce(&mut TextareaState, (i32, i32), &mut Option<RendererSelection>) -> bool,
+    ) -> Option<bool> {
+        let mut selection = std::mem::take(&mut self.selection);
+        let Self { root, .. } = self;
+        let node = find_node_mut(&mut root.inner, id)?;
+        let pos = (node.x as i32, node.y as i32);
+        let Content::Textarea(state) = &mut node.content else {
+            return None;
+        };
+        let result = f(state, pos, &mut selection);
+        self.selection = selection;
+        Some(result)
+    }
+
+    /// Mutate a mounted textarea's state (scenario/harness surface).
+    pub fn textarea_state_mut(&mut self, id: &str, f: impl FnOnce(&mut TextareaState)) -> bool {
+        self.with_textarea_mut(id, |state, _pos, _selection| {
+            f(state);
+            true
+        })
+        .unwrap_or(false)
+    }
+
+    /// Read a mounted textarea's state (scenario/harness surface).
+    pub fn textarea_state<R>(
+        &mut self,
+        id: &str,
+        f: impl FnOnce(&TextareaState) -> R,
+    ) -> Option<R> {
+        let mut out = None;
+        self.with_textarea_mut(id, |state, _pos, _selection| {
+            out = Some(f(state));
+            true
+        });
+        out
+    }
+
+    /// `notifySelectablesOfSelectionChange` (renderer.ts:5054-5077) —
+    /// deliver the global selection (or its absence) to the anchor
+    /// renderable: convert to local coordinates
+    /// (`convertGlobalToLocalSelection`, lib/selection.ts:167-184) and
+    /// run `onSelectionChanged` (EditBufferRenderable.ts:519-580).
+    fn deliver_selection(&mut self) {
+        let sel = self.selection.clone();
+        let Some(sel) = sel else {
+            return;
+        };
+        let anchor_id = sel.anchor_renderable.clone();
+        let is_start = sel.is_start;
+        let is_dragging = sel.is_dragging;
+        // absolute anchor = anchor renderable's current position + the
+        // stored relative offset (SelectionAnchor.x, lib/selection.ts:18-24)
+        let Some(node) = self.find_node(&self.root.inner, &anchor_id) else {
+            return;
+        };
+        let (nx, ny) = (node.x as i32, node.y as i32);
+        let anchor_abs = (nx + sel.anchor_relative.0, ny + sel.anchor_relative.1);
+        let local = Some((
+            sel.anchor_relative.0,
+            sel.anchor_relative.1,
+            sel.focus.0 - nx,
+            sel.focus.1 - ny,
+            sel.behavior,
+        ));
+        let _ = anchor_abs;
+        self.with_textarea_mut(&anchor_id, move |state, _pos, _selection| {
+            state.on_selection_changed(local, is_start, is_dragging);
+            true
+        });
+    }
+
+    /// `clearSelection` (renderer.ts:4943-4946): null-notify the touched
+    /// renderable, then drop the state.
+    pub fn clear_selection(&mut self) {
+        if let Some(sel) = self.selection.take() {
+            let anchor_id = sel.anchor_renderable.clone();
+            self.with_textarea_mut(&anchor_id, |state, _pos, _selection| {
+                state.on_selection_changed(None, false, false);
+                true
+            });
+        }
+    }
+
+    /// `hasSelection` (renderer.ts:4935).
+    pub fn has_selection(&self) -> bool {
+        self.selection.is_some()
+    }
+
     fn find_node<'a>(&self, root: &'a Renderable, id: &str) -> Option<&'a Renderable> {
         if root.id.0 == id {
             return Some(root);
         }
         root.children.iter().find_map(|c| self.find_node(c, id))
     }
+}
+
+/// Mutable node lookup by id (recursive).
+fn find_node_mut<'a>(root: &'a mut Renderable, id: &str) -> Option<&'a mut Renderable> {
+    if root.id.0 == id {
+        return Some(root);
+    }
+    root.children.iter_mut().find_map(|c| find_node_mut(c, id))
 }
 
 #[cfg(test)]
@@ -548,6 +966,7 @@ mod tests {
         let ctx = MeasureCtx {
             kind: MeasureKind::Text,
             text: Some(state.measured()),
+            editor: None,
         };
         Renderable::new(
             &mut TaffyTree::new(),
@@ -570,6 +989,7 @@ mod tests {
         let ctx = MeasureCtx {
             kind: MeasureKind::Text,
             text: Some(state.measured()),
+            editor: None,
         };
         let r = Renderable::new(
             &mut renderer.tree,

@@ -26,7 +26,7 @@ upstream-attributed semantics; see `PORT-MATRIX.md` for the frozen surface.
 
 | crate | ports | status |
 |---|---|---|
-| `opentui-core` | `@opentui/core` — colors (intent metadata), cell grid + draw ops, flexbox layout (taffy), renderable tree, Box/Text renderables, StyledText/TextNode content model (multi-chunk styles, align/tab/wrap none+char+word), headless renderer + SGR emission | **differentially IDENTICAL** on 17 scenarios |
+| `opentui-core` | `@opentui/core` — colors (intent metadata), cell grid + draw ops, flexbox layout (taffy), renderable tree, Box/Text renderables, StyledText/TextNode content model (multi-chunk styles, align/tab/wrap none+char+word), headless renderer + SGR emission, the editor stack (EditBuffer/EditorView/selection + TextareaRenderable with the 36-action executor, scroll-follow, placeholder, cursor SGR emission) | **differentially IDENTICAL** on 41 scenarios |
 | `opentui-keymap` | `@opentui/keymap` — key stringify (exact port), Keymap facade, layered dispatch engine (adapted from opencode-rust's proven `oc-tui-core` port, cited) | skeleton |
 | `opentui-solid` | `@opentui/solid` — the reactive glue equivalent: signal boundary + builder component tree (design record in the crate docs) | design + mount-only |
 
@@ -51,8 +51,8 @@ cargo run -q -- scenarios/smoke-hello.json      # oracle caches under out/
 cargo run -q -- scenarios/box-border-text.json --refresh-oracle
 ```
 
-Bootstrap + render-primitives lane results (see `tools/diff/out/reports/`):
-Bootstrap + scrollbox-lane result (see `tools/diff/out/reports/`):
+Bootstrap + render-primitives + scrollbox + textarea lane results (see
+`tools/diff/out/reports/`):
 
 | scenario | cells | result |
 |---|---|---|
@@ -73,6 +73,7 @@ Bootstrap + scrollbox-lane result (see `tools/diff/out/reports/`):
 | wrap-mode-matrix | 520 | **IDENTICAL** (0 diffs) |
 | node-deep-attrs | 320 | **IDENTICAL** (0 diffs) |
 | attr-or-and-clip | 384 | **IDENTICAL** (0 diffs) |
+| emoji-clusters | 288 | **IDENTICAL** (0 diffs) |
 | scrollbox-static | 160 | **IDENTICAL** (0 diffs) |
 | scrollbox-scroll-mid | 160 | **IDENTICAL** (0 diffs) |
 | scrollbox-scroll-end | 160 | **IDENTICAL** (0 diffs) |
@@ -84,6 +85,18 @@ Bootstrap + scrollbox-lane result (see `tools/diff/out/reports/`):
 | scrollbox-long-math | 200 | **IDENTICAL** (0 diffs) |
 | scrollbox-resize | 100 | **IDENTICAL** (0 diffs) |
 | scrollbox-hscroll | 120 | **IDENTICAL** (0 diffs) |
+| textarea-multiline | 192 | **IDENTICAL** (0 diffs) |
+| textarea-cursor-scroll | 192 | **IDENTICAL** (0 diffs) |
+| textarea-selection-colors | 144 | **IDENTICAL** (0 diffs) |
+| textarea-selection-swap | 144 | **IDENTICAL** (0 diffs) |
+| textarea-scrolltop | 120 | **IDENTICAL** (0 diffs) |
+| textarea-placeholder | 120 | **IDENTICAL** (0 diffs) |
+| textarea-word-wrap | 176 | **IDENTICAL** (0 diffs) |
+| textarea-ops-incremental | 144 | **IDENTICAL** (0 diffs) |
+| textarea-select-keyboard | 144 | **IDENTICAL** (0 diffs) |
+| textarea-opaque-bg | 80 | **IDENTICAL** (0 diffs) |
+| textarea-motion-matrix | 144 | **IDENTICAL** (0 diffs) |
+| textarea-unicode-wide | 144 | **IDENTICAL** (0 diffs) |
 
 Each run also vt-replays the port's SGR stream through a vt100 parser to
 prove the emitted bytes repaint the same grid.
@@ -93,16 +106,15 @@ prove the emitted bytes repaint the same grid.
 1. **render-primitives** — **done** (StyledText multi-chunk, TextNode
    tree, text alignment, tab indicators, wrapping modes char/none —
    17/17 differential scenarios IDENTICAL vs `@opentui/core@0.5.14`).
-2. **scrollbox-lane** — ScrollBox + ScrollBar + scroll accel + nested
-   clipping (scissor rects port from buffer.zig).
-1. **render-primitives** — StyledText multi-chunk, TextNode tree, text
-   alignment, tab indicators, wrapping modes char/none (`wrapMode`
-   differential scenarios).
 2. ~~**scrollbox-lane**~~ — **done**: ScrollBox + ScrollBar + Slider +
    Arrow + scroll accel + scissor-rect clipping (viewport culling via the
    ported `getObjectsInViewport`), 11 differential scenarios IDENTICAL
-   (incl. the 3 bootstrap regressions).
-3. **textarea-lane** — EditBuffer/TextBuffer/editor primitives + selection.
+3. **textarea-lane** — **done** (EditBuffer/EditorView/selection core,
+   TextareaRenderable + the 36-action executor, scrollTop/scroll-follow,
+   placeholder, cursor SGR emission — 12 differential scenarios
+   IDENTICAL + a 61-test behavior suite porting upstream's own
+   edit-buffer/editor-view/keybinding tests with oracle-verified
+   matrices).
 4. **input-lane** — Input renderable + key events (KeyEvent/PasteEvent
    parsing from lib/parse.keypress*.ts).
 5. **events-lane** — mouse parser, hit grid, focus traversal, renderer

@@ -1,0 +1,49 @@
+{
+  "name": "textarea-word-wrap",
+  "width": 22,
+  "height": 8,
+  "steps": [
+    {
+      "op": "textarea",
+      "id": "ta",
+      "parent": "root",
+      "options": {
+        "width": 10,
+        "height": 6,
+        "wrapMode": "word",
+        "initialValue": "the quick brown fox jumps over"
+      }
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "setCursor", "row": 0, "col": 11 },
+        { "op": "gotoVisualLineEnd" }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "gotoVisualLineHome" },
+        { "op": "setCursorByOffset", "offset": 14 },
+        { "op": "moveCursorDown", "select": false }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [ { "op": "setWrapMode", "mode": "char" } ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [ { "op": "setWrapMode", "mode": "none" } ]
+    }
+  ]
+}

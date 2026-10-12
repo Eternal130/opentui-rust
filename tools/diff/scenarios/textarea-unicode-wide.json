@@ -1,0 +1,40 @@
+{
+  "name": "textarea-unicode-wide",
+  "width": 24,
+  "height": 6,
+  "steps": [
+    {
+      "op": "textarea",
+      "id": "ta",
+      "parent": "root",
+      "options": {
+        "width": 14,
+        "height": 4,
+        "initialValue": "你 好 world\n🌟 star\ntab\there"
+      }
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "setCursor", "row": 0, "col": 6 },
+        { "op": "moveWordForward" },
+        { "op": "moveWordBackward" },
+        { "op": "setSelection", "start": 3, "end": 8 }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "clearSelection" },
+        { "op": "setCursor", "row": 1, "col": 2 },
+        { "op": "deleteCharBackward" },
+        { "op": "setCursor", "row": 2, "col": 3 },
+        { "op": "moveCursorRight" }
+      ]
+    }
+  ]
+}
