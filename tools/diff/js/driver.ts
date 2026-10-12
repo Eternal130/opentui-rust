@@ -6,7 +6,15 @@
 //
 // Usage: bun js/driver.ts <scenario.json> <out.json>
 import { Writable } from "node:stream"
-import { createCliRenderer, TextRenderable, BoxRenderable, type Renderable } from "@opentui/core"
+import {
+  createCliRenderer,
+  TextRenderable,
+  BoxRenderable,
+  TextNodeRenderable,
+  StyledText,
+  parseColor,
+  type Renderable,
+} from "@opentui/core"
 import { createTestRenderer } from "@opentui/core/testing"
 
 class RecordingStream extends Writable {
@@ -39,6 +47,58 @@ if (!scenarioPath || !outPath) {
 }
 const scenario = await Bun.file(scenarioPath).json()
 
+// Attribute names → bits — createTextAttributes vocabulary (utils.ts:4).
+const ATTR_BITS = {
+  bold: 1,
+  dim: 1 << 1,
+  italic: 1 << 2,
+  underline: 1 << 3,
+  blink: 1 << 4,
+  inverse: 1 << 5,
+  reverse: 1 << 5,
+  hidden: 1 << 6,
+  strikethrough: 1 << 7,
+}
+function parseAttributes(v) {
+  if (v === undefined || v === null) return 0
+  if (typeof v === "number") return v
+  if (Array.isArray(v)) return v.reduce((bits, name) => bits | (ATTR_BITS[name] ?? 0), 0)
+  throw new Error(`attributes must be number or name array: ${JSON.stringify(v)}`)
+}
+
+// chunk JSON → TextChunk (fg/bg parsed like the port's parse_color)
+function parseChunk(v) {
+  if (typeof v !== "object" || v === null || typeof v.text !== "string") {
+    throw new Error(`chunk needs text: ${JSON.stringify(v)}`)
+  }
+  const chunk = { __isChunk: true, text: v.text, attributes: parseAttributes(v.attributes) }
+  if (v.fg !== undefined) chunk.fg = parseColor(v.fg)
+  if (v.bg !== undefined) chunk.bg = parseColor(v.bg)
+  return chunk
+}
+
+function parseStyledContent(v) {
+  if (v === undefined || v === null) return undefined
+  // strings pass through: TextRenderable's `_hasManualStyledText`
+  // (Text.ts:32) treats an empty string as NOT manual (tree wins)
+  if (typeof v === "string") return v
+  if (Array.isArray(v)) return new StyledText(v.map(parseChunk))
+  throw new Error(`content must be string or chunk array`)
+}
+
+function parseNodeTree(v, id) {
+  const options = {}
+  if (v.fg !== undefined) options.fg = v.fg
+  if (v.bg !== undefined) options.bg = v.bg
+  if (v.attributes !== undefined) options.attributes = parseAttributes(v.attributes)
+  const node = new TextNodeRenderable(options)
+  for (const child of v.children ?? []) {
+    if (typeof child === "string") node.add(child)
+    else node.add(parseNodeTree(child, `${id}-c`))
+  }
+  return node
+}
+
 // A recording stdout so the SGR byte stream is captured. We boot through
 // upstream's own createTestRenderer (deterministic headless profile) but
 // hand it our stream via config.stdout passthrough.
@@ -66,20 +126,30 @@ function node(id) {
 }
 for (const step of scenario.steps) {
   const parent = node(step.parent ?? "root")
-  let r
   if (step.op === "text") {
     const o = step.options ?? {}
-    r = new TextRenderable(renderer, {
-      content: o.content ?? "",
+    const options = {
+      ...(o.content !== undefined ? { content: parseStyledContent(o.content) } : {}),
       ...(o.fg !== undefined ? { fg: o.fg } : {}),
       ...(o.bg !== undefined ? { bg: o.bg } : {}),
+      ...(o.attributes !== undefined ? { attributes: parseAttributes(o.attributes) } : {}),
       ...(o.width !== undefined ? { width: o.width } : {}),
       ...(o.height !== undefined ? { height: o.height } : {}),
       ...(o.wrapMode !== undefined ? { wrapMode: o.wrapMode } : {}),
-    })
+      ...(o.textAlign !== undefined ? { textAlign: o.textAlign } : {}),
+      ...(o.tabIndicator !== undefined ? { tabIndicator: o.tabIndicator } : {}),
+      ...(o.tabIndicatorColor !== undefined ? { tabIndicatorColor: o.tabIndicatorColor } : {}),
+      ...(o.truncate !== undefined ? { truncate: o.truncate } : {}),
+    }
+    const r = new TextRenderable(renderer, options)
+    if (o.nodeContent !== undefined) {
+      r.add(parseNodeTree(o.nodeContent, `${step.id}-node`))
+    }
+    parent.add(r)
+    nodes.set(step.id, r)
   } else if (step.op === "box") {
     const o = step.options ?? {}
-    r = new BoxRenderable(renderer, {
+    const r = new BoxRenderable(renderer, {
       ...(o.backgroundColor !== undefined ? { backgroundColor: o.backgroundColor } : {}),
       ...(o.border !== undefined ? { border: o.border } : {}),
       ...(o.borderStyle !== undefined ? { borderStyle: o.borderStyle } : {}),
@@ -92,11 +162,32 @@ for (const step of scenario.steps) {
       ...(o.flexDirection !== undefined ? { flexDirection: o.flexDirection } : {}),
       ...(o.padding !== undefined ? { padding: o.padding } : {}),
     })
+    parent.add(r)
+    nodes.set(step.id, r)
+  } else if (step.op === "text-node") {
+    // attach a TextNodeRenderable to an existing text renderable
+    const target = nodes.get(step.parent)
+    if (!(target instanceof TextRenderable)) {
+      throw new Error(`text-node parent ${step.parent} is not a TextRenderable`)
+    }
+    const o = step.options ?? {}
+    const options = {}
+    if (o.fg !== undefined) options.fg = o.fg
+    if (o.bg !== undefined) options.bg = o.bg
+    if (o.attributes !== undefined) options.attributes = parseAttributes(o.attributes)
+    const n = new TextNodeRenderable(options)
+    if (step.text !== undefined) n.add(step.text)
+    target.add(n)
+  } else if (step.op === "text-add") {
+    const target = nodes.get(step.target)
+    if (!(target instanceof TextRenderable)) {
+      throw new Error(`text-add target ${step.target} is not a TextRenderable`)
+    }
+    if (step.text === undefined) throw new Error("text-add needs text")
+    target.add(step.text)
   } else {
     throw new Error(`unknown op: ${step.op}`)
   }
-  parent.add(r)
-  nodes.set(step.id, r)
 }
 
 // deterministic settle: run the loop until visually idle (upstream flush)

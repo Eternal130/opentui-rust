@@ -26,7 +26,7 @@ upstream-attributed semantics; see `PORT-MATRIX.md` for the frozen surface.
 
 | crate | ports | status |
 |---|---|---|
-| `opentui-core` | `@opentui/core` — colors (intent metadata), cell grid + draw ops, flexbox layout (taffy), renderable tree, Box/Text renderables, headless renderer + SGR emission | vertical slice **differentially IDENTICAL** on 3 scenarios |
+| `opentui-core` | `@opentui/core` — colors (intent metadata), cell grid + draw ops, flexbox layout (taffy), renderable tree, Box/Text renderables, StyledText/TextNode content model (multi-chunk styles, align/tab/wrap none+char+word), headless renderer + SGR emission | **differentially IDENTICAL** on 17 scenarios |
 | `opentui-keymap` | `@opentui/keymap` — key stringify (exact port), Keymap facade, layered dispatch engine (adapted from opencode-rust's proven `oc-tui-core` port, cited) | skeleton |
 | `opentui-solid` | `@opentui/solid` — the reactive glue equivalent: signal boundary + builder component tree (design record in the crate docs) | design + mount-only |
 
@@ -51,22 +51,36 @@ cargo run -q -- scenarios/smoke-hello.json      # oracle caches under out/
 cargo run -q -- scenarios/box-border-text.json --refresh-oracle
 ```
 
-Bootstrap result (see `tools/diff/out/reports/`):
+Bootstrap + render-primitives lane results (see `tools/diff/out/reports/`):
 
 | scenario | cells | result |
 |---|---|---|
 | smoke-hello | 100 | **IDENTICAL** (0 diffs) |
 | box-border-text | 96 | **IDENTICAL** (0 diffs) |
 | flex-column-stack | 192 | **IDENTICAL** (0 diffs) |
+| styled-multichunk | 200 | **IDENTICAL** (0 diffs) |
+| attr-matrix | 360 | **IDENTICAL** (0 diffs) |
+| text-align | 240 | **IDENTICAL** (0 diffs) |
+| wrap-char-cjk | 240 | **IDENTICAL** (0 diffs) |
+| wrap-none-long | 240 | **IDENTICAL** (0 diffs) |
+| tab-indicators | 260 | **IDENTICAL** (0 diffs) |
+| node-tree-nested | 264 | **IDENTICAL** (0 diffs) |
+| word-wrap-edges | 420 | **IDENTICAL** (0 diffs) |
+| styled-wrap-crossing | 288 | **IDENTICAL** (0 diffs) |
+| text-ops-incremental | 320 | **IDENTICAL** (0 diffs) |
+| blend-overlap | 480 | **IDENTICAL** (0 diffs) |
+| wrap-mode-matrix | 520 | **IDENTICAL** (0 diffs) |
+| node-deep-attrs | 320 | **IDENTICAL** (0 diffs) |
+| attr-or-and-clip | 384 | **IDENTICAL** (0 diffs) |
 
 Each run also vt-replays the port's SGR stream through a vt100 parser to
 prove the emitted bytes repaint the same grid.
 
 ## Roadmap (next lanes, per API family)
 
-1. **render-primitives** — StyledText multi-chunk, TextNode tree, text
-   alignment, tab indicators, wrapping modes char/none (`wrapMode`
-   differential scenarios).
+1. **render-primitives** — **done** (StyledText multi-chunk, TextNode
+   tree, text alignment, tab indicators, wrapping modes char/none —
+   17/17 differential scenarios IDENTICAL vs `@opentui/core@0.5.14`).
 2. **scrollbox-lane** — ScrollBox + ScrollBar + scroll accel + nested
    clipping (scissor rects port from buffer.zig).
 3. **textarea-lane** — EditBuffer/TextBuffer/editor primitives + selection.
