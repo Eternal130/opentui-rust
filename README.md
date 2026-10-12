@@ -26,8 +26,7 @@ upstream-attributed semantics; see `PORT-MATRIX.md` for the frozen surface.
 
 | crate | ports | status |
 |---|---|---|
-| `opentui-core` | `@opentui/core` — colors (intent metadata), cell grid + draw ops, flexbox layout (taffy), renderable tree, Box/Text renderables, StyledText/TextNode content model (multi-chunk styles, align/tab/wrap none+char+word), headless renderer + SGR emission | **differentially IDENTICAL** on 17 scenarios |
-| `opentui-keymap` | `@opentui/keymap` — key stringify (exact port), Keymap facade, layered dispatch engine (adapted from opencode-rust's proven `oc-tui-core` port, cited) | skeleton |
+| `opentui-core` | `@opentui/core` — colors (intent metadata), cell grid + draw ops, flexbox layout (taffy), renderable tree, Box/Text renderables, StyledText/TextNode content model (multi-chunk styles, align/tab/wrap none+char+word), headless renderer + SGR emission | **differentially IDENTICAL** on 17 scenarios || `opentui-keymap` | `@opentui/keymap` — key stringify (exact port), Keymap facade, layered dispatch engine (adapted from opencode-rust's proven `oc-tui-core` port, cited) | skeleton |
 | `opentui-solid` | `@opentui/solid` — the reactive glue equivalent: signal boundary + builder component tree (design record in the crate docs) | design + mount-only |
 
 ## Layout
@@ -51,8 +50,7 @@ cargo run -q -- scenarios/smoke-hello.json      # oracle caches under out/
 cargo run -q -- scenarios/box-border-text.json --refresh-oracle
 ```
 
-Bootstrap + render-primitives lane results (see `tools/diff/out/reports/`):
-Bootstrap + scrollbox-lane result (see `tools/diff/out/reports/`):
+Bootstrap + render-primitives + scrollbox + events lanes (see `tools/diff/out/reports/`):
 
 | scenario | cells | result |
 |---|---|---|
@@ -84,6 +82,20 @@ Bootstrap + scrollbox-lane result (see `tools/diff/out/reports/`):
 | scrollbox-long-math | 200 | **IDENTICAL** (0 diffs) |
 | scrollbox-resize | 100 | **IDENTICAL** (0 diffs) |
 | scrollbox-hscroll | 120 | **IDENTICAL** (0 diffs) |
+| input-typed-text | 72 | **IDENTICAL** (0 diffs, cursor matches) |
+| input-cursor-mid | 72 | **IDENTICAL** (0 diffs, cursor matches) |
+| input-cursor-end | 72 | **IDENTICAL** (0 diffs, cursor matches) |
+| input-overflow-scroll | 60 | **IDENTICAL** (0 diffs, cursor matches) |
+| input-word-jump | 72 | **IDENTICAL** (0 diffs, cursor matches) |
+| input-placeholder | 72 | **IDENTICAL** (0 diffs) |
+| input-delete-word | 72 | **IDENTICAL** (0 diffs) |
+
+Input scenarios also compare the **terminal cursor** (position +
+visibility) captured from the oracle's byte stream against the port's
+`setCursorPosition` tracking. The parser surface is additionally
+characterized against a frozen oracle corpus (6307 key sequences x
+legacy/kitty profiles, 162 mouse cases, 372 renderer event feeds) —
+see `crates/opentui-core/tests/characterization.rs`.
 
 Each run also vt-replays the port's SGR stream through a vt100 parser to
 prove the emitted bytes repaint the same grid.
@@ -103,10 +115,11 @@ prove the emitted bytes repaint the same grid.
    ported `getObjectsInViewport`), 11 differential scenarios IDENTICAL
    (incl. the 3 bootstrap regressions).
 3. **textarea-lane** — EditBuffer/TextBuffer/editor primitives + selection.
-4. **input-lane** — Input renderable + key events (KeyEvent/PasteEvent
-   parsing from lib/parse.keypress*.ts).
-5. **events-lane** — mouse parser, hit grid, focus traversal, renderer
-   event loop (requestRender scheduling semantics).
+4. ~~**input-lane**~~ — done: Input renderable + key events
+   (KeyEvent/PasteEvent parsing from lib/parse.keypress*.ts).
+5. ~~**events-lane**~~ — done: mouse parser, hit grid, focus
+   traversal, renderer event loop (requestRender scheduling
+   semantics).
 6. **keymap-lane** — full `@opentui/keymap` type surface + opentui host +
    solid provider + addons.
 7. **solid-glue-lane** — keyed reconciler diffing (props update, child

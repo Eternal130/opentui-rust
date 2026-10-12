@@ -2,10 +2,11 @@
 
 use anyhow::{Context, Result};
 use opentui_core::color::parse_color;
+use opentui_core::input::InputOptions;
 use opentui_core::renderables::box_::BorderSpec;
-use opentui_core::renderables::text::ContentInput;
 use opentui_core::renderables::scrollbar::ScrollUnit;
 use opentui_core::renderables::scrollbox::{ScrollBoxOptions, StickyStart};
+use opentui_core::renderables::text::ContentInput;
 use opentui_core::renderables::text::WrapMode;
 use opentui_core::renderables::{box_::BoxOptions, text::TextOptions};
 use opentui_core::renderer::{create_cli_renderer, CliRenderer, CliRendererConfig};
@@ -40,6 +41,9 @@ pub struct Step {
     pub prop: Option<String>,
     #[serde(default)]
     pub value: Option<f64>,
+    /// `key` op: raw bytes through the renderer's input pipeline
+    #[serde(default)]
+    pub sequence: Option<Vec<u8>>,
     #[serde(default)]
     pub method: Option<String>,
     #[serde(default)]
@@ -190,6 +194,7 @@ enum PendingNode {
     Text(TextOptions),
     Box(BoxOptions),
     ScrollBox(Box<ScrollBoxOptions>),
+    Input(InputOptions),
 }
 
 fn text_options_from_json(o: &serde_json::Value) -> Result<TextOptions> {
@@ -260,6 +265,22 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
             "flush" => {
                 mount(&mut renderer, &mut by_id, &children_of, None, &roots);
                 renderer.render();
+                continue;
+            }
+            "focus" => {
+                // focus a renderable (mount staged nodes first so the
+                // target exists — upstream focuses the live instance)
+                mount(&mut renderer, &mut by_id, &children_of, None, &roots);
+                let id = step.id.clone().context("focus step needs id")?;
+                renderer.focus_renderable(&id);
+                continue;
+            }
+            "key" => {
+                // raw bytes through the REAL stdin -> parser -> key
+                // handler pipeline (the JS driver emits on stdin)
+                mount(&mut renderer, &mut by_id, &children_of, None, &roots);
+                let seq = step.sequence.clone().context("key step needs sequence")?;
+                renderer.feed_bytes(&seq);
                 continue;
             }
             "set" => {
@@ -524,6 +545,34 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
                 }
                 PendingNode::ScrollBox(Box::new(opts))
             }
+            "input" => {
+                let mut opts = InputOptions::default();
+                if let Some(v) = o.get("value").and_then(|v| v.as_str()) {
+                    opts.value = v.to_owned();
+                }
+                if let Some(v) = o.get("placeholder").and_then(|v| v.as_str()) {
+                    opts.placeholder = Some(v.to_owned());
+                }
+                if let Some(v) = o.get("width").and_then(|v| v.as_f64()) {
+                    opts.width = Some(v as u32);
+                }
+                if let Some(v) = o.get("maxLength").and_then(|v| v.as_u64()) {
+                    opts.max_length = Some(v as usize);
+                }
+                if let Some(v) = o.get("textColor").and_then(|v| v.as_str()) {
+                    opts.text_color = Some(opentui_core::color::parse_color(v));
+                }
+                if let Some(v) = o.get("focusedTextColor").and_then(|v| v.as_str()) {
+                    opts.focused_text_color = Some(opentui_core::color::parse_color(v));
+                }
+                if let Some(v) = o.get("backgroundColor").and_then(|v| v.as_str()) {
+                    opts.background_color = Some(opentui_core::color::parse_color(v));
+                }
+                if let Some(v) = o.get("placeholderColor").and_then(|v| v.as_str()) {
+                    opts.placeholder_color = Some(opentui_core::color::parse_color(v));
+                }
+                PendingNode::Input(opts)
+            }
             other => anyhow::bail!("unknown op: {other}"),
         };
         let Some(id) = &step.id else {
@@ -572,6 +621,10 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
         // the full emission across frames — mirrors the oracle's
         // recorded stdout stream (multi-frame scroll scenarios)
         sgr_bytes: renderer.full_sgr_stream().bytes().collect(),
+        cursor: {
+            let (col, row, visible) = renderer.terminal_cursor();
+            Some(Cursor { row, col, visible })
+        },
     })
 }
 
@@ -590,6 +643,7 @@ fn mount(
             Some(PendingNode::Text(opts)) => renderer.make_text(id, &opts),
             Some(PendingNode::Box(opts)) => renderer.make_box(id, &opts),
             Some(PendingNode::ScrollBox(mut opts)) => renderer.make_scrollbox(id, &mut opts),
+            Some(PendingNode::Input(opts)) => renderer.make_input(id, &opts),
             None => continue,
         };
         match parent {
@@ -617,6 +671,17 @@ pub struct Capture {
     pub char_frame: String,
     #[serde(rename = "sgrBytes")]
     pub sgr_bytes: Vec<u8>,
+    /// The terminal cursor after the last frame (input scenarios);
+    /// `None` in older captures.
+    #[serde(default)]
+    pub cursor: Option<Cursor>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct Cursor {
+    pub row: u32,
+    pub col: u32,
+    pub visible: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

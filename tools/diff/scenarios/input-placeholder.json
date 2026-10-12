@@ -1,0 +1,16 @@
+{
+  "name": "input-placeholder",
+  "width": 24,
+  "height": 3,
+  "steps": [
+    {
+      "op": "input",
+      "id": "in",
+      "parent": "root",
+      "options": {
+        "width": 20,
+        "placeholder": "Enter text\u2026"
+      }
+    }
+  ]
+}

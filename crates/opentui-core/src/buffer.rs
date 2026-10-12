@@ -94,7 +94,8 @@ impl Cell {
     }
 }
 
-fn make_cell(char: u32, fg: Rgba, bg: Rgba, attributes: u32) -> Cell {
+/// `makeCell` (buffer.zig) — char word + colors + attributes.
+pub(crate) fn make_cell(char: u32, fg: Rgba, bg: Rgba, attributes: u32) -> Cell {
     Cell {
         char,
         fg,
@@ -502,6 +503,85 @@ impl OptimizedBuffer {
             // this port (no link attributes exist yet)
             self.cells[i] = cell;
         }
+    }
+
+    /// `setCellWithAlphaBlendingCell` (buffer.zig:929-938) — the
+    /// generic write the editor path falls back to when the
+    /// transparent-text fast path does not apply. Public for the
+    /// editor-view draw (Input renderable).
+    pub fn set_cell_with_alpha_blending_cell(&mut self, x: u32, y: u32, cell: Cell) {
+        self.set_cell_with_alpha_blending(x, y, cell);
+    }
+
+    /// `trySetTransparentTextCellFast` (buffer.zig:1028-1062) — the
+    /// "opaque glyph over transparent bg" fast path: keep the
+    /// destination background, write fg/attributes, and skip a
+    /// transparent-space overlay over an existing single-width glyph.
+    /// Returns false when the caller must use the blending write.
+    pub fn try_set_transparent_text_cell(
+        &mut self,
+        x: u32,
+        y: u32,
+        char_word: u32,
+        fg: Rgba,
+        attributes: u32,
+    ) -> bool {
+        if fg.alpha() != 255 {
+            return false;
+        }
+        if crate::ansi::get_link_id(attributes) != 0 {
+            return false;
+        }
+        if is_grapheme_char(char_word) || is_continuation_char(char_word) {
+            return false;
+        }
+        let Some(dest) = self.get(x, y) else {
+            return false;
+        };
+        if crate::ansi::get_link_id(dest.attributes) != 0 {
+            return false;
+        }
+        if is_grapheme_char(dest.char) || is_continuation_char(dest.char) {
+            return false;
+        }
+        // A transparent space over a visible single-width glyph is a
+        // no-op (buffer.zig:1054-1056).
+        if char_word == DEFAULT_SPACE_CHAR
+            && dest.char != 0
+            && dest.char != DEFAULT_SPACE_CHAR
+            && char_right_extent(dest.char) == 0
+        {
+            return true;
+        }
+        let i = self.index(x, y).expect("get succeeded");
+        self.cells[i].char = char_word;
+        self.cells[i].fg = fg;
+        self.cells[i].attributes = attributes;
+        true
+    }
+
+    /// `setCell` for a packed char word (grapheme-pool ids included) —
+    /// the editor draw's plain write.
+    pub fn set_cell_word(
+        &mut self,
+        x: u32,
+        y: u32,
+        char_word: u32,
+        fg: Rgba,
+        bg: Rgba,
+        attributes: u32,
+    ) {
+        let cell = make_cell(char_word, fg, bg, attributes);
+        self.set(x, y, cell);
+    }
+
+    /// `fillRectClipped` (buffer.zig:1671-1678): the editor view's
+    /// prefilled-viewport background.
+    pub fn fill_rect_clipped(&mut self, x: i32, y: i32, width: u32, height: u32, bg: Rgba) {
+        if width == 0 || height == 0 || x >= self.width as i32 || y >= self.height as i32 {
+            return;
+        }
+        self.fill_rect(x, y, width, height, bg);
     }
 
     /// `setCell` (TS) / `setCellWithAlphaBlending` when alpha < 1 — for the
