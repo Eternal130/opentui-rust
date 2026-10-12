@@ -1,0 +1,235 @@
+import { RGBA } from "./lib/RGBA.js"
+import {
+  resolveRenderLib,
+  type LineInfo,
+  type MeasureResult,
+  type RenderLib,
+  type TextBufferViewHandle,
+} from "./zig.js"
+import type { TextBuffer } from "./text-buffer.js"
+import type { SelectionBehavior, SelectionOccupancy } from "./types.js"
+
+export class TextBufferView {
+  private lib: RenderLib
+  private viewPtr: TextBufferViewHandle
+  private textBuffer: TextBuffer
+  private _destroyed: boolean = false
+  // Only this wrapper sets the native view's selection, and a reset clears all of it, so while this
+  // is true the view has no selection and a reset can skip the native call.
+  private selectionClear: boolean = true
+
+  constructor(lib: RenderLib, ptr: TextBufferViewHandle, textBuffer: TextBuffer) {
+    this.lib = lib
+    this.viewPtr = ptr
+    this.textBuffer = textBuffer
+  }
+
+  static create(textBuffer: TextBuffer): TextBufferView {
+    const lib = resolveRenderLib()
+    const viewPtr = lib.createTextBufferView(textBuffer.ptr)
+    return new TextBufferView(lib, viewPtr, textBuffer)
+  }
+
+  // Fail loud and clear
+  private guard(): void {
+    if (this._destroyed) throw new Error("TextBufferView is destroyed")
+  }
+
+  public get ptr(): TextBufferViewHandle {
+    this.guard()
+    return this.viewPtr
+  }
+
+  public setSelection(start: number, end: number, bgColor?: RGBA, fgColor?: RGBA): void {
+    this.guard()
+    this.selectionClear = false
+    this.lib.textBufferViewSetSelection(this.viewPtr, start, end, bgColor || null, fgColor || null)
+  }
+
+  public updateSelection(end: number, bgColor?: RGBA, fgColor?: RGBA): void {
+    this.guard()
+    this.selectionClear = false
+    this.lib.textBufferViewUpdateSelection(this.viewPtr, end, bgColor || null, fgColor || null)
+  }
+
+  public resetSelection(): void {
+    this.guard()
+    if (this.selectionClear) return
+    this.lib.textBufferViewResetSelection(this.viewPtr)
+    this.selectionClear = true
+  }
+
+  public getSelection(): { start: number; end: number } | null {
+    this.guard()
+    return this.lib.textBufferViewGetSelection(this.viewPtr)
+  }
+
+  public hasSelection(): boolean {
+    this.guard()
+    return this.getSelection() !== null
+  }
+
+  public setLocalSelection(
+    anchorX: number,
+    anchorY: number,
+    focusX: number,
+    focusY: number,
+    bgColor?: RGBA,
+    fgColor?: RGBA,
+    behavior: SelectionBehavior = "cell",
+  ): boolean {
+    this.guard()
+    this.selectionClear = false
+    return this.lib.textBufferViewSetLocalSelection(
+      this.viewPtr,
+      anchorX,
+      anchorY,
+      focusX,
+      focusY,
+      bgColor || null,
+      fgColor || null,
+      behavior,
+    )
+  }
+
+  public updateLocalSelection(
+    anchorX: number,
+    anchorY: number,
+    focusX: number,
+    focusY: number,
+    bgColor?: RGBA,
+    fgColor?: RGBA,
+    behavior: SelectionBehavior = "cell",
+  ): boolean {
+    this.guard()
+    this.selectionClear = false
+    return this.lib.textBufferViewUpdateLocalSelection(
+      this.viewPtr,
+      anchorX,
+      anchorY,
+      focusX,
+      focusY,
+      bgColor || null,
+      fgColor || null,
+      behavior,
+    )
+  }
+
+  public resetLocalSelection(): void {
+    this.guard()
+    if (this.selectionClear) return
+    this.lib.textBufferViewResetLocalSelection(this.viewPtr)
+    this.selectionClear = true
+  }
+
+  public setSelectionOccupancy(occupancy: SelectionOccupancy): void {
+    this.guard()
+    this.lib.textBufferViewSetSelectionOccupancy(this.viewPtr, occupancy)
+  }
+
+  public getSelectionOccupancy(): SelectionOccupancy {
+    this.guard()
+    return this.lib.textBufferViewGetSelectionOccupancy(this.viewPtr)
+  }
+
+  public setWrapWidth(width: number | null): void {
+    this.guard()
+    this.lib.textBufferViewSetWrapWidth(this.viewPtr, width ?? 0)
+  }
+
+  public setWrapMode(mode: "none" | "char" | "word"): void {
+    this.guard()
+    this.lib.textBufferViewSetWrapMode(this.viewPtr, mode)
+  }
+
+  public setTextAlign(alignment: "left" | "center" | "right"): void {
+    this.guard()
+    this.lib.textBufferViewSetTextAlign(this.viewPtr, alignment)
+  }
+
+  public setFirstLineOffset(offset: number): void {
+    this.guard()
+    this.lib.textBufferViewSetFirstLineOffset(this.viewPtr, offset)
+  }
+
+  public setViewportSize(width: number, height: number): void {
+    this.guard()
+    this.lib.textBufferViewSetViewportSize(this.viewPtr, width, height)
+  }
+
+  public setViewport(x: number, y: number, width: number, height: number): void {
+    this.guard()
+    this.lib.textBufferViewSetViewport(this.viewPtr, x, y, width, height)
+  }
+
+  public get lineInfo(): LineInfo {
+    this.guard()
+    return this.lib.textBufferViewGetLineInfo(this.viewPtr)
+  }
+
+  public get logicalLineInfo(): LineInfo {
+    this.guard()
+    return this.lib.textBufferViewGetLogicalLineInfo(this.viewPtr)
+  }
+
+  public getLineSources(startLine: number, lineCount: number): number[] {
+    this.guard()
+    return this.lib.textBufferViewGetLineSources(this.viewPtr, startLine, lineCount)
+  }
+
+  public getSelectedText(): string {
+    this.guard()
+    const byteSize = this.textBuffer.byteSize
+    if (byteSize === 0) return ""
+
+    const selectedBytes = this.lib.textBufferViewGetSelectedTextBytes(this.viewPtr, byteSize)
+
+    if (!selectedBytes) return ""
+
+    return this.lib.decoder.decode(selectedBytes)
+  }
+
+  public getPlainText(): string {
+    this.guard()
+    const byteSize = this.textBuffer.byteSize
+    if (byteSize === 0) return ""
+
+    const plainBytes = this.lib.textBufferViewGetPlainTextBytes(this.viewPtr, byteSize)
+
+    if (!plainBytes) return ""
+
+    return this.lib.decoder.decode(plainBytes)
+  }
+
+  public setTabIndicator(indicator: string | number): void {
+    this.guard()
+    const codePoint = typeof indicator === "string" ? (indicator.codePointAt(0) ?? 0) : indicator
+    this.lib.textBufferViewSetTabIndicator(this.viewPtr, codePoint)
+  }
+
+  public setTabIndicatorColor(color: RGBA): void {
+    this.guard()
+    this.lib.textBufferViewSetTabIndicatorColor(this.viewPtr, color)
+  }
+
+  public setTruncate(truncate: boolean): void {
+    this.guard()
+    this.lib.textBufferViewSetTruncate(this.viewPtr, truncate)
+  }
+
+  public measureForDimensions(width: number, height: number): MeasureResult | null {
+    this.guard()
+    return this.lib.textBufferViewMeasureForDimensions(this.viewPtr, width, height)
+  }
+
+  public getVirtualLineCount(): number {
+    this.guard()
+    return this.lib.textBufferViewGetVirtualLineCount(this.viewPtr)
+  }
+
+  public destroy(): void {
+    if (this._destroyed) return
+    this._destroyed = true
+    this.lib.destroyTextBufferView(this.viewPtr)
+  }
+}
