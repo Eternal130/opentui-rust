@@ -22,6 +22,36 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// The @opentui version the sandbox pins (package.json + bun.lock) —
+/// the only version an oracle may be captured against (see the
+/// resolution incident in tools/diff/README).
+const PINNED_CORE: &str = "0.5.14";
+
+/// FNV-1a 64 → 16 hex chars (mirrors `fnv1a` in js/driver.ts). A
+/// non-cryptographic staleness guard, not integrity protection.
+fn fnv1a_hex(bytes: &[u8]) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in bytes {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
+
+/// The fingerprint the CURRENT driver+scenario pair produces — what a
+/// cached oracle must carry to be trusted.
+fn live_fingerprint(root: &Path, scenario_path: &Path) -> Result<scenario::CaptureFingerprint> {
+    let driver = root.join("tools/diff/js/driver.ts");
+    let driver_bytes = std::fs::read(&driver).context("reading driver.ts for the fingerprint")?;
+    let scenario_bytes =
+        std::fs::read(scenario_path).context("reading scenario for the fingerprint")?;
+    Ok(scenario::CaptureFingerprint {
+        core: PINNED_CORE.to_owned(),
+        driver: fnv1a_hex(&driver_bytes),
+        scenario: fnv1a_hex(&scenario_bytes),
+    })
+}
+
 fn repo_root() -> PathBuf {
     // CARGO_MANIFEST_DIR = <repo>/tools/diff → repo root is two levels up
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -80,13 +110,43 @@ fn main() -> Result<()> {
     let scenario_path = scenario_path
         .canonicalize()
         .context("scenario path not found")?;
+    let expected = live_fingerprint(&repo_root(), &scenario_path)?;
+    let mut refreshed = false;
     if refresh_oracle || !oracle_path.exists() {
         run_oracle(&scenario_path, &oracle_path)?;
+        refreshed = true;
     }
 
-    let oracle_text = std::fs::read_to_string(&oracle_path)?;
-    let oracle: scenario::Capture =
+    let mut oracle_text = std::fs::read_to_string(&oracle_path)?;
+    let mut oracle: scenario::Capture =
         serde_json::from_str(&oracle_text).context("oracle JSON parse")?;
+    // Cache discipline: a cached oracle is only trustworthy while its
+    // capture fingerprint matches the live driver + scenario (and the
+    // pinned core version). A mismatch means the cache predates a
+    // driver/scenario change — or was captured by a wrong-version
+    // driver (the resolution incident). Self-heal: re-capture instead
+    // of comparing against a stale artifact.
+    if !refreshed && oracle.capture.as_ref() != Some(&expected) {
+        let why = match &oracle.capture {
+            None => "no fingerprint (pre-incident capture)".to_owned(),
+            Some(c) => format!(
+                "cached capture {{core={}, driver={}, scenario={}}} != live {{core={}, driver={}, scenario={}}}",
+                c.core, c.driver, c.scenario, expected.core, expected.driver, expected.scenario
+            ),
+        };
+        println!("oracle cache stale ({why}) — refreshing");
+        run_oracle(&scenario_path, &oracle_path)?;
+        oracle_text = std::fs::read_to_string(&oracle_path)?;
+        oracle = serde_json::from_str(&oracle_text).context("oracle JSON parse (post-refresh)")?;
+        if oracle.capture.as_ref() != Some(&expected) {
+            anyhow::bail!(
+                "refreshed oracle fingerprint {:?} still != live {:?} — driver/capture drift",
+                oracle.capture,
+                expected
+            );
+        }
+    }
+
     let scenario = scenario::load(&scenario_path)?;
     let rust = if scenario.mode.as_deref() == Some("solid") {
         solid::render_solid(&scenario)?

@@ -785,6 +785,9 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
         .collect();
     Ok(Capture {
         oracle: "opentui-core".into(),
+        // rust-side captures carry no oracle fingerprint (they are
+        // produced by the live harness, never cached)
+        capture: None,
         renderer: Size {
             width: buf.width,
             height: buf.height,
@@ -1222,6 +1225,11 @@ fn mount(
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Capture {
     pub oracle: String,
+    /// Capture fingerprint (core version + driver/scenario hashes) —
+    /// written by the JS driver since the resolution incident;
+    /// `None` in captures from before it existed.
+    #[serde(default)]
+    pub capture: Option<CaptureFingerprint>,
     pub renderer: Size,
     pub lines: Vec<Line>,
     #[serde(rename = "charFrame")]
@@ -1232,6 +1240,16 @@ pub struct Capture {
     /// `None` in older captures.
     #[serde(default)]
     pub cursor: Option<Cursor>,
+}
+
+/// `capture` in the oracle JSON: what produced it. A cached oracle is
+/// only trustworthy while these match the live harness (see the
+/// resolution incident in tools/diff/README).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct CaptureFingerprint {
+    pub core: String,
+    pub driver: String,
+    pub scenario: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
