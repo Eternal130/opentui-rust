@@ -1,0 +1,26 @@
+{
+  "name": "textarea-selection-colors",
+  "width": 24,
+  "height": 6,
+  "steps": [
+    {
+      "op": "textarea",
+      "id": "ta",
+      "parent": "root",
+      "options": {
+        "width": 24,
+        "height": 4,
+        "initialValue": "hello world foo\nsecond line here\nthird",
+        "selectionBg": "#FF0000",
+        "selectionFg": "#00FF00"
+      }
+    },
+    { "op": "ta-op", "target": "ta", "textOps": [ { "op": "setSelection", "start": 2, "end": 7 } ] },
+    { "op": "frame" },
+    { "op": "ta-op", "target": "ta", "textOps": [ { "op": "setSelection", "start": 8, "end": 30 } ] },
+    { "op": "frame" },
+    { "op": "ta-op", "target": "ta", "textOps": [ { "op": "setSelectionInclusive", "start": 5, "end": 9 } ] },
+    { "op": "frame" },
+    { "op": "ta-op", "target": "ta", "textOps": [ { "op": "clearSelection" } ] }
+  ]
+}

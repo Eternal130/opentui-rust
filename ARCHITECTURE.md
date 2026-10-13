@@ -141,6 +141,37 @@ builder constructors** (`text()`, `box_()`) — the 1:1 target of the
 TSX→Rust transplants. Mount-only now; keyed reconciler diffing (the
 solid reconciler semantics) is the solid-glue lane.
 
+## The editor stack (textarea lane, O2e)
+
+`opentui-core::editor` ports the native editor trio — `edit-buffer.zig`,
+`editor-view.zig`, and the selection core of `text-buffer-view.zig` —
+onto the O2a line model (`Vec<LogicalLine>`, one text chunk per logical
+line, like upstream's post-`setStyledText` rope):
+
+* **Offset model** — upstream's display-width offsets (newlines cost 1,
+  `coordsToOffset`/`offsetToCoords`) are preserved exactly; every
+  cursor, selection, and `getTextRange` range is offset-based.
+* **The one-line invariant** — an empty document still has one (empty)
+  line (oracle: `setText("")` → `getLineCount() == 1`).
+* **Undo/redo** — linear snapshot stacks with the cursor meta string
+  (`cursor:row:col:desired[:tab]`) as the public undo return; tab-width
+  changes re-measure restored lines (`refreshTabWidthMetrics`) and remap
+  cursor columns.
+* **The event pump** — upstream's `cursorChanged` event emitter becomes
+  a version token: the view pumps it at every entry point (same ordering
+  as the synchronous upstream emit), which drives
+  `ensureCursorVisible`/placeholder visibility.
+* **Deferred selection delivery** — upstream notifies selected
+  renderables synchronously inside `ctx.updateSelection`; the port
+  delivers at the action boundary gated on a dirty flag
+  (observationally equivalent for the keyboard path — the start-notify's
+  zero-width selection is immediately superseded).
+* **Rendering** — `draw_editor_view` ports the EditorView branch of
+  `drawTextBufferInternal` (viewport bg prefill, per-cell selection
+  highlight, INVERSE-after-selection swap); the terminal cursor
+  position/style/color emission (OSC12 + DECSCUSR + CUP + DECTCEM with
+  the diff cache) extends the frame writer.
+
 ## opentui-keymap
 
 Upstream `@opentui/keymap` is a facade over host-provided services. The

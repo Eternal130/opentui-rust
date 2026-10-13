@@ -1,0 +1,45 @@
+{
+  "name": "textarea-placeholder",
+  "width": 24,
+  "height": 5,
+  "steps": [
+    {
+      "op": "textarea",
+      "id": "ta",
+      "parent": "root",
+      "options": {
+        "width": 24,
+        "height": 3,
+        "placeholder": "Type here...",
+        "placeholderColor": "#666666"
+      }
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [ { "op": "insertText", "text": "hi" } ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "setCursor", "row": 0, "col": 2 },
+        { "op": "insertText", "text": " there" }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [ { "op": "clear" } ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [ { "op": "placeholder", "value": "replaced hint" } ]
+    }
+  ]
+}

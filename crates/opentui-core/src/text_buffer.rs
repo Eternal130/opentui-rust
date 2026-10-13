@@ -582,7 +582,7 @@ fn is_ascii_word_byte(b: u8) -> bool {
 }
 
 /// `isCjkWordCodepoint` — utf8.zig:236-260.
-fn is_cjk_word_codepoint(cp: u32) -> bool {
+pub fn is_cjk_word_codepoint(cp: u32) -> bool {
     (0x3400..=0x4DBF).contains(&cp)
         || (0x4E00..=0x9FFF).contains(&cp)
         || (0xF900..=0xFAFF).contains(&cp)
