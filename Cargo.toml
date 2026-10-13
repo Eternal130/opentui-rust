@@ -4,6 +4,7 @@ members = [
     "crates/opentui-core",
     "crates/opentui-keymap",
     "crates/opentui-solid",
+    "tools/bench",
     "tools/diff",
 ]
 

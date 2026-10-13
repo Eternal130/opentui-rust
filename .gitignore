@@ -17,3 +17,8 @@ tools/diff/out/
 .DS_Store
 .worktrees/
 tools/diff/js/node_modules
+
+# perf rig: oracle-side resolution symlink (same discipline as
+# tools/diff/js/node_modules) + generated oracle numbers
+tools/bench/oracle/node_modules
+tools/bench/out/

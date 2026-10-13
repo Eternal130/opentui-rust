@@ -1,0 +1,21 @@
+[package]
+name = "opentui-bench"
+description = "Perf rig: frame-budget benchmarks for opentui-core hot paths (buffer ops, measure, render cycle, settle loop, SGR emission)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+opentui-core = { workspace = true }
+opentui-diff = { path = "../diff" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# The rig runs via `cargo run --release -p opentui-bench` (the ergonomic
+# form) and `cargo bench -p opentui-bench` (the standard form) — the
+# bench target below is a facade over the same main.
+[[bench]]
+name = "frame"
+harness = false

@@ -228,6 +228,13 @@ impl TextRenderableState {
         &self.vlines
     }
 
+    /// Drop the vline cache (content changed through
+    /// [`crate::renderer::CliRenderer::refresh_text_measure`] — the
+    /// same seam that refreshes the taffy measure context).
+    pub fn invalidate_vlines(&mut self) {
+        self.vlines_valid = false;
+    }
+
     /// Intrinsic size for the measure function — `measureForDimensions`
     /// (text-buffer-view.zig:1450-1510) via the native measure
     /// (native-renderable.zig:63-80): floor the available width,
@@ -266,9 +273,13 @@ impl TextRenderableState {
             tab_indicator_color: self.tab_indicator_color,
             viewport: self.viewport,
         };
-        // vlines() needs &mut; recompute cheaply via the cache
-        let vlines = if self.vlines_valid {
-            self.vlines.clone()
+        // borrow the cached vlines (perf: the paint walk runs every
+        // frame — cloning the line vec per text node per frame was the
+        // dominant allocation in text-heavy trees); recompute into a
+        // local only when the cache is cold
+        let recomputed;
+        let vlines: &[crate::text_buffer::VirtualLine] = if self.vlines_valid {
+            &self.vlines
         } else {
             let wrap_width = if self.wrap_mode == WrapMode::None {
                 None
@@ -276,12 +287,13 @@ impl TextRenderableState {
                 Some(self.viewport.map_or(0, |vp| vp.width))
             };
             let wrap_width = wrap_width.filter(|w| *w > 0);
-            compute_virtual_lines(&self.doc, self.wrap_mode, wrap_width)
+            recomputed = compute_virtual_lines(&self.doc, self.wrap_mode, wrap_width);
+            &recomputed
         };
         // `truncate: true` (setTruncate + ensureTruncation,
         // text-buffer-view.zig:1290-1445) is a scrollbox-lane target;
         // vlines that fit the viewport need no truncation pass.
-        draw_text_view(buffer, &self.doc, &view, &vlines, screen_x, screen_y);
+        draw_text_view(buffer, &self.doc, &view, vlines, screen_x, screen_y);
     }
 }
 
