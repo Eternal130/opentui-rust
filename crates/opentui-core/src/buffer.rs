@@ -1019,17 +1019,18 @@ impl OptimizedBuffer {
         let write_border_cell = |buf: &mut Self, cx: i32, cy: i32, ch: u32| {
             if use_transparent_border_fast_path {
                 // direct: char/fg/attributes, destination bg kept
-                // (buffer.zig:2405-2409). NOTE: the vendored Zig source
-                // omits the scissor check here, but the PUBLISHED 0.5.14
-                // native binary clips these writes (pinned by the
-                // scrollbox-scissor-escape differential: a border-only box
-                // whose top edge sits above an overflow-hidden viewport
-                // paints nothing outside it, while keeping the destination
-                // bg inside) — source/binary drift, oracle wins.
+                // (buffer.zig:2405-2409). The vendored 0.5.14 source
+                // writes the cell RAW — no scissor check. Only the
+                // whole-rect `isRectInScissor` gate above applies, so a
+                // border-only box that merely INTERSECTS an
+                // overflow-hidden viewport paints its full border,
+                // escaping the scissor. Pinned by the
+                // scrollbox-scissor-escape differential against the
+                // real 0.5.14 (upstream changed this after 0.5.14:
+                // 0.6.x clips — the earlier "binary clips" note here
+                // was calibrated against a wrong-version oracle, see
+                // tools/diff/README "resolution incident").
                 if cx >= 0 && cy >= 0 && cx < buf.width as i32 && cy < buf.height as i32 {
-                    if !buf.is_point_in_scissor(cx, cy) {
-                        return;
-                    }
                     let i = (cy as u32 * buf.width + cx as u32) as usize;
                     buf.cells[i].char = ch;
                     buf.cells[i].fg = opts.border_color;
@@ -1432,9 +1433,13 @@ mod tests {
     }
 
     #[test]
-    fn draw_box_fast_path_respects_scissor() {
-        // the PUBLISHED 0.5.14 binary clips the transparent-border fast
-        // path (source/binary drift — pinned by scrollbox-scissor-escape)
+    fn draw_box_fast_path_escapes_scissor() {
+        // buffer.zig:2405-2409 — the transparent-border fast path writes
+        // cells RAW: no per-cell scissor check. Only the whole-rect
+        // `isRectInScissor` gate applies, so a box that merely
+        // INTERSECTS the scissor paints its ENTIRE border, escaping
+        // above/below it (pinned by scrollbox-scissor-escape against
+        // the real 0.5.14; 0.6.x clips, see tools/diff/README).
         let mut b = OptimizedBuffer::new(10, 4);
         b.fill_rect(0, 0, 10, 4, Rgba::rgb(50, 50, 50));
         b.push_scissor_rect(0, 2, 10, 2); // rows 2..3
@@ -1454,11 +1459,39 @@ mod tests {
             bottom_title: None,
             bottom_title_alignment: 0,
         });
-        // top border (row 0) clipped; bottom border (row 3) paints and
-        // KEEPS the destination bg (fast path signature)
-        assert_eq!(b.get(0, 0).unwrap().char, b' ' as u32);
+        // BOTH borders escape the scissor (rows 0 and 3) and KEEP the
+        // destination bg (fast path signature)
+        assert_eq!(b.get(0, 0).unwrap().char, '┌' as u32);
+        assert_eq!(b.get(0, 0).unwrap().bg, Rgba::rgb(50, 50, 50));
         assert_eq!(b.get(0, 3).unwrap().char, '└' as u32);
         assert_eq!(b.get(0, 3).unwrap().bg, Rgba::rgb(50, 50, 50));
+    }
+
+    #[test]
+    fn draw_box_wholly_outside_scissor_culls() {
+        // the whole-rect gate: zero intersection with the scissor →
+        // nothing paints at all (buffer.zig:2343)
+        let mut b = OptimizedBuffer::new(10, 4);
+        b.fill_rect(0, 0, 10, 4, Rgba::rgb(50, 50, 50));
+        b.push_scissor_rect(0, 0, 10, 1); // row 0 only
+        b.draw_box(DrawBoxOptions {
+            x: 0,
+            y: 2,
+            width: 10,
+            height: 2,
+            border_sides: crate::renderables::box_::BorderSidesConfig::all(),
+            border_chars: border_char_set("single"),
+            border_color: white(),
+            background_color: Rgba::from_ints(0, 0, 0, 0),
+            should_fill: false,
+            title: None,
+            title_color: white(),
+            title_alignment: 0,
+            bottom_title: None,
+            bottom_title_alignment: 0,
+        });
+        assert_eq!(b.get(0, 2).unwrap().char, b' ' as u32);
+        assert_eq!(b.get(0, 3).unwrap().char, b' ' as u32);
     }
 
     // --- exactness fixes pinned this lane ---------------------------------
