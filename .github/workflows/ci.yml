@@ -64,7 +64,7 @@ jobs:
           # a node_modules symlink must never survive checkout (a
           # committed self-referencing one once broke this job: bun
           # resolved through the loop and the driver lost @opentui/core)
-          find tools/diff/sandbox -maxdepth 1 -name node_modules -type l -delete
+          find . -maxdepth 1 -name node_modules -type l -delete
           bun install --frozen-lockfile
         working-directory: tools/diff/sandbox
 
