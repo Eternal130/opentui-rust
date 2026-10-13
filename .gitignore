@@ -4,6 +4,7 @@
 # Differential-harness sandbox (npm install of @opentui 0.5.14 — the pinned
 # spec). package.json + bun.lock are tracked so the oracle is reproducible;
 # the installed tree is not.
+tools/diff/node_modules
 tools/diff/sandbox/node_modules/
 # oracle caches + generated reports (regenerate on demand)
 tools/diff/out/

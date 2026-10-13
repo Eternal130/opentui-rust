@@ -1,0 +1,39 @@
+{
+  "name": "solid-portal",
+  "mode": "solid",
+  "width": 34,
+  "height": 9,
+  "steps": [
+    { "op": "signal", "id": "toast", "value": "no toast" },
+    {
+      "op": "el",
+      "tag": "box",
+      "id": "shell",
+      "parent": "root",
+      "options": { "flexDirection": "column" },
+      "children": [
+        { "tag": "box", "id": "main", "options": { "border": true, "width": 20, "height": 5 }, "children": [
+          { "tag": "text", "id": "m1", "options": { "content": "main content" } },
+          { "tag": "text", "id": "m2", "options": { "content": "second row" } }
+        ] },
+        { "tag": "box", "id": "footer", "options": { "border": true, "width": 20, "height": 3 } }
+      ]
+    },
+    { "op": "flush" },
+    {
+      "op": "el",
+      "tag": "portal",
+      "id": "p1",
+      "parent": "shell",
+      "options": { "mount": "footer" },
+      "children": [
+        { "tag": "text", "id": "toastline", "options": { "content": { "$signal": "toast" }, "fg": "#FF5577" } }
+      ]
+    },
+    { "op": "flush" },
+    { "op": "signal", "id": "toast", "value": "toast fired!" },
+    { "op": "flush" },
+    { "op": "el-remove", "id": "p1" },
+    { "op": "flush" }
+  ]
+}

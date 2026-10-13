@@ -3,9 +3,9 @@
 use anyhow::{Context, Result};
 use opentui_core::color::parse_color;
 use opentui_core::renderables::box_::BorderSpec;
-use opentui_core::renderables::text::ContentInput;
 use opentui_core::renderables::scrollbar::ScrollUnit;
 use opentui_core::renderables::scrollbox::{ScrollBoxOptions, StickyStart};
+use opentui_core::renderables::text::ContentInput;
 use opentui_core::renderables::text::WrapMode;
 use opentui_core::renderables::{box_::BoxOptions, text::TextOptions};
 use opentui_core::renderer::{create_cli_renderer, CliRenderer, CliRendererConfig};
@@ -20,6 +20,10 @@ pub struct Scenario {
     pub name: String,
     pub width: u32,
     pub height: u32,
+    /// "core" (default — direct renderable mounts) or "solid" (the
+    /// opentui-solid reconciler vs the real @opentui/solid).
+    #[serde(default)]
+    pub mode: Option<String>,
     pub steps: Vec<Step>,
 }
 
@@ -38,8 +42,10 @@ pub struct Step {
     #[serde(default)]
     pub text: Option<String>,
     pub prop: Option<String>,
+    /// A step value (signal/prop/set) — any JSON; the core-mode `set`
+    /// op reads it as a number.
     #[serde(default)]
-    pub value: Option<f64>,
+    pub value: Option<serde_json::Value>,
     #[serde(default)]
     pub method: Option<String>,
     #[serde(default)]
@@ -54,6 +60,17 @@ pub struct Step {
     pub resize_height: Option<u32>,
     #[serde(default)]
     pub resize: Option<(u32, u32)>,
+    // solid-vocabulary fields (mode: "solid")
+    #[serde(default)]
+    pub tag: Option<String>,
+    #[serde(default)]
+    pub anchor: Option<String>,
+    #[serde(default)]
+    pub children: Option<Vec<serde_json::Value>>,
+    #[serde(default)]
+    pub signal: Option<String>,
+    #[serde(default)]
+    pub item: Option<serde_json::Value>,
 }
 
 pub fn load(path: &std::path::Path) -> Result<Scenario> {
@@ -266,7 +283,11 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
                 mount(&mut renderer, &mut by_id, &children_of, None, &roots);
                 let id = step.id.clone().context("set step needs id")?;
                 let prop = step.prop.clone().context("set step needs prop")?;
-                let value = step.value.context("set step needs value")? as f32;
+                let value = step
+                    .value
+                    .as_ref()
+                    .and_then(serde_json::Value::as_f64)
+                    .context("set step needs numeric value")? as f32;
                 match prop.as_str() {
                     "scrollTop" => renderer.set_scroll_top(&id, value),
                     "scrollLeft" => renderer.set_scroll_left(&id, value),

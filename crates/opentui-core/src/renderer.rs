@@ -271,6 +271,116 @@ impl CliRenderer {
         crate::renderable::mount_under(&mut root.inner, &target, tree, child).is_none()
     }
 
+    /// `parent.add(child, index)` for the reconciler's anchored inserts
+    /// (upstream `_insertNode` → `parent.add(node, anchorIndex)`,
+    /// reconciler.ts:98-111). ScrollBox ids route into the content
+    /// viewport like [`CliRenderer::mount_child`]. Returns false when
+    /// `parent_id` is not in the tree.
+    pub fn insert_child_at(&mut self, parent_id: &str, index: usize, child: Renderable) -> bool {
+        let target = self
+            .content_of
+            .get(parent_id)
+            .cloned()
+            .unwrap_or_else(|| parent_id.to_owned());
+        let Self { tree, root, .. } = self;
+        match root.inner.find_mut(&target) {
+            Some(parent) => {
+                parent.insert_at(tree, index, child);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// `parent.remove(child)` WITHOUT destruction — detach the subtree
+    /// for a keyed MOVE (upstream `Renderable.add`'s same-parent
+    /// branch unlinks first, Renderable.ts:1225-1228; the taffy subtree
+    /// stays intact for re-attachment via
+    /// [`CliRenderer::insert_child_at`]).
+    pub fn detach_child(&mut self, parent_id: &str, child_id: &str) -> Option<Renderable> {
+        let target = self
+            .content_of
+            .get(parent_id)
+            .cloned()
+            .unwrap_or_else(|| parent_id.to_owned());
+        let Self { tree, root, .. } = self;
+        let parent = root.inner.find_mut(&target)?;
+        let pos = parent.children.iter().position(|c| c.id.0 == child_id)?;
+        let _ = tree.remove_child_at_index(parent.node, pos);
+        Some(parent.children.remove(pos))
+    }
+
+    /// `parent.remove(child)` + `destroyRecursively` (upstream
+    /// `_removeNode`, reconciler.ts:113-141: detach, then destroy the
+    /// detached subtree on the next tick — here synchronously, dropping
+    /// the owned subtree and freeing its taffy nodes). ScrollBox ids
+    /// route into the content viewport. Returns false when either id is
+    /// missing.
+    pub fn unmount_child(&mut self, parent_id: &str, child_id: &str) -> bool {
+        let Some(node) = self.detach_child(parent_id, child_id) else {
+            return false;
+        };
+        // destroyRecursively: free the subtree's taffy nodes (the node
+        // is unlinked now, so `remove` takes the whole subtree)
+        let _ = self.tree.remove(node.node);
+        true
+    }
+
+    /// Live child ids under `parent_id` (ScrollBox ids route into the
+    /// content viewport) — reconciler/test observability of child order.
+    #[must_use]
+    pub fn child_ids(&self, parent_id: &str) -> Option<Vec<String>> {
+        let target = self
+            .content_of
+            .get(parent_id)
+            .cloned()
+            .unwrap_or_else(|| parent_id.to_owned());
+        self.root
+            .inner
+            .find(&target)
+            .map(|p| p.children.iter().map(|c| c.id.0.clone()).collect())
+    }
+
+    /// Rename a node's live id (`node.id = value`, reconciler.ts:260-263).
+    /// Keeps ScrollBox content routing coherent.
+    pub fn rename_node(&mut self, from: &str, to: &str) -> bool {
+        if let Some(node) = self.root.inner.find_mut(from) {
+            node.id.0 = to.to_owned();
+        } else {
+            return false;
+        }
+        if let Some(content) = self.content_of.get(from).cloned() {
+            self.content_of.remove(from);
+            self.content_of.insert(to.to_owned(), content);
+        }
+        true
+    }
+
+    /// Re-apply a node's style from the full layout options (upstream:
+    /// each style prop setter writes the yoga node, e.g. Renderable.ts
+    /// padding/flex setters; a wholesale `setStyle` is equivalent since
+    /// [`crate::layout::taffy_style`] derives from the same options).
+    /// Returns false when `id` is not in the tree.
+    pub fn restyle_node(
+        &mut self,
+        id: &str,
+        layout: crate::layout::LayoutOptions,
+        width: Option<Dimension>,
+        height: Option<Dimension>,
+    ) -> bool {
+        let Self { tree, root, .. } = self;
+        let Some(node) = root.inner.find_mut(id) else {
+            return false;
+        };
+        node.layout = layout;
+        node.width = width.unwrap_or(Dimension::Auto);
+        node.height = height.unwrap_or(Dimension::Auto);
+        let style = crate::layout::taffy_style(&node.layout, node.width, node.height);
+        let _ = tree.set_style(node.node, style);
+        let _ = tree.mark_dirty(node.node);
+        true
+    }
+
     /// Construct a ScrollBox subtree without mounting (children added via
     /// [`CliRenderer::mount_child`] land in its content).
     #[must_use]
@@ -717,6 +827,106 @@ mod tests {
     fn standalone_text_renderable_helper_works() {
         let r = text_renderable("t", "x");
         assert_eq!(r.id.0, "t");
+    }
+
+    // --- reconciler-facing mutations (solid lane) ---------------------------
+
+    mod mutations {
+        use super::*;
+
+        fn box_node(renderer: &mut CliRenderer, id: &str, w: f32) -> Renderable {
+            let opts = BoxOptions {
+                width: Some(Dimension::Points(w)),
+                height: Some(Dimension::Points(1.0)),
+                ..Default::default()
+            };
+            renderer.make_box(id, &opts)
+        }
+
+        fn setup() -> CliRenderer {
+            create_cli_renderer(CliRendererConfig {
+                width: 40,
+                height: 3,
+                ..Default::default()
+            })
+        }
+
+        #[test]
+        fn insert_at_reorders_children() {
+            let mut r = setup();
+            let a = box_node(&mut r, "a", 5.0);
+            r.add(a);
+            let b = box_node(&mut r, "b", 5.0);
+            r.add(b);
+            assert_eq!(r.child_ids("__root__").unwrap(), vec!["a", "b"]);
+            // insert c before a (index 0)
+            let c = box_node(&mut r, "c", 5.0);
+            r.insert_child_at("__root__", 0, c);
+            assert_eq!(r.child_ids("__root__").unwrap(), vec!["c", "a", "b"]);
+            // clamp: index past the end appends
+            let d = box_node(&mut r, "d", 5.0);
+            r.insert_child_at("__root__", 99, d);
+            assert_eq!(r.child_ids("__root__").unwrap(), vec!["c", "a", "b", "d"]);
+            r.render();
+            let frame = r.current_render_buffer.char_frame();
+            assert!(!frame.is_empty());
+        }
+
+        #[test]
+        fn move_is_remove_then_insert() {
+            let mut r = setup();
+            for id in ["a", "b", "c"] {
+                let n = box_node(&mut r, id, 5.0);
+                r.add(n);
+            }
+            // move a to the end: remove + insert_at(len)
+            assert!(r.unmount_child("__root__", "a"));
+            let a = box_node(&mut r, "a", 5.0);
+            r.insert_child_at("__root__", 2, a);
+            assert_eq!(r.child_ids("__root__").unwrap(), vec!["b", "c", "a"]);
+        }
+
+        #[test]
+        fn unmount_removes_subtree() {
+            let mut r = setup();
+            let mut parent = box_node(&mut r, "p", 10.0);
+            let child = box_node(&mut r, "child", 4.0);
+            parent.add(&mut r.tree, child);
+            r.add(parent);
+            assert_eq!(r.child_ids("p").unwrap(), vec!["child"]);
+            assert!(r.unmount_child("__root__", "p"));
+            assert!(r.child_ids("__root__").unwrap().is_empty());
+            assert!(r.root.inner.find("child").is_none());
+            assert!(r.root.inner.find("p").is_none());
+            // unknown ids report false, no panic
+            assert!(!r.unmount_child("__root__", "nope"));
+            assert!(!r.unmount_child("nope", "p"));
+        }
+
+        #[test]
+        fn restyle_updates_layout_and_rerenders() {
+            let mut r = setup();
+            let a = box_node(&mut r, "a", 10.0);
+            r.add(a);
+            r.render();
+            let a = r.root.inner.find("a").unwrap();
+            assert_eq!(a.w, 10.0);
+            let layout = crate::layout::LayoutOptions {
+                flex_direction: Some("row".into()),
+                ..Default::default()
+            };
+            assert!(r.restyle_node(
+                "a",
+                layout,
+                Some(Dimension::Points(20.0)),
+                Some(Dimension::Points(2.0))
+            ));
+            let layout2 = crate::layout::LayoutOptions::default();
+            assert!(!r.restyle_node("missing", layout2, None, None));
+            r.render();
+            let a = r.root.inner.find("a").unwrap();
+            assert_eq!((a.w, a.h), (20.0, 2.0));
+        }
     }
 
     // --- scroll family -----------------------------------------------------

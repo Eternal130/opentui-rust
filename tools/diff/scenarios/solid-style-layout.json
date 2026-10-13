@@ -1,0 +1,36 @@
+{
+  "name": "solid-style-layout",
+  "mode": "solid",
+  "width": 30,
+  "height": 8,
+  "steps": [
+    { "op": "signal", "id": "pad", "value": 0 },
+    { "op": "signal", "id": "direction", "value": "column" },
+    { "op": "signal", "id": "grow", "value": 1 },
+    {
+      "op": "el",
+      "tag": "box",
+      "id": "shell",
+      "parent": "root",
+      "options": {
+        "flexDirection": { "$signal": "direction" },
+        "paddingLeft": { "$signal": "pad" },
+        "width": 24,
+        "height": 6
+      },
+      "children": [
+        { "tag": "text", "id": "t1", "options": { "content": "first" } },
+        { "tag": "text", "id": "t2", "options": { "content": "second" } }
+      ]
+    },
+    { "op": "flush" },
+    { "op": "signal", "id": "pad", "value": 3 },
+    { "op": "flush" },
+    { "op": "signal", "id": "direction", "value": "row" },
+    { "op": "flush" },
+    { "op": "prop", "id": "t2", "prop": "marginLeft", "value": 2 },
+    { "op": "flush" },
+    { "op": "prop", "id": "shell", "prop": "paddingTop", "value": 1 },
+    { "op": "flush" }
+  ]
+}

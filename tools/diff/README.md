@@ -63,3 +63,42 @@ branching, only option plumbing):
 * `{ "op": "resize", "width": w, "height": h }` — `renderer.resize`,
   then the next flush captures the reflow.
 
+Solid-lane vocabulary (`"mode": "solid"` — every step drives BOTH the
+Rust `opentui-solid` reconciler AND the REAL `@opentui/solid` 0.5.14
+through solid-js `Show`/`For`/`Portal` over the package's own
+`createElement`/`spread`/`insertNode`/`setProp`):
+
+* `{ "op": "signal", "id": "s", "value": … }` — create-or-set a signal.
+  An array of `{key, value}` objects declares a keyed LIST signal
+  (the For shape); a boolean drives Show.
+* `{ "op": "el", "tag": "box"|"text"|"scrollbox"|"portal"|"badge_box",
+  "id", "parent", "anchor"?, "options": { prop: value | {"$signal": "s"} },
+  "children": [...] }` — mount through the reconciler. `{"$signal"}`
+  binds a reactive prop (the compiled-JSX getter form). The
+  `badge_box` custom element (a BoxRenderable subclass upstream, a
+  box-backed factory in the port) is the extend() fixture both drivers
+  register.
+* `{ "op": "show", "id", "parent", "signal", "children": [...] }` —
+  the Show construct (a slot marker anchors the insert, mirroring the
+  compiled control-flow shape).
+* `{ "op": "for", "id", "parent", "signal", "item": { el template with
+  "$item" } }` — the keyed For construct (item identity = the pooled
+  `{key, value}` object upstream, the item key in the port).
+* `{ "op": "prop", "id", "prop", "value" }` — a static prop patch
+  (`setProp`).
+* `{ "op": "el-remove", "id" }` — unmount through `_removeNode`
+  semantics (disposable scopes tear Portals down).
+
+Sandbox notes for solid mode:
+
+* the driver resolves packages from `tools/diff/node_modules` — a
+  symlink to `sandbox/node_modules` (gitignored). Without it bun's
+  auto-install silently serves whatever is in the GLOBAL cache — the
+  oracle was observed loading `@opentui/solid@0.6.1` while the lock
+  pins 0.5.14.
+* `js/ensure-solid-client-build.sh` (run by the harness before every
+  oracle capture) repoints solid-js's `node` export condition — which
+  serves the SSR stub build (createSignal/createEffect are no-ops) —
+  to the client bundle `dist/solid.js`. Real apps get this from
+  packages/solid's bun plugin; the driver runs unbundled.
+

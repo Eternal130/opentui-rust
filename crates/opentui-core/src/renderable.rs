@@ -207,6 +207,37 @@ impl Renderable {
         self.children.push(child);
     }
 
+    /// `add(child, index)` — `insertBefore` (Renderable.ts:1192-1246):
+    /// insert before the child currently at `index` (append when
+    /// index ≥ len). A keyed MOVE is expressed by the caller as
+    /// remove-then-insert (the same yoga removeChild/insertChild pair
+    /// upstream's re-add branch performs, Renderable.ts:1225-1240).
+    pub fn insert_at(&mut self, tree: &mut TaffyTree<MeasureCtx>, index: usize, child: Renderable) {
+        let index = index.min(self.children.len());
+        tree.insert_child_at_index(self.node, index, child.node)
+            .expect("taffy insert_child_at_index");
+        self.children.insert(index, child);
+    }
+
+    /// `remove(child)` — unlinks by live id (Renderable.ts remove):
+    /// taffy edge + children slot. The caller owns the returned subtree.
+    pub fn remove_child_by_id(
+        &mut self,
+        tree: &mut TaffyTree<MeasureCtx>,
+        id: &str,
+    ) -> Option<Renderable> {
+        let pos = self.children.iter().position(|c| c.id.0 == id)?;
+        let _ = tree.remove_child_at_index(self.node, pos);
+        Some(self.children.remove(pos))
+    }
+
+    /// The index of a child by live id (anchor lookups — upstream
+    /// `children.indexOf(anchor)`, reconciler.ts:105).
+    #[must_use]
+    pub fn index_of_child(&self, id: &str) -> Option<usize> {
+        self.children.iter().position(|c| c.id.0 == id)
+    }
+
     /// `visible` setter's yoga half (Renderable.ts:347-351):
     /// `setDisplay(visible ? Flex : None)`. Returns true when the display
     /// value flipped (→ re-layout needed).

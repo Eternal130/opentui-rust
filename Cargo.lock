@@ -55,6 +55,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "opentui-core",
+ "opentui-solid",
  "serde",
  "serde_json",
  "unicode-segmentation",
