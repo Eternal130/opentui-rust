@@ -773,9 +773,71 @@ for (const step of scenario.steps) {
       ...(o.backgroundColor !== undefined ? { backgroundColor: o.backgroundColor } : {}),
       ...(o.placeholderColor !== undefined ? { placeholderColor: o.placeholderColor } : {}),
     })
+  } else if (step.op === "markdown") {
+    const o = step.options ?? {}
+    const styles = o.styles ?? {}
+    const { MarkdownRenderable, SyntaxStyle } = await import("@opentui/core")
+    const syntaxStyle = SyntaxStyle.fromStyles(styles)
+    r = new MarkdownRenderable(renderer, {
+      id: step.id,
+      content: o.content ?? "",
+      syntaxStyle,
+      ...(o.fg !== undefined ? { fg: o.fg } : {}),
+      ...(o.bg !== undefined ? { bg: o.bg } : {}),
+      ...(o.conceal !== undefined ? { conceal: o.conceal } : {}),
+      ...(o.concealCode !== undefined ? { concealCode: o.concealCode } : {}),
+    })
+  } else if (step.op === "code") {
+    const o = step.options ?? {}
+    const styles = o.styles ?? {}
+    const { CodeRenderable, SyntaxStyle } = await import("@opentui/core")
+    const syntaxStyle = SyntaxStyle.fromStyles(styles)
+    r = new CodeRenderable(renderer, {
+      id: step.id,
+      content: o.content ?? "",
+      syntaxStyle,
+      ...(o.filetype !== undefined ? { filetype: o.filetype } : {}),
+      ...(o.conceal !== undefined ? { conceal: o.conceal } : {}),
+      ...(o.fg !== undefined ? { fg: o.fg } : {}),
+      ...(o.bg !== undefined ? { bg: o.bg } : {}),
+    })
   } else {
     throw new Error(`unknown op: ${step.op}`)
   }
+  // ScrollBox routes child adds into its content viewport (ScrollBox.add).
+  parent.add(r)
+  nodes.set(step.id, r)
+}
+
+// markdown/code scenarios: await every CodeRenderable's async highlight
+// (highlightingDone) so the captured frame is the SETTLED state the port
+// builds synchronously; then the standard deterministic settle.
+async function collectCodes(rootNode: Renderable): Promise<unknown[]> {
+  const { CodeRenderable } = await import("@opentui/core")
+  const codes: unknown[] = []
+  const visit = (node: Renderable) => {
+    if (node instanceof CodeRenderable) codes.push(node)
+    for (const child of node.getChildren()) visit(child)
+  }
+  visit(rootNode)
+  return codes
+}
+// Settle loop: markdown blocks highlight asynchronously and the mount
+// invalidates mid-flight (snapshot mismatch re-dirties; observed against
+// the real package) — loop await + flush + renderOnce until no
+// CodeRenderable reports a pending highlight (max passes as a backstop).
+for (let pass = 0; pass < 6; pass++) {
+  const codes = await collectCodes(renderer.root)
+  if (codes.length === 0) break
+  await Promise.all(codes.map((c) => c.highlightingDone))
+  await setup.flush()
+  await setup.renderOnce()
+  const dirty = codes.some(
+    (c) =>
+      (c as unknown as { _highlightsDirty?: boolean })._highlightsDirty ||
+      (c as unknown as { isHighlighting?: boolean }).isHighlighting,
+  )
+  if (!dirty) break
 }
 
 // deterministic settle: run the loop until visually idle (upstream flush)
@@ -794,8 +856,18 @@ const spans = buf.getSpanLines().map((line) => ({
 }))
 
 // terminal cursor: the frame's cursor CUP + show sequence
-// (setCursorPosition writes `ESC [<row>;<col> H` before `ESC[?25h`)
-const cursorMatch = [...stdout.bytes().toString("latin1").matchAll(/\x1b\[(\d+);(\d+)H\x1b\[\?25h/g)]
+// (setCursorPosition writes `ESC [<row>;<col> H` before `ESC[?25h`).
+// The frame-end teardown parks the cursor at (1,1) after the
+// cursor-color/style reset — that's the renderer's exit park, not a
+// renderable's cursor; strip it before extracting.
+const streamForCursor = stdout
+  .bytes()
+  .toString("latin1")
+  .replace(
+    /(\x1b\]12;[^\x07]*\x07)?\x1b\[0 q\x1b\[\d+;\d+H\x1b\[\?25h(?=\x1b\[\?2026l)/g,
+    "",
+  )
+const cursorMatch = [...streamForCursor.matchAll(/\x1b\[(\d+);(\d+)H\x1b\[\?25h/g)]
 
 const out = {
   oracle: "@opentui/core@0.5.14",

@@ -459,6 +459,295 @@ impl CliRenderer {
         )
     }
 
+    /// The layout options mirror for text leaves built directly from
+    /// state (width 100%, flexShrink 0 — the Code/Markdown block options).
+    fn state_layout(_state: &TextRenderableState) -> crate::layout::LayoutOptions {
+        crate::layout::LayoutOptions {
+            flex_shrink: Some(0.0),
+            ..Default::default()
+        }
+    }
+
+    /// Construct a Code renderable (Code.ts:48) — a text leaf whose
+    /// document is the settled highlight pipeline output
+    /// ([`crate::renderables::code::build_code_document`]).
+    #[must_use]
+    pub fn make_code(
+        &mut self,
+        id: &str,
+        opts: &crate::renderables::code::CodeOptions,
+        syntax_style: &crate::syntax_style::SyntaxStyle,
+    ) -> Renderable {
+        let doc = crate::renderables::code::build_code_document(opts, syntax_style);
+        let state = TextRenderableState::from_options(&crate::renderables::text::TextOptions {
+            layout: crate::layout::LayoutOptions {
+                flex_shrink: Some(0.0),
+                margin_bottom: Some(Dimension::Points(0.0)),
+                ..Default::default()
+            },
+            width: Some(Dimension::Percent(1.0)),
+            content: crate::renderables::text::ContentInput::Styled(doc.to_styled()),
+            fg: opts.fg,
+            bg: opts.bg,
+            ..Default::default()
+        });
+        let ctx = MeasureCtx {
+            kind: MeasureKind::Text,
+            text: Some(state.measured()),
+            ..Default::default()
+        };
+        Renderable::new(
+            &mut self.tree,
+            id,
+            Self::state_layout(&state),
+            Dimension::Percent(1.0),
+            Dimension::Auto,
+            Content::Text(state),
+            Some(ctx),
+        )
+    }
+
+    /// Construct a MarkdownRenderable's settled block tree
+    /// (Markdown.ts:270 — column, flexShrink 0; blocks per
+    /// [`crate::renderables::markdown::build_markdown_blocks`]).
+    #[must_use]
+    pub fn make_markdown(
+        &mut self,
+        id: &str,
+        opts: &crate::renderables::markdown::MarkdownOptions,
+        syntax_style: &crate::syntax_style::SyntaxStyle,
+    ) -> Renderable {
+        let mut root = Renderable::new(
+            &mut self.tree,
+            id,
+            crate::layout::LayoutOptions {
+                flex_shrink: Some(0.0),
+                ..Default::default()
+            },
+            Dimension::Auto,
+            Dimension::Auto,
+            Content::Group,
+            None,
+        );
+        let blocks = crate::renderables::markdown::build_markdown_blocks(opts, syntax_style);
+        for (index, block) in blocks.into_iter().enumerate() {
+            let child = self.make_block_spec(id, index, block, syntax_style);
+            root.add(&mut self.tree, child);
+        }
+        root
+    }
+
+    fn make_block_spec(
+        &mut self,
+        id: &str,
+        index: usize,
+        block: crate::renderables::markdown::BlockSpec,
+        syntax_style: &crate::syntax_style::SyntaxStyle,
+    ) -> Renderable {
+        use crate::renderables::markdown::BlockSpec;
+        match block {
+            BlockSpec::MarkdownText {
+                options,
+                margin_bottom,
+            }
+            | BlockSpec::CodeBlock {
+                options,
+                margin_bottom,
+            } => {
+                let layout = crate::layout::LayoutOptions {
+                    flex_shrink: Some(0.0),
+                    margin_bottom: Some(Dimension::Points(margin_bottom as f32)),
+                    ..Default::default()
+                };
+                let state =
+                    TextRenderableState::from_options(&crate::renderables::text::TextOptions {
+                        layout: layout.clone(),
+                        width: Some(Dimension::Percent(1.0)),
+                        content: crate::renderables::text::ContentInput::Styled(
+                            crate::renderables::code::build_code_document(&options, syntax_style)
+                                .to_styled(),
+                        ),
+                        fg: options.fg,
+                        bg: options.bg,
+                        ..Default::default()
+                    });
+                let ctx = MeasureCtx {
+                    kind: MeasureKind::Text,
+                    text: Some(state.measured()),
+                    ..Default::default()
+                };
+                Renderable::new(
+                    &mut self.tree,
+                    &format!("{id}-block-{index}"),
+                    layout,
+                    Dimension::Percent(1.0),
+                    Dimension::Auto,
+                    Content::Text(state),
+                    Some(ctx),
+                )
+            }
+            BlockSpec::Blockquote {
+                content,
+                border_color,
+                margin_bottom,
+            } => {
+                let mut box_opts = BoxOptions {
+                    border: Some(crate::renderables::box_::BorderSpec::Sides(vec![
+                        "left".to_owned()
+                    ])),
+                    border_color: border_color.map(crate::color::rgb_to_hex_string),
+                    width: Some(Dimension::Percent(1.0)),
+                    ..Default::default()
+                };
+                box_opts.layout.flex_shrink = Some(0.0);
+                box_opts.layout.padding_left = Some(Dimension::Points(1.0));
+                box_opts.layout.margin_bottom = Some(Dimension::Points(margin_bottom as f32));
+                let mut quote = self.make_box(&format!("{id}-block-{index}"), &box_opts);
+                let inner =
+                    self.make_block_spec(&format!("{id}-block-{index}"), 0, *content, syntax_style);
+                quote.add(&mut self.tree, inner);
+                quote
+            }
+            BlockSpec::HorizontalRule {
+                border_color,
+                margin_bottom,
+            } => {
+                let mut box_opts = BoxOptions {
+                    border: Some(crate::renderables::box_::BorderSpec::Sides(vec![
+                        "top".to_owned()
+                    ])),
+                    border_color: border_color.map(crate::color::rgb_to_hex_string),
+                    width: Some(Dimension::Percent(1.0)),
+                    height: Some(Dimension::Points(1.0)),
+                    ..Default::default()
+                };
+                box_opts.layout.flex_shrink = Some(0.0);
+                box_opts.layout.margin_bottom = Some(Dimension::Points(margin_bottom as f32));
+                self.make_box(&format!("{id}-block-{index}"), &box_opts)
+            }
+            BlockSpec::List {
+                items,
+                margin_bottom,
+            } => {
+                let mut list_opts = BoxOptions {
+                    width: Some(Dimension::Percent(1.0)),
+                    ..Default::default()
+                };
+                list_opts.layout.flex_direction = Some("column".into());
+                list_opts.layout.flex_shrink = Some(0.0);
+                list_opts.layout.margin_bottom = Some(Dimension::Points(margin_bottom as f32));
+                let mut list = self.make_box(&format!("{id}-block-{index}"), &list_opts);
+                for (item_index, item) in items.into_iter().enumerate() {
+                    let row = self.make_list_item(
+                        &format!("{id}-block-{index}"),
+                        item_index,
+                        item,
+                        syntax_style,
+                    );
+                    list.add(&mut self.tree, row);
+                }
+                list
+            }
+        }
+    }
+
+    fn make_list_item(
+        &mut self,
+        id: &str,
+        item_index: usize,
+        item: crate::renderables::markdown::ListItemSpec,
+        syntax_style: &crate::syntax_style::SyntaxStyle,
+    ) -> Renderable {
+        let item_id = format!("{id}-item-{item_index}");
+        // row: width 100%, row direction, flexShrink 0
+        let mut row_opts = BoxOptions {
+            width: Some(Dimension::Percent(1.0)),
+            ..Default::default()
+        };
+        row_opts.layout.flex_direction = Some("row".into());
+        row_opts.layout.flex_shrink = Some(0.0);
+        row_opts.layout.margin_bottom = Some(Dimension::Points(item.margin_bottom as f32));
+        let mut row = self.make_box(&item_id, &row_opts);
+        // marker text: width markerWidth+1 points, flexShrink 0
+        let marker_opts = crate::renderables::text::TextOptions {
+            layout: crate::layout::LayoutOptions {
+                flex_shrink: Some(0.0),
+                ..Default::default()
+            },
+            width: Some(Dimension::Points(item.marker_width as f32)),
+            content: crate::renderables::text::ContentInput::Styled(
+                crate::styled_text::StyledText::new(vec![item.marker_chunk]),
+            ),
+            ..Default::default()
+        };
+        let marker = self.make_text(&format!("{item_id}-marker"), &marker_opts);
+        row.add(&mut self.tree, marker);
+        // content box: column, flexGrow 1, flexShrink 1
+        let mut content_opts = BoxOptions::default();
+        content_opts.layout.flex_direction = Some("column".into());
+        content_opts.layout.flex_grow = Some(1.0);
+        content_opts.layout.flex_shrink = Some(1.0);
+        let mut content = self.make_box(&format!("{item_id}-content"), &content_opts);
+        for (child_index, child) in item.children.into_iter().enumerate() {
+            let margin_top = item
+                .child_margins_top
+                .get(child_index)
+                .copied()
+                .unwrap_or(0);
+            let child_id = format!("{item_id}-child-{child_index}");
+            let rendered = match child {
+                crate::renderables::markdown::BlockSpec::MarkdownText {
+                    options,
+                    margin_bottom,
+                }
+                | crate::renderables::markdown::BlockSpec::CodeBlock {
+                    options,
+                    margin_bottom,
+                } => {
+                    let layout = crate::layout::LayoutOptions {
+                        flex_shrink: Some(0.0),
+                        margin_top: Some(Dimension::Points(margin_top as f32)),
+                        margin_bottom: Some(Dimension::Points(margin_bottom as f32)),
+                        ..Default::default()
+                    };
+                    let state =
+                        TextRenderableState::from_options(&crate::renderables::text::TextOptions {
+                            layout: layout.clone(),
+                            width: Some(Dimension::Percent(1.0)),
+                            content: crate::renderables::text::ContentInput::Styled(
+                                crate::renderables::code::build_code_document(
+                                    &options,
+                                    syntax_style,
+                                )
+                                .to_styled(),
+                            ),
+                            fg: options.fg,
+                            bg: options.bg,
+                            ..Default::default()
+                        });
+                    let ctx = MeasureCtx {
+                        kind: MeasureKind::Text,
+                        text: Some(state.measured()),
+                        ..Default::default()
+                    };
+                    Renderable::new(
+                        &mut self.tree,
+                        &child_id,
+                        layout,
+                        Dimension::Percent(1.0),
+                        Dimension::Auto,
+                        Content::Text(state),
+                        Some(ctx),
+                    )
+                }
+                other => self.make_block_spec(&child_id, child_index, other, syntax_style),
+            };
+            content.add(&mut self.tree, rendered);
+        }
+        row.add(&mut self.tree, content);
+        row
+    }
+
     /// Construct a box renderable without mounting.
     #[must_use]
     pub fn make_box(&mut self, id: &str, opts: &BoxOptions) -> Renderable {

@@ -1,0 +1,91 @@
+{
+  "name": "md-emphasis",
+  "width": 46,
+  "height": 10,
+  "steps": [
+    {
+      "op": "markdown",
+      "id": "md",
+      "parent": "root",
+      "options": {
+        "content": "plain *italic* **bold** ***both*** ~~gone~~ `code` end\n",
+        "styles": {
+          "default": {
+            "fg": "#AAAAAA"
+          },
+          "conceal": {
+            "fg": "#555555"
+          },
+          "markup.heading": {
+            "fg": "#FF5555",
+            "bold": true
+          },
+          "markup.heading.2": {
+            "fg": "#55FF55"
+          },
+          "markup.strong": {
+            "fg": "#FFAA00",
+            "bold": true
+          },
+          "markup.italic": {
+            "fg": "#AA00FF",
+            "italic": true
+          },
+          "markup.strikethrough": {
+            "fg": "#FF00AA",
+            "dim": true
+          },
+          "markup.raw": {
+            "fg": "#00AAAA"
+          },
+          "markup.list": {
+            "fg": "#FFFF55"
+          },
+          "markup.quote": {
+            "fg": "#8888FF",
+            "italic": true
+          },
+          "markup.link.label": {
+            "fg": "#55FFFF",
+            "underline": true
+          },
+          "markup.link.url": {
+            "fg": "#FF8844"
+          },
+          "markup.link": {
+            "fg": "#FF8844"
+          },
+          "label": {
+            "fg": "#99CCFF"
+          },
+          "keyword": {
+            "fg": "#CC99FF",
+            "bold": true
+          },
+          "string": {
+            "fg": "#AACC88"
+          },
+          "comment": {
+            "fg": "#666666",
+            "italic": true
+          },
+          "function": {
+            "fg": "#FFD700"
+          },
+          "type": {
+            "fg": "#66CCFF"
+          },
+          "number": {
+            "fg": "#F99B15"
+          },
+          "punctuation.special": {
+            "fg": "#888888"
+          },
+          "markup.raw.block": {
+            "fg": "#88CC88"
+          }
+        }
+      }
+    }
+  ]
+}

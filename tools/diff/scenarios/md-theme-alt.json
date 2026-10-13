@@ -1,0 +1,57 @@
+{
+  "name": "md-theme-alt",
+  "width": 48,
+  "height": 24,
+  "steps": [
+    {
+      "op": "markdown",
+      "id": "md",
+      "parent": "root",
+      "options": {
+        "content": "# Alt Theme\n\nsome *varied* **styling** with `snippets`\n\n```js\nconst color = \"#FF79C6\"\nfunction paint() { return color }\n```\n",
+        "styles": {
+          "default": {
+            "fg": "#DDDDDD"
+          },
+          "conceal": {
+            "fg": "#444444"
+          },
+          "markup.heading": {
+            "fg": "#00FFCC",
+            "bold": true,
+            "underline": true
+          },
+          "markup.strong": {
+            "fg": "#FF6600"
+          },
+          "markup.italic": {
+            "fg": "#0066FF",
+            "italic": true
+          },
+          "markup.raw": {
+            "fg": "#00CC96",
+            "dim": true
+          },
+          "markup.list": {
+            "fg": "#FFCC00"
+          },
+          "markup.quote": {
+            "bg": "#222233",
+            "fg": "#B0B0FF"
+          },
+          "keyword": {
+            "fg": "#FF79C6",
+            "bold": true
+          },
+          "string": {
+            "fg": "#F1FA8C"
+          },
+          "function": {
+            "fg": "#50FA7B",
+            "italic": true
+          }
+        }
+      }
+    }
+  ]
+}
