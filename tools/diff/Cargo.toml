@@ -15,6 +15,10 @@ serde_json = { workspace = true }
 vt100 = { workspace = true }
 unicode-segmentation = { workspace = true }
 
+[lib]
+name = "opentui_diff"
+path = "src/lib.rs"
+
 [[bin]]
 name = "opentui-diff"
 path = "src/main.rs"

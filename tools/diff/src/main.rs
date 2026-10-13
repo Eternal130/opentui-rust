@@ -13,10 +13,7 @@
 //! Oracle JSONs cache under tools/diff/out/oracle/<name>.json; reports
 //! land in tools/diff/out/reports/<name>.md.
 
-mod compare;
-mod scenario;
-mod solid;
-mod vt;
+use opentui_diff::{compare, scenario, solid, vt};
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};

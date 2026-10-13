@@ -77,3 +77,25 @@ jobs:
           for s in tools/diff/scenarios/*.json; do
             cargo run -q --locked -p opentui-diff -- "$s"
           done
+
+  # Perf lane: "no catastrophic regression" ceilings on the frame paths.
+  # Deliberately SEPARATE from the differential job (byte-identical
+  # output is proven there; this job only guards the frame budgets).
+  # Shared runners are noisy and 2-5x slower than a dev box, so the
+  # ceilings are ~10x the dev-box medians — a real budget regression
+  # (e.g. a per-frame Vec clone sneaking back into the paint walk)
+  # still trips them, scheduler jitter does not. Local truth:
+  #   cargo run --release -p opentui-bench            # full table
+  #   tools/bench/oracle/run-oracle.sh                # REAL 0.5.14 numbers
+  perf:
+    name: frame budgets (ceilings)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+
+      # quick tier: fewer iterations, same ceilings — medians only
+      - name: Run perf rig
+        run: cargo run --release --locked -p opentui-bench -- --quick --check

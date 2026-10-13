@@ -1441,6 +1441,16 @@ pub struct EditorVlines {
     pub line_vline_counts: Vec<u32>,
 }
 
+/// unreachable fallback for [`EditorView::active_vlines`] — the cache is
+/// always `Some` by construction on both branches; keeps the borrow
+/// checker happy without an owned return.
+static EMPTY_VLINES: EditorVlines = EditorVlines {
+    vlines: Vec::new(),
+    cell_offsets: Vec::new(),
+    line_first_vline: Vec::new(),
+    line_vline_counts: Vec::new(),
+};
+
 impl EditorVlines {
     fn compute(lines: &[LogicalLine], wrap_mode: WrapMode, wrap_width: Option<u32>) -> Self {
         let doc = TextDocument {
@@ -1720,11 +1730,13 @@ impl EditorView {
         }
     }
 
-    /// Fill the appropriate vline cache (placeholder-aware) and return
+    /// Fill the appropriate vline cache (placeholder-aware) and borrow
     /// it. Keys on the buffer content version, the placeholder content
     /// version, the wrap mode, and the wrap width (`virtual_lines_dirty`
-    /// machinery, tbv 448-485).
-    fn active_vlines(&mut self) -> EditorVlines {
+    /// machinery, tbv 448-485). Perf lane: returns `&EditorVlines` —
+    /// the owned return cloned all four vecs at every call site
+    /// (`ensure_cursorVisible` alone hits it several times per frame).
+    fn active_vlines(&mut self) -> &EditorVlines {
         let content_version = self.buffer.content_version();
         let wrap = self.wrap_width();
         if self.placeholder_active {
@@ -1738,7 +1750,7 @@ impl EditorView {
                 self.placeholder_vlines = Some(EditorVlines::compute(&lines, self.wrap_mode, wrap));
                 self.placeholder_key = key;
             }
-            self.placeholder_vlines.clone().unwrap()
+            self.placeholder_vlines.as_ref().unwrap_or(&EMPTY_VLINES)
         } else {
             let key = (
                 content_version,
@@ -1747,13 +1759,16 @@ impl EditorView {
                 wrap,
             );
             if self.vlines.is_none() || self.vlines_key != key {
-                // borrow split: compute over a cloned line list to avoid
-                // holding &self across the &mut cache write
-                let lines: Vec<LogicalLine> = self.buffer.lines_for_render().to_vec();
-                self.vlines = Some(EditorVlines::compute(&lines, self.wrap_mode, wrap));
+                // measure straight off the buffer's line slice (no
+                // intermediate line-list clone)
+                self.vlines = Some(EditorVlines::compute(
+                    self.buffer.lines_for_render(),
+                    self.wrap_mode,
+                    wrap,
+                ));
                 self.vlines_key = key;
             }
-            self.vlines.clone().unwrap()
+            self.vlines.as_ref().unwrap_or(&EMPTY_VLINES)
         }
     }
 
@@ -1762,8 +1777,8 @@ impl EditorView {
     /// the visible count).
     pub fn get_virtual_line_count(&mut self) -> u32 {
         self.update_before_render();
-        let vlines = self.active_vlines();
         let vp = self.get_viewport();
+        let vlines = self.active_vlines();
         let start = (vp.offset_y as usize).min(vlines.vlines.len());
         let end = (start + vp.height as usize).min(vlines.vlines.len());
         (end - start) as u32
@@ -1911,6 +1926,8 @@ impl EditorView {
     /// `setCursorAffinityForAbsoluteRow` (546-579).
     fn set_cursor_affinity_for_absolute_row(&mut self, visual_row: u32) {
         let cursor = self.buffer.primary_cursor();
+        let occupancy = self.selection_occupancy;
+        let viewport_width_cache = self.viewport;
         let vlines = self.active_vlines();
         if visual_row as usize >= vlines.vlines.len() {
             self.cursor_visual_affinity = None;
@@ -1924,10 +1941,10 @@ impl EditorView {
         }
         let visual_col = cursor.offset - cell_offset;
         let mut visual_col_max = vline.width_cols;
-        let viewport_width = self.viewport.map_or(vline.width_cols, |vp| vp.width);
+        let viewport_width = viewport_width_cache.map_or(vline.width_cols, |vp| vp.width);
         // An overwide visual line may be one atomic grapheme; do not
         // reserve a viewport-edge cell (563-573).
-        if self.selection_occupancy == SelectionOccupancy::Cell
+        if occupancy == SelectionOccupancy::Cell
             && vline.width_cols > 0
             && vline.width_cols <= viewport_width
             && visual_row + 1 < vlines.vlines.len() as u32
@@ -2074,15 +2091,16 @@ impl EditorView {
         let desired = self.desired_visual_col.unwrap();
         // clamp the target col onto the target row (682-698) — gather
         // only the rows the clamp reads, then re-borrow mutably
+        let boundary = self.selection_occupancy == SelectionOccupancy::Boundary;
         let target_col = {
             let vlines = self.active_vlines();
             if target_row as usize >= vlines.vlines.len() {
                 return;
             }
-            if self.selection_occupancy == SelectionOccupancy::Boundary {
+            if boundary {
                 desired.min(vlines.vlines[target_row as usize].width_cols)
             } else {
-                Self::clamp_visual_col(&vlines, target_row, desired)
+                Self::clamp_visual_col(vlines, target_row, desired)
             }
         };
         if let Some(new_vcursor) = self.visual_to_logical_cursor(target_row, target_col) {
@@ -2115,12 +2133,13 @@ impl EditorView {
             self.desired_visual_col = Some(vcursor.visual_col);
         }
         let desired = self.desired_visual_col.unwrap();
+        let boundary = self.selection_occupancy == SelectionOccupancy::Boundary;
         let target_col = {
             let vlines = self.active_vlines();
-            if self.selection_occupancy == SelectionOccupancy::Boundary {
+            if boundary {
                 desired.min(vlines.vlines[target_row as usize].width_cols)
             } else {
-                Self::clamp_visual_col(&vlines, target_row, desired)
+                Self::clamp_visual_col(vlines, target_row, desired)
             }
         };
         if let Some(new_vcursor) = self.visual_to_logical_cursor(target_row, target_col) {
@@ -2176,34 +2195,48 @@ impl EditorView {
     pub fn get_visual_eol(&mut self) -> VisualCursor {
         self.pump_cursor_events();
         let vcursor = self.primary_visual_cursor_absolute();
-        let vlines = self.active_vlines();
-        if vcursor.visual_row as usize >= vlines.vlines.len() {
+        let occupancy = self.selection_occupancy;
+        let viewport_cache = self.viewport;
+        if vcursor.visual_row as usize >= self.active_vlines().vlines.len() {
             let logical = self.buffer.get_eol();
             return self.logical_to_visual_cursor(logical.row, logical.col);
         }
-        let idx = vcursor.visual_row as usize;
-        let vline = &vlines.vlines[idx];
-        let cell_offset = vlines.cell_offsets[idx];
-        let viewport_width = self.viewport.map_or(vline.width_cols, |vp| vp.width);
-        let oversized = vline.width_cols > viewport_width;
-        let mut target_visual_col = if self.selection_occupancy == SelectionOccupancy::Boundary {
-            vline.width_cols
-        } else if oversized {
-            vcursor.visual_col.min(vline.width_cols)
-        } else {
-            Self::clamp_visual_col(&vlines, vcursor.visual_row, vline.width_cols)
+        // gather everything read off the vline cache into Copy locals
+        // (perf lane: `active_vlines` now borrows — the buffer reads
+        // below stay in their ORIGINAL order)
+        let (cell_offset, width_cols, logical_row, logical_col, oversized, mut target_visual_col) = {
+            let vlines = self.active_vlines();
+            let idx = vcursor.visual_row as usize;
+            let vline = &vlines.vlines[idx];
+            let cell_offset = vlines.cell_offsets[idx];
+            let viewport_width = viewport_cache.map_or(vline.width_cols, |vp| vp.width);
+            let oversized = vline.width_cols > viewport_width;
+            let target_visual_col = if occupancy == SelectionOccupancy::Boundary {
+                vline.width_cols
+            } else if oversized {
+                vcursor.visual_col.min(vline.width_cols)
+            } else {
+                Self::clamp_visual_col(vlines, vcursor.visual_row, vline.width_cols)
+            };
+            (
+                cell_offset,
+                vline.width_cols,
+                vline.source_line,
+                vline.source_col_start,
+                oversized,
+                target_visual_col,
+            )
         };
-        if self.selection_occupancy == SelectionOccupancy::Cell && !oversized {
+        if occupancy == SelectionOccupancy::Cell && !oversized {
             let target_offset = cell_offset + target_visual_col;
             if let Some((start, end)) = self.buffer.cursor_unit_bounds_at_offset(target_offset) {
                 if start < target_offset {
                     let target = if start >= cell_offset { start } else { end };
-                    target_visual_col = (target.saturating_sub(cell_offset)).min(vline.width_cols);
+                    target_visual_col = (target.saturating_sub(cell_offset)).min(width_cols);
                 }
             }
         }
-        let logical_row = vline.source_line;
-        let logical_col = vline.source_col_start + target_visual_col;
+        let logical_col = logical_col + target_visual_col;
         let offset = self
             .buffer
             .coords_to_offset(logical_row, logical_col)
@@ -2713,6 +2746,7 @@ impl EditorView {
         } else {
             0
         };
+        let occupancy = self.selection_occupancy;
         let vlines = self.active_vlines();
         if vlines.vlines.is_empty() {
             return Some(0);
@@ -2727,7 +2761,7 @@ impl EditorView {
         // cell occupancy clamps wrap padding to the last cell (1124-1136)
         let max_local_x = if vline.width_cols == 0 {
             0
-        } else if self.selection_occupancy == SelectionOccupancy::Cell
+        } else if occupancy == SelectionOccupancy::Cell
             && vline_idx + 1 < vlines.vlines.len()
             && vlines.vlines[vline_idx + 1].source_line == vline.source_line
         {
@@ -2999,7 +3033,7 @@ impl EditorView {
     pub fn draw_state(&mut self) -> (TextDocument, EditorVlines) {
         self.update_before_render();
         let doc = self.active_document();
-        let vlines = self.active_vlines();
+        let vlines = self.active_vlines().clone();
         (doc, vlines)
     }
 

@@ -378,7 +378,14 @@ fn text_options_from_json(o: &serde_json::Value) -> Result<TextOptions> {
 /// text/box nodes stage and mount lazily at the next flush point (a
 /// textarea/ta-op/frame step or the end) — behaviorally identical to
 /// the old single-pass mount when a scenario has no flush points.
-pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
+/// Replay a scenario against a fresh renderer and return the renderer
+/// in its settled state (all steps executed, final frame rendered).
+///
+/// This is the fixture entry the perf rig (`tools/bench`) drives: the
+/// SAME staged trees the differential oracle proves byte-identical,
+/// re-rendered in a loop to measure the frame path. `render_rust` is
+/// this + capture.
+pub fn replay(scenario: &Scenario) -> Result<CliRenderer> {
     let mut renderer = create_cli_renderer(CliRendererConfig {
         width: scenario.width,
         height: scenario.height,
@@ -764,6 +771,13 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
 
     mount(&mut renderer, &mut by_id, &children_of, None, &roots);
     renderer.render();
+    Ok(renderer)
+}
+
+/// Render a scenario to its capture (span lines + char frame + SGR
+/// stream + cursor) — `replay` + the capture the harness compares.
+pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
+    let renderer = replay(scenario)?;
 
     let buf = &renderer.current_render_buffer;
     let lines = buf

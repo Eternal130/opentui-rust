@@ -34,6 +34,7 @@ upstream-attributed semantics; see `PORT-MATRIX.md` for the frozen surface.
 
 ```
 crates/            the three port crates (cargo workspace)
+tools/bench/       the perf rig (frame budgets; see its README)
 tools/diff/        the differential harness (see its README)
   js/driver.ts     bun driver → real @opentui 0.5.14 oracle capture
   scenarios/       JSON scenarios both sides render
@@ -141,10 +142,17 @@ prove the emitted bytes repaint the same grid.
    child reorder, unmount), Portal, scrollback writer; builder API
    (`box_!`/`text_!`/`scrollbox_!`), hooks, extend(); 8 differential
    scenarios vs the real `@opentui/solid` 0.5.14 (mode `"solid"`).
-8. **markdown/code-lane** — MarkdownRenderable, CodeRenderable +
-   tree-sitter styled text (consumer bridges its existing syntax crate).
-9. **perf-lane** — frame budgets vs the native Zig renderer, allocation
-   audit of the cell grid.
+8. ~~**markdown/code-lane**~~ — done: MarkdownRenderable,
+   CodeRenderable + tree-sitter styled text (see ARCHITECTURE.md).
+9. ~~**perf-lane**~~ — done: the frame-budget rig (`tools/bench`)
+   benches buffer draw paths, the taffy measure target, the full
+   render cycle at 80x24/120x30/200x50 on upstream-shaped trees +
+   the differential scenario fixtures, and isolated SGR emission;
+   the allocation audit removed three per-frame clone hot spots
+   (word-wrap frames -73..-86%) with `run-all.sh` 74/74 IDENTICAL;
+   a CI `perf` job guards generous ceilings. Full render cycle at
+   120x30: **0.029 ms** median (~170x under the 5ms target, parity
+   or faster vs the REAL 0.5.14 under bun on the same box).
 
 ## License attribution
 

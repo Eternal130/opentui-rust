@@ -303,6 +303,35 @@ Mechanism deltas (documented; output parity holds):
   raw-markdown fallback until `TextTableRenderable` lands — the
   documented follow-up).
 
+## The perf lane: frame budgets + the vline cache contract
+
+`tools/bench` is the perf rig (see its README for design + numbers):
+buffer draw paths, the taffy measure target, the full render cycle at
+80x24/120x30/200x50 over upstream-shaped trees AND the differential
+scenario fixtures (replayed through the same `replay` machinery the
+oracle proves), plus isolated full-repaint SGR emission via two
+doc-hidden bench hooks on `CliRenderer`. The oracle side of the
+comparison runs upstream's own `render-traversal-benchmark.ts` trees
+against the REAL 0.5.14 under bun (`tools/bench/oracle`), version-
+asserted like every other oracle.
+
+The allocation audit's one semantic-adjacent mechanism: **the Text
+vline cache**. Virtual lines are cached per Text node and filled
+during `prepare_paint` (the `&mut` pre-pass), so the `&self` paint
+borrows instead of recomputing the wrap every frame. Invalidation
+contract: `update_layout` invalidates on viewport change;
+`refresh_text_measure` invalidates on content change — the SAME seam
+that refreshes the taffy measure context (the only path that keeps
+layout correct after a doc mutation), so no observable drift is
+possible (pinned: `run-all.sh` 74/74 IDENTICAL). The editor stack's
+`active_vlines` similarly borrows its cache (keyed on content version
++ wrap width); the draw snapshot clones once at the frame boundary.
+
+Numbers (dev box): full render cycle at 120x30 = 0.029ms median
+(mixed tree), 0.047ms dirty scroll frames (960-child culling
+scrollbox) — 2-3 orders under the consumer's 40ms TUI gate, at parity
+or faster than the real 0.5.14 under bun on every painted path.
+
 ## The differential harness (tools/diff)
 
 * **Oracle:** `@opentui/core@0.5.14` from the npm registry (sandbox

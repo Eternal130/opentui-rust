@@ -495,6 +495,12 @@ impl Renderable {
                 cursor_out.push((self.id.0.clone(), x, y));
             }
         }
+        // fill the Text vline cache while we hold &mut (perf lane): the
+        // `&self` paint then borrows the cached lines instead of
+        // recomputing them every frame
+        if let Content::Text(state) = &mut self.content {
+            let _ = state.vlines();
+        }
         for child in &mut self.children {
             child.prepare_paint(cursor_out);
         }

@@ -39,7 +39,7 @@ use crate::renderable::{
 };
 use crate::renderables::box_::{BoxOptions, BoxRenderableState};
 use crate::renderables::scrollbox;
-use crate::renderables::text::{MeasuredText, TextOptions, TextRenderableState};
+use crate::renderables::text::{TextOptions, TextRenderableState};
 use crate::renderables::textarea::{TextareaOptions, TextareaState};
 use std::sync::Arc;
 use taffy::prelude as tp;
@@ -1208,17 +1208,24 @@ impl CliRenderer {
             return tp::Size::ZERO;
         };
         if ctx.kind == MeasureKind::Text {
-            let text = ctx.text.clone().unwrap_or(MeasuredText {
-                doc: crate::text_buffer::TextDocument::default(),
-                wrap_mode: Default::default(),
-            });
+            // perf lane: borrow the measure target — cloning the whole
+            // TextDocument per taffy measure call dominated layout cost
+            // on text-heavy trees (measure only reads it)
+            let default_text;
+            let text = match &ctx.text {
+                Some(t) => t,
+                None => {
+                    default_text = crate::renderables::text::MeasuredText::default();
+                    &default_text
+                }
+            };
             let avail_w = match available_space.width {
                 tp::AvailableSpace::Definite(w) => w,
                 tp::AvailableSpace::MaxContent => f32::INFINITY,
                 tp::AvailableSpace::MinContent => 0.0,
             };
             let (w, h) = crate::renderables::text::TextRenderableState::measure(
-                &text,
+                text,
                 known_dimensions.width,
                 avail_w,
             );
@@ -1228,7 +1235,14 @@ impl CliRenderer {
             };
         }
         if ctx.kind == MeasureKind::Editor {
-            let editor = ctx.editor.clone().unwrap_or_default();
+            let default_editor;
+            let editor = match &ctx.editor {
+                Some(e) => e,
+                None => {
+                    default_editor = crate::renderables::textarea::MeasuredEditor::default();
+                    &default_editor
+                }
+            };
             let avail_w = match available_space.width {
                 tp::AvailableSpace::Definite(w) => w,
                 tp::AvailableSpace::MaxContent => f32::INFINITY,
@@ -1348,6 +1362,29 @@ impl CliRenderer {
         &self.last_frame_sgr
     }
 
+    // -- bench-rig hooks (perf lane) ---------------------------------------
+    //
+    // The perf rig (`tools/bench`) measures the SGR frame writer in
+    // isolation. These expose the internal writer + its forced-full-
+    // repaint path WITHOUT adding public API surface beyond the rig:
+    // doc-hidden, zero behavior change for every other caller.
+
+    /// [`Self::emit_frame_sgr`] exposed for the perf rig (doc-hidden —
+    /// not part of the ported API surface).
+    #[doc(hidden)]
+    pub fn bench_emit_frame_sgr(&mut self, out: &mut String) {
+        self.emit_frame_sgr(out);
+    }
+
+    /// Reset the frame counter so the NEXT emission takes the forced
+    /// full-repaint path (`frame_id == 0`, renderer.zig first-frame).
+    /// Perf-rig only (doc-hidden): a real render() after this would
+    /// simply emit one full frame then resume diffing.
+    #[doc(hidden)]
+    pub fn bench_force_full_frame(&mut self) {
+        self.frame_id = 0;
+    }
+
     /// The FULL SGR emission across all rendered frames — what a terminal
     /// consumed (the harness's vt-replay validates this end-to-end).
     #[must_use]
@@ -1370,10 +1407,11 @@ impl CliRenderer {
     /// Update a text leaf's measure context after content changes
     /// (`content` setter → updateTextBuffer, Text.ts:75-83).
     pub fn refresh_text_measure(&mut self, id: &str) {
-        let Some(node) = self.find_node(&self.root.inner, id) else {
+        let Some(node) = Self::find_node_mut(&mut self.root.inner, id) else {
             return;
         };
-        if let Content::Text(state) = &node.content {
+        if let Content::Text(state) = &mut node.content {
+            state.invalidate_vlines();
             let m = state.measured();
             let n = node.node;
             if let Some(ctx) = self.tree.get_node_context_mut(n) {
