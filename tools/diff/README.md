@@ -40,6 +40,32 @@ bun ../js/char-corpus.ts  ../../crates/opentui-core/tests/data/char-corpus.json
 bun ../js/event-corpus.ts ../../crates/opentui-core/tests/data/event-corpus.json
 ```
 
+## Frozen corpora (markdown/code lane)
+
+Two more generators freeze the REAL package's intermediate outputs so
+the port's internals are pinned below the renderable level:
+
+* `js/highlight-corpus.ts` → `crates/opentui-core/tests/data/highlight-corpus.json`
+  — 27 cases through the REAL `TreeSitterClient` (`getSimpleHighlights`):
+  markdown constructs, ts/js/zig fences, unicode (CJK/emoji), unknown
+  langs. Replayed by `crates/opentui-core/tests/highlight_corpus.rs`.
+* `js/marked-corpus.ts` → `crates/opentui-core/tests/data/marked-corpus.json`
+  — 40 cases through the REAL `marked` 17.0.1 `Lexer.lex()`: token
+  trees for every block/inline construct. Replayed by
+  `crates/opentui-core/tests/marked_corpus.rs` against the hand-ported
+  lexer (its regexes use lookaheads/backreferences the Rust `regex`
+  crate lacks — the port re-implements the lexer, the corpus pins it).
+
+```sh
+cd tools/diff/sandbox
+bun ../js/highlight-corpus.ts ../../crates/opentui-core/tests/data/highlight-corpus.json
+bun ../js/marked-corpus.ts    ../../crates/opentui-core/tests/data/marked-corpus.json
+```
+
+(bun resolves imports relative to the script's dir, hence the
+`js/node_modules → ../sandbox/node_modules` symlink, gitignored.)
+
+
 ## Scenario vocabulary (grows per lane)
 
 ```json
@@ -122,4 +148,34 @@ Sandbox notes for solid mode:
   serves the SSR stub build (createSignal/createEffect are no-ops) —
   to the client bundle `dist/solid.js`. Real apps get this from
   packages/solid's bun plugin; the driver runs unbundled.
+
+Markdown/code lane vocabulary (both drivers; the JS side `await
+import`s `MarkdownRenderable`/`CodeRenderable`/`SyntaxStyle` lazily so
+non-md scenarios keep the oracle module graph unchanged):
+
+* `{ "op": "markdown", "id", "parent", "options": { content, fg, bg,
+  conceal, concealCode, styles } }` — mounts a `MarkdownRenderable`.
+  `styles` is an object of `{ token: { fg, bg, bold, italic,
+  underline, dim } }` fed to `SyntaxStyle.fromStyles` on the JS side /
+  `register_style` loop in the port (the theme/syntax styling matrix).
+* `{ "op": "code", "id", "parent", "options": { content, filetype,
+  conceal, fg, bg, styles } }` — mounts a `CodeRenderable`.
+
+Two driver mechanics make the async oracle comparable with the port's
+synchronous highlight-at-construction:
+
+* **settle loop** — after mount, the driver awaits every
+  `CodeRenderable`'s `highlightingDone` then flush + renderOnce, and
+  repeats while any node reports `_highlightsDirty || isHighlighting`
+  (up to 6 passes; mount invalidates mid-flight — snapshot mismatch
+  re-dirties). The captured frame is therefore the SETTLED state,
+  which is what the port builds in one pass.
+* **cursor-teardown strip** — the oracle's frame-end teardown parks
+  the terminal cursor (`ESC ]12;… ESC \ ESC[0 q ESC[r;cH ESC[?25h`)
+  after the cursor style reset; that's the renderer's exit park, not a
+  renderable's cursor. The driver strips it before extracting the
+  cursor CUP for input-lane cursor compare (the full SGR stream keeps
+  it — it's part of the oracle's byte-true output). Relatedly, cursor
+  compare is scoped to scenarios with focus/key/input ops
+  (`compare_filtered` in `src/compare.rs`).
 

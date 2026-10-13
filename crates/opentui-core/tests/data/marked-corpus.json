@@ -1,0 +1,2369 @@
+[
+ {
+  "name": "paragraphs",
+  "content": "first para\nsecond line\n\nsecond para\n",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "first para\nsecond line",
+    "text": "first para\nsecond line",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "first para\nsecond line",
+      "text": "first para\nsecond line"
+     }
+    ]
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "paragraph",
+    "raw": "second para\n",
+    "text": "second para",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "second para",
+      "text": "second para"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "atx-headings",
+  "content": "# one\n## two\n### three\n#### four\n##### five\n###### six\n####### seven-not-heading\n#no-space-not-heading\n",
+  "tokens": [
+   {
+    "type": "heading",
+    "raw": "# one\n",
+    "text": "one",
+    "depth": 1,
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "one",
+      "text": "one"
+     }
+    ]
+   },
+   {
+    "type": "heading",
+    "raw": "## two\n",
+    "text": "two",
+    "depth": 2,
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "two",
+      "text": "two"
+     }
+    ]
+   },
+   {
+    "type": "heading",
+    "raw": "### three\n",
+    "text": "three",
+    "depth": 3,
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "three",
+      "text": "three"
+     }
+    ]
+   },
+   {
+    "type": "heading",
+    "raw": "#### four\n",
+    "text": "four",
+    "depth": 4,
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "four",
+      "text": "four"
+     }
+    ]
+   },
+   {
+    "type": "heading",
+    "raw": "##### five\n",
+    "text": "five",
+    "depth": 5,
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "five",
+      "text": "five"
+     }
+    ]
+   },
+   {
+    "type": "heading",
+    "raw": "###### six\n",
+    "text": "six",
+    "depth": 6,
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "six",
+      "text": "six"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "raw": "####### seven-not-heading\n#no-space-not-heading\n",
+    "text": "####### seven-not-heading\n#no-space-not-heading",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "####### seven-not-heading\n#no-space-not-heading",
+      "text": "####### seven-not-heading\n#no-space-not-heading"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "heading-closing",
+  "content": "# closed ##\n# trailing ###   \n## mid #dle\n",
+  "tokens": [
+   {
+    "type": "heading",
+    "raw": "# closed ##\n",
+    "text": "closed",
+    "depth": 1,
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "closed",
+      "text": "closed"
+     }
+    ]
+   },
+   {
+    "type": "heading",
+    "raw": "# trailing ###   \n",
+    "text": "trailing",
+    "depth": 1,
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "trailing",
+      "text": "trailing"
+     }
+    ]
+   },
+   {
+    "type": "heading",
+    "raw": "## mid #dle\n",
+    "text": "mid #dle",
+    "depth": 2,
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "mid #dle",
+      "text": "mid #dle"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "setext",
+  "content": "Title\n=====\n\nSub\n---\n\nmixed\n===\n",
+  "tokens": [
+   {
+    "type": "heading",
+    "raw": "Title\n=====\n\n",
+    "text": "Title",
+    "depth": 1,
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "Title",
+      "text": "Title"
+     }
+    ]
+   },
+   {
+    "type": "heading",
+    "raw": "Sub\n---\n\n",
+    "text": "Sub",
+    "depth": 2,
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "Sub",
+      "text": "Sub"
+     }
+    ]
+   },
+   {
+    "type": "heading",
+    "raw": "mixed\n===\n",
+    "text": "mixed",
+    "depth": 1,
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "mixed",
+      "text": "mixed"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "fences",
+  "content": "```js\ncode\nlines\n```\n\n~~~\ntilde fence\n~~~\n\n```open ended\nno close\n",
+  "tokens": [
+   {
+    "type": "code",
+    "raw": "```js\ncode\nlines\n```",
+    "text": "code\nlines",
+    "lang": "js"
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "code",
+    "raw": "~~~\ntilde fence\n~~~",
+    "text": "tilde fence",
+    "lang": ""
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "code",
+    "raw": "```open ended\nno close\n",
+    "text": "no close",
+    "lang": "open ended"
+   }
+  ]
+ },
+ {
+  "name": "fence-indent",
+  "content": "  ```\n  indented\n  ```\n\n   ```\n   deep\n``` closing at zero\n",
+  "tokens": [
+   {
+    "type": "code",
+    "raw": "  ```\n  indented\n  ```",
+    "text": "indented",
+    "lang": ""
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "code",
+    "raw": "   ```\n   deep\n``` closing at zero\n",
+    "text": "deep\n``` closing at zero",
+    "lang": ""
+   }
+  ]
+ },
+ {
+  "name": "indented-code",
+  "content": "    indented code\n    more\n\ntext after\n",
+  "tokens": [
+   {
+    "type": "code",
+    "raw": "    indented code\n    more\n\n",
+    "text": "indented code\nmore"
+   },
+   {
+    "type": "paragraph",
+    "raw": "text after\n",
+    "text": "text after",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "text after",
+      "text": "text after"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "hr",
+  "content": "above\n\n---\n\n***\n\n___\n\n- - -\n\n *** \n",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "above",
+    "text": "above",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "above",
+      "text": "above"
+     }
+    ]
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "hr",
+    "raw": "---"
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "hr",
+    "raw": "***"
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "hr",
+    "raw": "___"
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "hr",
+    "raw": "- - -"
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "hr",
+    "raw": " *** \n"
+   }
+  ]
+ },
+ {
+  "name": "hr-not",
+  "content": "--\n**\n_ _\n",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "--\n**\n_ _\n",
+    "text": "--\n**\n_ _",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "--\n**\n_ _",
+      "text": "--\n**\n_ _"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "blockquote",
+  "content": "> quoted\n> more\n\n> lazy\ncontinuation\n",
+  "tokens": [
+   {
+    "type": "blockquote",
+    "raw": "> quoted\n> more",
+    "text": "quoted\nmore",
+    "tokens": [
+     {
+      "type": "paragraph",
+      "raw": "quoted\nmore",
+      "text": "quoted\nmore",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "quoted\nmore",
+        "text": "quoted\nmore"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "blockquote",
+    "raw": "> lazy\ncontinuation\n",
+    "text": "lazy\ncontinuation",
+    "tokens": [
+     {
+      "type": "paragraph",
+      "raw": "lazy\ncontinuation",
+      "text": "lazy\ncontinuation",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "lazy\ncontinuation",
+        "text": "lazy\ncontinuation"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "blockquote-nested",
+  "content": "> outer\n> > inner\n",
+  "tokens": [
+   {
+    "type": "blockquote",
+    "raw": "> outer\n> > inner\n",
+    "text": "outer\n> inner",
+    "tokens": [
+     {
+      "type": "paragraph",
+      "raw": "outer\n",
+      "text": "outer",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "outer",
+        "text": "outer"
+       }
+      ]
+     },
+     {
+      "type": "blockquote",
+      "raw": "> inner",
+      "text": "inner",
+      "tokens": [
+       {
+        "type": "paragraph",
+        "raw": "inner",
+        "text": "inner",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "inner",
+          "text": "inner"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "ul-tight",
+  "content": "- one\n- two\n- three\n",
+  "tokens": [
+   {
+    "type": "list",
+    "raw": "- one\n- two\n- three\n",
+    "ordered": false,
+    "start": "",
+    "loose": false,
+    "items": [
+     {
+      "type": "list_item",
+      "raw": "- one\n",
+      "text": "one",
+      "loose": false,
+      "task": false,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "one",
+        "text": "one",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "one",
+          "text": "one"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "list_item",
+      "raw": "- two\n",
+      "text": "two",
+      "loose": false,
+      "task": false,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "two",
+        "text": "two",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "two",
+          "text": "two"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "list_item",
+      "raw": "- three",
+      "text": "three",
+      "loose": false,
+      "task": false,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "three",
+        "text": "three",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "three",
+          "text": "three"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "ul-loose",
+  "content": "- one\n\n- two\n",
+  "tokens": [
+   {
+    "type": "list",
+    "raw": "- one\n\n- two\n",
+    "ordered": false,
+    "start": "",
+    "loose": true,
+    "items": [
+     {
+      "type": "list_item",
+      "raw": "- one\n\n",
+      "text": "one\n",
+      "loose": true,
+      "task": false,
+      "tokens": [
+       {
+        "type": "paragraph",
+        "raw": "one\n",
+        "text": "one",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "one",
+          "text": "one"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "list_item",
+      "raw": "- two",
+      "text": "two",
+      "loose": true,
+      "task": false,
+      "tokens": [
+       {
+        "type": "paragraph",
+        "raw": "two",
+        "text": "two",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "two",
+          "text": "two"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "ol",
+  "content": "1. first\n2. second\n",
+  "tokens": [
+   {
+    "type": "list",
+    "raw": "1. first\n2. second\n",
+    "ordered": true,
+    "start": 1,
+    "loose": false,
+    "items": [
+     {
+      "type": "list_item",
+      "raw": "1. first\n",
+      "text": "first",
+      "loose": false,
+      "task": false,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "first",
+        "text": "first",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "first",
+          "text": "first"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "list_item",
+      "raw": "2. second",
+      "text": "second",
+      "loose": false,
+      "task": false,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "second",
+        "text": "second",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "second",
+          "text": "second"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "ol-paren",
+  "content": "1) first\n2) second\n",
+  "tokens": [
+   {
+    "type": "list",
+    "raw": "1) first\n2) second\n",
+    "ordered": true,
+    "start": 1,
+    "loose": false,
+    "items": [
+     {
+      "type": "list_item",
+      "raw": "1) first\n",
+      "text": "first",
+      "loose": false,
+      "task": false,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "first",
+        "text": "first",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "first",
+          "text": "first"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "list_item",
+      "raw": "2) second",
+      "text": "second",
+      "loose": false,
+      "task": false,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "second",
+        "text": "second",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "second",
+          "text": "second"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "ol-start",
+  "content": "5. five\n6. six\n",
+  "tokens": [
+   {
+    "type": "list",
+    "raw": "5. five\n6. six\n",
+    "ordered": true,
+    "start": 5,
+    "loose": false,
+    "items": [
+     {
+      "type": "list_item",
+      "raw": "5. five\n",
+      "text": "five",
+      "loose": false,
+      "task": false,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "five",
+        "text": "five",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "five",
+          "text": "five"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "list_item",
+      "raw": "6. six",
+      "text": "six",
+      "loose": false,
+      "task": false,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "six",
+        "text": "six",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "six",
+          "text": "six"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "nested-list",
+  "content": "- outer\n  - inner one\n  - inner two\n- back\n",
+  "tokens": [
+   {
+    "type": "list",
+    "raw": "- outer\n  - inner one\n  - inner two\n- back\n",
+    "ordered": false,
+    "start": "",
+    "loose": false,
+    "items": [
+     {
+      "type": "list_item",
+      "raw": "- outer\n  - inner one\n  - inner two\n",
+      "text": "outer\n- inner one\n- inner two",
+      "loose": false,
+      "task": false,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "outer\n",
+        "text": "outer",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "outer",
+          "text": "outer"
+         }
+        ]
+       },
+       {
+        "type": "list",
+        "raw": "- inner one\n- inner two",
+        "ordered": false,
+        "start": "",
+        "loose": false,
+        "items": [
+         {
+          "type": "list_item",
+          "raw": "- inner one\n",
+          "text": "inner one",
+          "loose": false,
+          "task": false,
+          "tokens": [
+           {
+            "type": "text",
+            "raw": "inner one",
+            "text": "inner one",
+            "tokens": [
+             {
+              "type": "text",
+              "raw": "inner one",
+              "text": "inner one"
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "type": "list_item",
+          "raw": "- inner two",
+          "text": "inner two",
+          "loose": false,
+          "task": false,
+          "tokens": [
+           {
+            "type": "text",
+            "raw": "inner two",
+            "text": "inner two",
+            "tokens": [
+             {
+              "type": "text",
+              "raw": "inner two",
+              "text": "inner two"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "list_item",
+      "raw": "- back",
+      "text": "back",
+      "loose": false,
+      "task": false,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "back",
+        "text": "back",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "back",
+          "text": "back"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "list-code",
+  "content": "- item\n\n  ```\n  fenced in list\n  ```\n",
+  "tokens": [
+   {
+    "type": "list",
+    "raw": "- item\n\n  ```\n  fenced in list\n  ```\n",
+    "ordered": false,
+    "start": "",
+    "loose": true,
+    "items": [
+     {
+      "type": "list_item",
+      "raw": "- item\n\n  ```\n  fenced in list\n  ```",
+      "text": "item\n\n```\nfenced in list\n```",
+      "loose": true,
+      "task": false,
+      "tokens": [
+       {
+        "type": "paragraph",
+        "raw": "item",
+        "text": "item",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "item",
+          "text": "item"
+         }
+        ]
+       },
+       {
+        "type": "space",
+        "raw": "\n\n"
+       },
+       {
+        "type": "code",
+        "raw": "```\nfenced in list\n```",
+        "text": "fenced in list",
+        "lang": ""
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "list-para",
+  "content": "- item one\n\n  continued para\n- item two\n",
+  "tokens": [
+   {
+    "type": "list",
+    "raw": "- item one\n\n  continued para\n- item two\n",
+    "ordered": false,
+    "start": "",
+    "loose": true,
+    "items": [
+     {
+      "type": "list_item",
+      "raw": "- item one\n\n  continued para\n",
+      "text": "item one\n\ncontinued para",
+      "loose": true,
+      "task": false,
+      "tokens": [
+       {
+        "type": "paragraph",
+        "raw": "item one",
+        "text": "item one",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "item one",
+          "text": "item one"
+         }
+        ]
+       },
+       {
+        "type": "space",
+        "raw": "\n\n"
+       },
+       {
+        "type": "paragraph",
+        "raw": "continued para",
+        "text": "continued para",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "continued para",
+          "text": "continued para"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "list_item",
+      "raw": "- item two",
+      "text": "item two",
+      "loose": true,
+      "task": false,
+      "tokens": [
+       {
+        "type": "paragraph",
+        "raw": "item two",
+        "text": "item two",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "item two",
+          "text": "item two"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "task-list",
+  "content": "- [ ] todo\n- [x] done\n- plain\n",
+  "tokens": [
+   {
+    "type": "list",
+    "raw": "- [ ] todo\n- [x] done\n- plain\n",
+    "ordered": false,
+    "start": "",
+    "loose": false,
+    "items": [
+     {
+      "type": "list_item",
+      "raw": "- [ ] todo\n",
+      "text": "todo",
+      "loose": false,
+      "task": true,
+      "checked": false,
+      "tokens": [
+       {
+        "type": "checkbox",
+        "raw": "[ ] ",
+        "checked": false
+       },
+       {
+        "type": "text",
+        "raw": "todo",
+        "text": "todo",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "todo",
+          "text": "todo"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "list_item",
+      "raw": "- [x] done\n",
+      "text": "done",
+      "loose": false,
+      "task": true,
+      "checked": true,
+      "tokens": [
+       {
+        "type": "checkbox",
+        "raw": "[x] ",
+        "checked": true
+       },
+       {
+        "type": "text",
+        "raw": "done",
+        "text": "done",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "done",
+          "text": "done"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "list_item",
+      "raw": "- plain",
+      "text": "plain",
+      "loose": false,
+      "task": false,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "plain",
+        "text": "plain",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "plain",
+          "text": "plain"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "list-marker-mix",
+  "content": "* star\n\n+ plus\n",
+  "tokens": [
+   {
+    "type": "list",
+    "raw": "* star",
+    "ordered": false,
+    "start": "",
+    "loose": false,
+    "items": [
+     {
+      "type": "list_item",
+      "raw": "* star",
+      "text": "star",
+      "loose": false,
+      "task": false,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "star",
+        "text": "star",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "star",
+          "text": "star"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "list",
+    "raw": "+ plus\n",
+    "ordered": false,
+    "start": "",
+    "loose": false,
+    "items": [
+     {
+      "type": "list_item",
+      "raw": "+ plus",
+      "text": "plus",
+      "loose": false,
+      "task": false,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "plus",
+        "text": "plus",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "plus",
+          "text": "plus"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "table-basic",
+  "content": "| a | b |\n| - | - |\n| 1 | 2 |\n",
+  "tokens": [
+   {
+    "type": "table",
+    "raw": "| a | b |\n| - | - |\n| 1 | 2 |\n",
+    "align": [
+     null,
+     null
+    ],
+    "header": [
+     {
+      "text": "a",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "a",
+        "text": "a"
+       }
+      ]
+     },
+     {
+      "text": "b",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "b",
+        "text": "b"
+       }
+      ]
+     }
+    ],
+    "rows": [
+     [
+      {
+       "text": "1",
+       "tokens": [
+        {
+         "type": "text",
+         "raw": "1",
+         "text": "1"
+        }
+       ]
+      },
+      {
+       "text": "2",
+       "tokens": [
+        {
+         "type": "text",
+         "raw": "2",
+         "text": "2"
+        }
+       ]
+      }
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "name": "table-align",
+  "content": "| left | mid | right |\n| :--- | :---: | ---: |\n| 1 | 2 | 3 |\n",
+  "tokens": [
+   {
+    "type": "table",
+    "raw": "| left | mid | right |\n| :--- | :---: | ---: |\n| 1 | 2 | 3 |\n",
+    "align": [
+     "left",
+     "center",
+     "right"
+    ],
+    "header": [
+     {
+      "text": "left",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "left",
+        "text": "left"
+       }
+      ]
+     },
+     {
+      "text": "mid",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "mid",
+        "text": "mid"
+       }
+      ]
+     },
+     {
+      "text": "right",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "right",
+        "text": "right"
+       }
+      ]
+     }
+    ],
+    "rows": [
+     [
+      {
+       "text": "1",
+       "tokens": [
+        {
+         "type": "text",
+         "raw": "1",
+         "text": "1"
+        }
+       ]
+      },
+      {
+       "text": "2",
+       "tokens": [
+        {
+         "type": "text",
+         "raw": "2",
+         "text": "2"
+        }
+       ]
+      },
+      {
+       "text": "3",
+       "tokens": [
+        {
+         "type": "text",
+         "raw": "3",
+         "text": "3"
+        }
+       ]
+      }
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "name": "table-inline",
+  "content": "| **bold** | `code` | [l](u) |\n| - | - | - |\n| *em* | ~~del~~ | plain |\n",
+  "tokens": [
+   {
+    "type": "table",
+    "raw": "| **bold** | `code` | [l](u) |\n| - | - | - |\n| *em* | ~~del~~ | plain |\n",
+    "align": [
+     null,
+     null,
+     null
+    ],
+    "header": [
+     {
+      "text": "**bold**",
+      "tokens": [
+       {
+        "type": "strong",
+        "raw": "**bold**",
+        "text": "bold",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "bold",
+          "text": "bold"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "text": "`code`",
+      "tokens": [
+       {
+        "type": "codespan",
+        "raw": "`code`",
+        "text": "code"
+       }
+      ]
+     },
+     {
+      "text": "[l](u)",
+      "tokens": [
+       {
+        "type": "link",
+        "raw": "[l](u)",
+        "text": "l",
+        "href": "u",
+        "title": null,
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "l",
+          "text": "l"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "rows": [
+     [
+      {
+       "text": "*em*",
+       "tokens": [
+        {
+         "type": "em",
+         "raw": "*em*",
+         "text": "em",
+         "tokens": [
+          {
+           "type": "text",
+           "raw": "em",
+           "text": "em"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "text": "~~del~~",
+       "tokens": [
+        {
+         "type": "del",
+         "raw": "~~del~~",
+         "text": "del",
+         "tokens": [
+          {
+           "type": "text",
+           "raw": "del",
+           "text": "del"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "text": "plain",
+       "tokens": [
+        {
+         "type": "text",
+         "raw": "plain",
+         "text": "plain"
+        }
+       ]
+      }
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "name": "table-no-leading-pipe",
+  "content": "a | b\n- | -\n1 | 2\n",
+  "tokens": [
+   {
+    "type": "table",
+    "raw": "a | b\n- | -\n1 | 2\n",
+    "align": [
+     null,
+     null
+    ],
+    "header": [
+     {
+      "text": "a",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "a",
+        "text": "a"
+       }
+      ]
+     },
+     {
+      "text": "b",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "b",
+        "text": "b"
+       }
+      ]
+     }
+    ],
+    "rows": [
+     [
+      {
+       "text": "1",
+       "tokens": [
+        {
+         "type": "text",
+         "raw": "1",
+         "text": "1"
+        }
+       ]
+      },
+      {
+       "text": "2",
+       "tokens": [
+        {
+         "type": "text",
+         "raw": "2",
+         "text": "2"
+        }
+       ]
+      }
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "name": "table-escaped-pipe",
+  "content": "| a \\| b | c |\n| - | - |\n| x | y |\n",
+  "tokens": [
+   {
+    "type": "table",
+    "raw": "| a \\| b | c |\n| - | - |\n| x | y |\n",
+    "align": [
+     null,
+     null
+    ],
+    "header": [
+     {
+      "text": "a | b",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "a | b",
+        "text": "a | b"
+       }
+      ]
+     },
+     {
+      "text": "c",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "c",
+        "text": "c"
+       }
+      ]
+     }
+    ],
+    "rows": [
+     [
+      {
+       "text": "x",
+       "tokens": [
+        {
+         "type": "text",
+         "raw": "x",
+         "text": "x"
+        }
+       ]
+      },
+      {
+       "text": "y",
+       "tokens": [
+        {
+         "type": "text",
+         "raw": "y",
+         "text": "y"
+        }
+       ]
+      }
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "name": "table-ragged",
+  "content": "| a | b | c |\n| - | - |\n| 1 |\n| 1 | 2 | 3 | 4 |\n",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "| a | b | c |\n| - | - |\n| 1 |\n| 1 | 2 | 3 | 4 |\n",
+    "text": "| a | b | c |\n| - | - |\n| 1 |\n| 1 | 2 | 3 | 4 |",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "| a | b | c |\n| - | - |\n| 1 |\n| 1 | 2 | 3 | 4 |",
+      "text": "| a | b | c |\n| - | - |\n| 1 |\n| 1 | 2 | 3 | 4 |"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "links",
+  "content": "see [docs](https://x.io) and [titled](https://x.io \"the title\") and <https://auto.link> plus ![img](pic.png)\n",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "see [docs](https://x.io) and [titled](https://x.io \"the title\") and <https://auto.link> plus ![img](pic.png)\n",
+    "text": "see [docs](https://x.io) and [titled](https://x.io \"the title\") and <https://auto.link> plus ![img](pic.png)",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "see ",
+      "text": "see "
+     },
+     {
+      "type": "link",
+      "raw": "[docs](https://x.io)",
+      "text": "docs",
+      "href": "https://x.io",
+      "title": null,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "docs",
+        "text": "docs"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "raw": " and ",
+      "text": " and "
+     },
+     {
+      "type": "link",
+      "raw": "[titled](https://x.io \"the title\")",
+      "text": "titled",
+      "href": "https://x.io",
+      "title": "the title",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "titled",
+        "text": "titled"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "raw": " and ",
+      "text": " and "
+     },
+     {
+      "type": "link",
+      "raw": "<https://auto.link>",
+      "text": "https://auto.link",
+      "href": "https://auto.link",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "https://auto.link",
+        "text": "https://auto.link"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "raw": " plus ",
+      "text": " plus "
+     },
+     {
+      "type": "image",
+      "raw": "![img](pic.png)",
+      "text": "img",
+      "href": "pic.png",
+      "title": null,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "img",
+        "text": "img"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "emphasis-basic",
+  "content": "plain *em* and **strong** and ***both*** and _u_ and __uu__ plus ~~strike~~\n",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "plain *em* and **strong** and ***both*** and _u_ and __uu__ plus ~~strike~~\n",
+    "text": "plain *em* and **strong** and ***both*** and _u_ and __uu__ plus ~~strike~~",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "plain ",
+      "text": "plain "
+     },
+     {
+      "type": "em",
+      "raw": "*em*",
+      "text": "em",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "em",
+        "text": "em"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "raw": " and ",
+      "text": " and "
+     },
+     {
+      "type": "strong",
+      "raw": "**strong**",
+      "text": "strong",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "strong",
+        "text": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "raw": " and ",
+      "text": " and "
+     },
+     {
+      "type": "em",
+      "raw": "***both***",
+      "text": "**both**",
+      "tokens": [
+       {
+        "type": "strong",
+        "raw": "**both**",
+        "text": "both",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "both",
+          "text": "both"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "raw": " and ",
+      "text": " and "
+     },
+     {
+      "type": "em",
+      "raw": "_u_",
+      "text": "u",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "u",
+        "text": "u"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "raw": " and ",
+      "text": " and "
+     },
+     {
+      "type": "strong",
+      "raw": "__uu__",
+      "text": "uu",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "uu",
+        "text": "uu"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "raw": " plus ",
+      "text": " plus "
+     },
+     {
+      "type": "del",
+      "raw": "~~strike~~",
+      "text": "strike",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "strike",
+        "text": "strike"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "emphasis-nested",
+  "content": "**bold *nested em* end** and *outer **inner** tail*\n",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "**bold *nested em* end** and *outer **inner** tail*\n",
+    "text": "**bold *nested em* end** and *outer **inner** tail*",
+    "tokens": [
+     {
+      "type": "strong",
+      "raw": "**bold *nested em* end**",
+      "text": "bold *nested em* end",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "bold ",
+        "text": "bold "
+       },
+       {
+        "type": "em",
+        "raw": "*nested em*",
+        "text": "nested em",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "nested em",
+          "text": "nested em"
+         }
+        ]
+       },
+       {
+        "type": "text",
+        "raw": " end",
+        "text": " end"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "raw": " and ",
+      "text": " and "
+     },
+     {
+      "type": "em",
+      "raw": "*outer **inner** tail*",
+      "text": "outer **inner** tail",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "outer ",
+        "text": "outer "
+       },
+       {
+        "type": "strong",
+        "raw": "**inner**",
+        "text": "inner",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "inner",
+          "text": "inner"
+         }
+        ]
+       },
+       {
+        "type": "text",
+        "raw": " tail",
+        "text": " tail"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "emphasis-intraword",
+  "content": "foo*bar*baz and foo_bar_baz\n",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "foo*bar*baz and foo_bar_baz\n",
+    "text": "foo*bar*baz and foo_bar_baz",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "foo",
+      "text": "foo"
+     },
+     {
+      "type": "em",
+      "raw": "*bar*",
+      "text": "bar",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "bar",
+        "text": "bar"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "raw": "baz and foo_bar_baz",
+      "text": "baz and foo_bar_baz"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "codespan",
+  "content": "a `code` b ``double ` tick`` c\n",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "a `code` b ``double ` tick`` c\n",
+    "text": "a `code` b ``double ` tick`` c",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "a ",
+      "text": "a "
+     },
+     {
+      "type": "codespan",
+      "raw": "`code`",
+      "text": "code"
+     },
+     {
+      "type": "text",
+      "raw": " b ",
+      "text": " b "
+     },
+     {
+      "type": "codespan",
+      "raw": "``double ` tick``",
+      "text": "double ` tick"
+     },
+     {
+      "type": "text",
+      "raw": " c",
+      "text": " c"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "escapes",
+  "content": "\\*not em\\* and \\[brackets\\] and \\\\ backslash\n",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "\\*not em\\* and \\[brackets\\] and \\\\ backslash\n",
+    "text": "\\*not em\\* and \\[brackets\\] and \\\\ backslash",
+    "tokens": [
+     {
+      "type": "escape",
+      "raw": "\\*",
+      "text": "*"
+     },
+     {
+      "type": "text",
+      "raw": "not em",
+      "text": "not em"
+     },
+     {
+      "type": "escape",
+      "raw": "\\*",
+      "text": "*"
+     },
+     {
+      "type": "text",
+      "raw": " and ",
+      "text": " and "
+     },
+     {
+      "type": "escape",
+      "raw": "\\[",
+      "text": "["
+     },
+     {
+      "type": "text",
+      "raw": "brackets",
+      "text": "brackets"
+     },
+     {
+      "type": "escape",
+      "raw": "\\]",
+      "text": "]"
+     },
+     {
+      "type": "text",
+      "raw": " and ",
+      "text": " and "
+     },
+     {
+      "type": "escape",
+      "raw": "\\\\",
+      "text": "\\"
+     },
+     {
+      "type": "text",
+      "raw": " backslash",
+      "text": " backslash"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "hard-break",
+  "content": "line one  \nline two\\\nline three\n",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "line one  \nline two\\\nline three\n",
+    "text": "line one  \nline two\\\nline three",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "line one",
+      "text": "line one"
+     },
+     {
+      "type": "br",
+      "raw": "  \n"
+     },
+     {
+      "type": "text",
+      "raw": "line two",
+      "text": "line two"
+     },
+     {
+      "type": "br",
+      "raw": "\\\n"
+     },
+     {
+      "type": "text",
+      "raw": "line three",
+      "text": "line three"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "html-block",
+  "content": "<div>\nblock html\n</div>\n\ntext\n",
+  "tokens": [
+   {
+    "type": "html",
+    "raw": "<div>\nblock html\n</div>\n\n",
+    "text": "<div>\nblock html\n</div>\n\n"
+   },
+   {
+    "type": "paragraph",
+    "raw": "text\n",
+    "text": "text",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "text",
+      "text": "text"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "def-links",
+  "content": "[ref]: https://example.com \"Ref Title\"\n\ntext with [ref] link\n",
+  "tokens": [
+   {
+    "type": "def",
+    "raw": "[ref]: https://example.com \"Ref Title\"\n\n",
+    "href": "https://example.com",
+    "title": "Ref Title"
+   },
+   {
+    "type": "paragraph",
+    "raw": "text with [ref] link\n",
+    "text": "text with [ref] link",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "text with ",
+      "text": "text with "
+     },
+     {
+      "type": "link",
+      "raw": "[ref]",
+      "text": "ref",
+      "href": "https://example.com",
+      "title": "Ref Title",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "ref",
+        "text": "ref"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "raw": " link",
+      "text": " link"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "mixed-doc",
+  "content": "# Title\n\nintro *para* with [link](https://x.io)\n\n- item one\n- item two with `code`\n\n> quote block\n\n```ts\nconst x = 1\n```\n\n| h |\n| - |\n| c |\n\n---\n\nfinal para\n",
+  "tokens": [
+   {
+    "type": "heading",
+    "raw": "# Title\n\n",
+    "text": "Title",
+    "depth": 1,
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "Title",
+      "text": "Title"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "raw": "intro *para* with [link](https://x.io)",
+    "text": "intro *para* with [link](https://x.io)",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "intro ",
+      "text": "intro "
+     },
+     {
+      "type": "em",
+      "raw": "*para*",
+      "text": "para",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "para",
+        "text": "para"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "raw": " with ",
+      "text": " with "
+     },
+     {
+      "type": "link",
+      "raw": "[link](https://x.io)",
+      "text": "link",
+      "href": "https://x.io",
+      "title": null,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "link",
+        "text": "link"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "list",
+    "raw": "- item one\n- item two with `code`",
+    "ordered": false,
+    "start": "",
+    "loose": false,
+    "items": [
+     {
+      "type": "list_item",
+      "raw": "- item one\n",
+      "text": "item one",
+      "loose": false,
+      "task": false,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "item one",
+        "text": "item one",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "item one",
+          "text": "item one"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "list_item",
+      "raw": "- item two with `code`",
+      "text": "item two with `code`",
+      "loose": false,
+      "task": false,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "item two with `code`",
+        "text": "item two with `code`",
+        "tokens": [
+         {
+          "type": "text",
+          "raw": "item two with ",
+          "text": "item two with "
+         },
+         {
+          "type": "codespan",
+          "raw": "`code`",
+          "text": "code"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "blockquote",
+    "raw": "> quote block",
+    "text": "quote block",
+    "tokens": [
+     {
+      "type": "paragraph",
+      "raw": "quote block",
+      "text": "quote block",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "quote block",
+        "text": "quote block"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "code",
+    "raw": "```ts\nconst x = 1\n```",
+    "text": "const x = 1",
+    "lang": "ts"
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "table",
+    "raw": "| h |\n| - |\n| c |\n\n",
+    "align": [
+     null
+    ],
+    "header": [
+     {
+      "text": "h",
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "h",
+        "text": "h"
+       }
+      ]
+     }
+    ],
+    "rows": [
+     [
+      {
+       "text": "c",
+       "tokens": [
+        {
+         "type": "text",
+         "raw": "c",
+         "text": "c"
+        }
+       ]
+      }
+     ]
+    ]
+   },
+   {
+    "type": "hr",
+    "raw": "---"
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "paragraph",
+    "raw": "final para\n",
+    "text": "final para",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "final para",
+      "text": "final para"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "unicode-doc",
+  "content": "# 中文标题\n\n正文 with 🙂 emoji\n",
+  "tokens": [
+   {
+    "type": "heading",
+    "raw": "# 中文标题\n\n",
+    "text": "中文标题",
+    "depth": 1,
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "中文标题",
+      "text": "中文标题"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "raw": "正文 with 🙂 emoji\n",
+    "text": "正文 with 🙂 emoji",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "正文 with 🙂 emoji",
+      "text": "正文 with 🙂 emoji"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "blank-line-variants",
+  "content": "para one\n\n\n\npara two after many blanks\n",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "para one",
+    "text": "para one",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "para one",
+      "text": "para one"
+     }
+    ]
+   },
+   {
+    "type": "space",
+    "raw": "\n\n\n\n"
+   },
+   {
+    "type": "paragraph",
+    "raw": "para two after many blanks\n",
+    "text": "para two after many blanks",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "para two after many blanks",
+      "text": "para two after many blanks"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "trailing-newline-none",
+  "content": "no trailing newline",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "no trailing newline",
+    "text": "no trailing newline",
+    "tokens": [
+     {
+      "type": "text",
+      "raw": "no trailing newline",
+      "text": "no trailing newline"
+     }
+    ]
+   }
+  ]
+ }
+]

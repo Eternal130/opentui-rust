@@ -96,7 +96,7 @@ tree-sitter styling, testing helpers.
 | `ClipboardTarget` | 2 | core/src/lib/clipboard.ts:292 | opentui-core | todo |
 | `CloudsEffect` | 2 | core/src/post/effects.ts:494 | opentui-core | todo |
 | `Code` | 2 | core/src/renderables/composition/constructs.ts:60 | opentui-core | todo |
-| `CodeRenderable` | **1** | core/src/renderables/Code.ts:48 | opentui-core::renderables | todo |
+| `CodeRenderable` | **1** | core/src/renderables/Code.ts:48 | opentui-core::renderables | done |
 | `ConsolePosition` | 2 | core/src/console.ts:217 | opentui-core | todo |
 | `DEFAULT_BACKGROUND_RGB` | 2 | core/src/lib/RGBA.ts:6 | opentui-core | done |
 | `DEFAULT_FOREGROUND_RGB` | 2 | core/src/lib/RGBA.ts:5 | opentui-core | done |
@@ -134,7 +134,7 @@ tree-sitter styling, testing helpers.
 | `LogLevel` | 2 | core/src/zig.ts:2339 | opentui-core | todo |
 | `MAX_LINK_URL_BYTES` | 2 | core/src/zig.ts:105 | opentui-core::ansi | todo |
 | `MacOSScrollAccel` | **1** | core/src/lib/scroll-acceleration.ts:34 | opentui-core | done |
-| `MarkdownRenderable` | **1** | core/src/renderables/Markdown.ts:270 | opentui-core::renderables | todo |
+| `MarkdownRenderable` | **1** | core/src/renderables/Markdown.ts:270 | opentui-core::renderables | done |
 | `MouseButton` | **1** | core/src/renderer.ts:705 | opentui-core::events | done |
 | `MouseEvent` | **1** | core/src/renderer.ts:653 | opentui-core::events | done |
 | `MouseParser` | 2 | core/src/lib/parse.mouse.ts:22 | opentui-core::parse_mouse | done |
@@ -177,7 +177,7 @@ tree-sitter styling, testing helpers.
 | `SlotRenderable` | 2 | core/src/plugins/core-slot.ts:241 | opentui-core::renderables | todo |
 | `StdinParser` | 2 | core/src/lib/stdin-parser.ts:587 | opentui-core::renderer | partial |
 | `StyledText` | **1** | core/src/lib/styled-text.ts:26 | opentui-core::styled_text | done |
-| `SyntaxStyle` | **1** | core/src/syntax-style.ts:76 | opentui-core | todo |
+| `SyntaxStyle` | **1** | core/src/syntax-style.ts:76 | opentui-core::syntax_style | done |
 | `SystemClock` | 2 | core/src/lib/clock.ts:11 | opentui-core | todo |
 | `TECHNICOLOR_MATRIX` | 2 | core/src/post/matrices.ts:170 | opentui-core | todo |
 | `TRITANOPIA_COMP_MATRIX` | 2 | core/src/post/matrices.ts:146 | opentui-core | todo |
@@ -199,11 +199,11 @@ tree-sitter styling, testing helpers.
 | `TextareaRenderable` | **1** | core/src/renderables/Textarea.ts:145 | opentui-core::renderables::textarea | done |
 | `TimeToFirstDrawRenderable` | 2 | core/src/renderables/TimeToFirstDraw.ts:40 | opentui-core::renderables | todo |
 | `Timeline` | 2 | core/src/animation/Timeline.ts:284 | opentui-core | todo |
-| `TreeSitterClient` | **1** | core/src/lib/tree-sitter/client.ts:74 | opentui-core | todo |
+| `TreeSitterClient` | **1** | core/src/lib/tree-sitter/client.ts:74 | opentui-core::tree_sitter | done |
 | `VRenderable` | 2 | core/src/renderables/composition/VRenderable.ts:19 | opentui-core::renderables | todo |
 | `VignetteEffect` | 2 | core/src/post/effects.ts:268 | opentui-core | todo |
 | `Yoga` | 2 | — | opentui-core | done |
-| `addDefaultParsers` | **1** | core/src/lib/tree-sitter/client.ts:61 | opentui-core | todo |
+| `addDefaultParsers` | **1** | core/src/lib/tree-sitter/client.ts:61 | opentui-core::tree_sitter | done |
 | `ansi256IndexToRgb` | 2 | core/src/lib/RGBA.ts:71 | opentui-core::color | done |
 | `applyAsciiArt` | 2 | core/src/post/filters.ts:186 | opentui-core | todo |
 | `applyBrightness` | 2 | core/src/post/filters.ts:263 | opentui-core | todo |
@@ -214,7 +214,7 @@ tree-sitter styling, testing helpers.
 | `applySaturation` | 2 | core/src/post/filters.ts:379 | opentui-core | todo |
 | `applyScanlines` | 2 | core/src/post/filters.ts:23 | opentui-core | todo |
 | `attributesWithLink` | 2 | core/src/utils.ts:44 | opentui-core::ansi | done |
-| `basenameToFiletype` | 2 | core/src/lib/tree-sitter/resolve-ft.ts:102 | opentui-core | todo |
+| `basenameToFiletype` | 2 | core/src/lib/tree-sitter/resolve-ft.ts:102 | opentui-core::tree_sitter | done |
 | `bg` | 2 | core/src/lib/styled-text.ts:124 | opentui-core::styled_text::styles | done |
 | `bgBlack` | 2 | core/src/lib/styled-text.ts:101 | opentui-core::styled_text::styles | done |
 | `bgBlue` | 2 | core/src/lib/styled-text.ts:105 | opentui-core::styled_text::styles | done |
@@ -242,7 +242,7 @@ tree-sitter styling, testing helpers.
 | `capture` | 2 | core/src/console.ts:65 | opentui-core | todo |
 | `clearEnvCache` | 2 | core/src/lib/env.ts:130 | opentui-core | todo |
 | `convertGlobalToLocalSelection` | 2 | core/src/lib/selection.ts:167 | opentui-core::renderer | partial |
-| `convertThemeToStyles` | 2 | core/src/syntax-style.ts:41 | opentui-core | todo |
+| `convertThemeToStyles` | 2 | core/src/syntax-style.ts:41 | opentui-core::syntax_style | done |
 | `coordinateToCharacterIndex` | 2 | core/src/lib/ascii.font.ts:196 | opentui-core | todo |
 | `createCliRenderer` | **1** | core/src/renderer.ts:723 | opentui-core::renderer | done |
 | `createClipboard` | **1** | core/src/lib/clipboard.ts:179 | opentui-core | todo |
@@ -250,7 +250,7 @@ tree-sitter styling, testing helpers.
 | `createExtmarksController` | 2 | core/src/lib/extmarks.ts:859 | opentui-core | todo |
 | `createHostClipboard` | 2 | core/src/lib/clipboard.ts:165 | opentui-core | todo |
 | `createIcyStreamDemuxer` | 2 | core/src/audio-stream/icy/demuxer.ts:108 | opentui-core | todo |
-| `createMarkdownCodeBlockRenderer` | **1** | core/src/renderables/Markdown.ts:171 | opentui-core::renderer | todo |
+| `createMarkdownCodeBlockRenderer` | **1** | core/src/renderables/Markdown.ts:171 | opentui-core::renderer | partial |
 | `createRendererClipboardAdapter` | **1** | core/src/lib/clipboard.ts:308 | opentui-core::renderer | todo |
 | `createSlotRegistry` | 2 | core/src/plugins/registry.ts:378 | opentui-core | todo |
 | `createTerminalPalette` | 2 | core/src/lib/terminal-palette.ts:395 | opentui-core | todo |
@@ -260,14 +260,14 @@ tree-sitter styling, testing helpers.
 | `decodePasteBytes` | **1** | core/src/lib/paste.ts:12 | opentui-core::paste | done |
 | `defaultTextareaKeyBindings` | 2 | core/src/renderables/Textarea.ts:58 | opentui-core::renderables::textarea | done |
 | `delegate` | 2 | core/src/renderables/composition/vnode.ts:245 | opentui-core | todo |
-| `destroyTreeSitterClient` | 2 | core/src/lib/tree-sitter/index.ts:62 | opentui-core | todo |
-| `detectLinks` | 2 | core/src/lib/detect-links.ts:12 | opentui-core::ansi | todo |
+| `destroyTreeSitterClient` | 2 | core/src/lib/tree-sitter/index.ts:62 | opentui-core::tree_sitter | done |
+| `detectLinks` | 2 | core/src/lib/detect-links.ts:12 | opentui-core::renderables::code | done |
 | `dim` | 2 | core/src/lib/styled-text.ts:115 | opentui-core::styled_text::styles | done |
 | `engine` | 2 | core/src/animation/Timeline.ts:587 | opentui-core | todo |
 | `env` | 2 | core/src/lib/env.ts:193 | opentui-core | todo |
 | `envRegistry` | 2 | core/src/lib/env.ts:42 | opentui-core | todo |
-| `extToFiletype` | 2 | core/src/lib/tree-sitter/resolve-ft.ts:146 | opentui-core | todo |
-| `extensionToFiletype` | 2 | core/src/lib/tree-sitter/resolve-ft.ts:3 | opentui-core | todo |
+| `extToFiletype` | 2 | core/src/lib/tree-sitter/resolve-ft.ts:146 | opentui-core::tree_sitter | done |
+| `extensionToFiletype` | 2 | core/src/lib/tree-sitter/resolve-ft.ts:3 | opentui-core::tree_sitter | done |
 | `fg` | **1** | core/src/lib/styled-text.ts:120 | opentui-core::styled_text::styles | done |
 | `fonts` | 2 | core/src/lib/ascii.font.ts:18 | opentui-core | todo |
 | `generateEnvColored` | 2 | core/src/lib/env.ts:164 | opentui-core::color | todo |
@@ -278,14 +278,14 @@ tree-sitter styling, testing helpers.
 | `getCharacterPositions` | 2 | core/src/lib/ascii.font.ts:155 | opentui-core | todo |
 | `getDataPaths` | 2 | core/src/lib/data-paths.ts:107 | opentui-core | todo |
 | `getLinkId` | 2 | core/src/utils.ts:50 | opentui-core::ansi | done |
-| `getTreeSitterClient` | **1** | core/src/lib/tree-sitter/index.ts:22 | opentui-core | todo |
+| `getTreeSitterClient` | **1** | core/src/lib/tree-sitter/index.ts:22 | opentui-core::tree_sitter | done |
 | `green` | 2 | core/src/lib/styled-text.ts:83 | opentui-core::styled_text::styles | done |
 | `h` | 2 | core/src/renderables/composition/vnode.ts:62 | opentui-core | todo |
 | `hastToStyledText` | 2 | core/src/lib/hast-styled-text.ts:56 | opentui-core | todo |
 | `hexToRgb` | 2 | core/src/lib/RGBA.ts:222 | opentui-core::color | done |
 | `hsvToRgb` | 2 | core/src/lib/RGBA.ts:250 | opentui-core::color | done |
 | `imageInfo` | 2 | core/src/image.ts:375 | opentui-core | todo |
-| `infoStringToFiletype` | **1** | core/src/lib/tree-sitter/resolve-ft.ts:173 | opentui-core | todo |
+| `infoStringToFiletype` | **1** | core/src/lib/tree-sitter/resolve-ft.ts:173 | opentui-core::tree_sitter | done |
 | `instantiate` | 2 | core/src/renderables/composition/vnode.ts:187 | opentui-core | todo |
 | `isEditBufferRenderable` | 2 | core/src/renderables/EditBufferRenderable.ts:51 | opentui-core::renderables | todo |
 | `isRenderable` | 2 | core/src/Renderable.ts:132 | opentui-core::renderables | done |
@@ -321,7 +321,7 @@ tree-sitter styling, testing helpers.
 | `parsePositionType` | 2 | core/src/lib/yoga.options.ts:298 | opentui-core::layout | todo |
 | `parseUnit` | 2 | core/src/lib/yoga.options.ts:314 | opentui-core::layout | todo |
 | `parseWrap` | 2 | core/src/lib/yoga.options.ts:332 | opentui-core::layout | todo |
-| `pathToFiletype` | 2 | core/src/lib/tree-sitter/resolve-ft.ts:153 | opentui-core | todo |
+| `pathToFiletype` | 2 | core/src/lib/tree-sitter/resolve-ft.ts:153 | opentui-core::tree_sitter | done |
 | `red` | 2 | core/src/lib/styled-text.ts:82 | opentui-core::styled_text::styles | done |
 | `registerCorePlugin` | 2 | core/src/plugins/core-slot.ts:185 | opentui-core | todo |
 | `registerEnvVar` | 2 | core/src/lib/env.ts:44 | opentui-core | todo |
@@ -339,8 +339,8 @@ tree-sitter styling, testing helpers.
 | `stripAnsiSequences` | 2 | core/src/lib/paste.ts:16 | opentui-core::paste | done |
 | `t` | 2 | core/src/lib/styled-text.ts:150 | opentui-core::styled_text | done |
 | `terminalNamedSingleStrokeKeys` | 2 | core/src/lib/parse.keypress.ts:127 | opentui-core::parse_keypress | done |
-| `treeSitterToStyledText` | 2 | core/src/lib/tree-sitter-styled-text.ts:293 | opentui-core | todo |
-| `treeSitterToTextChunks` | 2 | core/src/lib/tree-sitter-styled-text.ts:40 | opentui-core | todo |
+| `treeSitterToStyledText` | 2 | core/src/lib/tree-sitter-styled-text.ts:293 | opentui-core::tree_sitter | done |
+| `treeSitterToTextChunks` | 2 | core/src/lib/tree-sitter-styled-text.ts:40 | opentui-core::tree_sitter | done |
 | `underline` | 2 | core/src/lib/styled-text.ts:113 | opentui-core::styled_text::styles | done |
 | `visualizeRenderableTree` | 2 | core/src/utils.ts:55 | opentui-core::renderables | todo |
 | `vstyles` | 2 | core/src/renderables/composition/constructs.ts:89 | opentui-core | todo |
@@ -427,6 +427,24 @@ tree-sitter styling, testing helpers.
 | `useBindings` | 2 | keymap/src/react/index.ts:102 | opentui-keymap | done |
 | `useKeymap` | 2 | keymap/src/react/index.ts:54 | opentui-keymap | done |
 | `useKeymapSelector` | **1** | keymap/src/solid/index.ts:85 | opentui-keymap | done |
+
+### markdown + code lane (O2g) additions (beyond the frozen 339)
+
+Ported by lane `lane/md` — the marked@17.0.1 lexer (the exact
+dependency of @opentui/core 0.5.14, pinned by the frozen token corpus
+`crates/opentui-core/tests/data/marked-corpus.json`) and the oracle
+highlight corpus
+(`crates/opentui-core/tests/data/highlight-corpus.json`, generated by
+`tools/diff/js/highlight-corpus.ts` from the real package's
+TreeSitterClient). Not counted in the 339.
+
+| symbol | upstream file:line | Rust target | status |
+|---|---|---|---|
+| `Lexer.lex` (marked) | node_modules/marked@17.0.1 (dependency) | opentui-core::renderables::markdown_parser | done (corpus-pinned) |
+| `parseMarkdownIncremental` | renderables/markdown-parser.ts:13 | opentui-core::renderables::markdown_parser | done (settled-content slice) |
+| `detectLinks` | lib/detect-links.ts:12 | opentui-core::renderables::code | done |
+| `addMarkdownLinkHighlights` | renderables/Markdown.ts:724 | opentui-core::renderables::code | done |
+| grammar vendoring (5 langs) | lib/tree-sitter/parsers-config.ts | third_party/tree-sitter-grammars + build.rs | done (byte-parity) |
 
 ### keymap lane O2c additions (beyond the frozen 339; v2-integration surface)
 

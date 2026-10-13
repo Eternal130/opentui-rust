@@ -82,7 +82,9 @@ fn intent_of(w: &[u16; 4]) -> &'static str {
 }
 
 #[must_use]
-pub fn compare(oracle: &Capture, rust: &Capture) -> Report {
+/// `cursor_relevant` — false skips the terminal-cursor field (scenarios
+/// that never position a cursor; see main.rs).
+pub fn compare_filtered(oracle: &Capture, rust: &Capture, cursor_relevant: bool) -> Report {
     let oc = capture_cells(oracle);
     let rc = capture_cells(rust);
     let mut diffs = Vec::new();
@@ -152,16 +154,21 @@ pub fn compare(oracle: &Capture, rust: &Capture) -> Report {
         .collect::<std::collections::HashSet<_>>()
         .len();
     // terminal cursor (input scenarios): compare when either side
-    // captured one; hidden-vs-hidden counts as equal
-    let cursor_diff = match (&oracle.cursor, &rust.cursor) {
-        (Some(o), Some(r)) if o == r => None,
-        (Some(o), Some(r)) => Some(format!(
-            "oracle (row {}, col {}, visible {}) vs rust (row {}, col {}, visible {})",
-            o.row, o.col, o.visible, r.row, r.col, r.visible
-        )),
-        (None, None) => None,
-        (Some(o), None) => Some(format!("oracle has cursor {o:?}, rust captured none")),
-        (None, Some(r)) => Some(format!("rust has cursor {r:?}, oracle captured none")),
+    // captured one; hidden-vs-hidden counts as equal. Non-cursor
+    // scenarios skip the field (teardown emission artifact — main.rs).
+    let cursor_diff = if !cursor_relevant {
+        None
+    } else {
+        match (&oracle.cursor, &rust.cursor) {
+            (Some(o), Some(r)) if o == r => None,
+            (Some(o), Some(r)) => Some(format!(
+                "oracle (row {}, col {}, visible {}) vs rust (row {}, col {}, visible {})",
+                o.row, o.col, o.visible, r.row, r.col, r.visible
+            )),
+            (None, None) => None,
+            (Some(o), None) => Some(format!("oracle has cursor {o:?}, rust captured none")),
+            (None, Some(r)) => Some(format!("rust has cursor {r:?}, oracle captured none")),
+        }
     };
     let identical = diffs.is_empty() && cursor_diff.is_none();
     Report {

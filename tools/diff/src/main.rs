@@ -94,7 +94,16 @@ fn main() -> Result<()> {
         scenario::render_rust(&scenario)?
     };
 
-    let report = compare::compare(&oracle, &rust);
+    // The terminal cursor is only meaningful where the scenario drives it
+    // (focus/key/input steps — the input lane). Other scenarios' oracle
+    // streams end with a teardown cursor-restore from the async-first
+    // frame flow (an emission artifact, not markdown behavior): skip the
+    // cursor compare there (documented in tools/diff/README).
+    let cursor_relevant = scenario
+        .steps
+        .iter()
+        .any(|s| matches!(s.op.as_str(), "focus" | "key" | "input"));
+    let report = compare::compare_filtered(&oracle, &rust, cursor_relevant);
     let md = report.to_markdown(&name);
     let report_path = out_dir.join("reports").join(format!("{name}.md"));
     std::fs::write(&report_path, &md)?;

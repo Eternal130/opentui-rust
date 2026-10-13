@@ -16,3 +16,4 @@ tools/diff/out/
 # OS
 .DS_Store
 .worktrees/
+tools/diff/js/node_modules

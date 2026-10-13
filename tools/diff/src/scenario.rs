@@ -295,6 +295,35 @@ enum PendingNode {
     Box(BoxOptions),
     ScrollBox(Box<ScrollBoxOptions>),
     Input(InputOptions),
+    Code(
+        Box<opentui_core::renderables::code::CodeOptions>,
+        opentui_core::syntax_style::SyntaxStyle,
+    ),
+    Markdown(
+        Box<opentui_core::renderables::markdown::MarkdownOptions>,
+        opentui_core::syntax_style::SyntaxStyle,
+    ),
+}
+
+/// `styles` option → `SyntaxStyle.fromStyles` (syntax-style.ts:106-114).
+fn parse_syntax_style(o: &serde_json::Value) -> Result<opentui_core::syntax_style::SyntaxStyle> {
+    use opentui_core::syntax_style::{StyleDefinitionInput, SyntaxStyle};
+    let Some(styles) = o.get("styles").and_then(|v| v.as_object()) else {
+        return Ok(SyntaxStyle::create());
+    };
+    let mut style = SyntaxStyle::create();
+    for (name, def) in styles {
+        let input = StyleDefinitionInput {
+            fg: def.get("fg").and_then(|c| c.as_str()).map(str::to_owned),
+            bg: def.get("bg").and_then(|c| c.as_str()).map(str::to_owned),
+            bold: def.get("bold").and_then(|b| b.as_bool()),
+            italic: def.get("italic").and_then(|b| b.as_bool()),
+            underline: def.get("underline").and_then(|b| b.as_bool()),
+            dim: def.get("dim").and_then(|b| b.as_bool()),
+        };
+        style.register_style(name, &input);
+    }
+    Ok(style)
 }
 
 fn text_options_from_json(o: &serde_json::Value) -> Result<TextOptions> {
@@ -669,6 +698,54 @@ pub fn render_rust(scenario: &Scenario) -> Result<Capture> {
                     opts.placeholder_color = Some(opentui_core::color::parse_color(v));
                 }
                 PendingNode::Input(opts)
+            }
+            "code" => {
+                let mut opts = opentui_core::renderables::code::CodeOptions {
+                    content: o
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_owned(),
+                    ..Default::default()
+                };
+                if let Some(ft) = o.get("filetype").and_then(|v| v.as_str()) {
+                    opts.filetype = Some(ft.to_owned());
+                }
+                if let Some(c) = o.get("conceal").and_then(|v| v.as_bool()) {
+                    opts.conceal = Some(c);
+                }
+                if let Some(c) = o.get("fg").and_then(|v| v.as_str()) {
+                    opts.fg = Some(parse_color(c));
+                }
+                if let Some(c) = o.get("bg").and_then(|v| v.as_str()) {
+                    opts.bg = Some(parse_color(c));
+                }
+                let style = parse_syntax_style(o)?;
+                PendingNode::Code(Box::new(opts), style)
+            }
+            "markdown" => {
+                let mut opts = opentui_core::renderables::markdown::MarkdownOptions {
+                    content: o
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_owned(),
+                    ..Default::default()
+                };
+                if let Some(c) = o.get("fg").and_then(|v| v.as_str()) {
+                    opts.fg = Some(parse_color(c));
+                }
+                if let Some(c) = o.get("bg").and_then(|v| v.as_str()) {
+                    opts.bg = Some(parse_color(c));
+                }
+                if let Some(c) = o.get("conceal").and_then(|v| v.as_bool()) {
+                    opts.conceal = Some(c);
+                }
+                if let Some(c) = o.get("concealCode").and_then(|v| v.as_bool()) {
+                    opts.conceal_code = Some(c);
+                }
+                let style = parse_syntax_style(o)?;
+                PendingNode::Markdown(Box::new(opts), style)
             }
             other => anyhow::bail!("unknown op: {other}"),
         };
@@ -1122,6 +1199,8 @@ fn mount(
             Some(PendingNode::Box(opts)) => renderer.make_box(id, &opts),
             Some(PendingNode::ScrollBox(mut opts)) => renderer.make_scrollbox(id, &mut opts),
             Some(PendingNode::Input(opts)) => renderer.make_input(id, &opts),
+            Some(PendingNode::Code(opts, style)) => renderer.make_code(id, &opts, &style),
+            Some(PendingNode::Markdown(opts, style)) => renderer.make_markdown(id, &opts, &style),
             None => continue,
         };
         match parent {

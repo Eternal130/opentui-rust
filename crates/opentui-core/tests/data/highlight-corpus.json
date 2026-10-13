@@ -1,0 +1,3279 @@
+[
+ {
+  "name": "md-headings",
+  "filetype": "markdown",
+  "content": "# H1 heading\n\n## H2 heading\n\n### H3\n\n#### H4\n\n##### H5\n\n###### H6\n",
+  "highlights": [
+   [
+    0,
+    13,
+    "markup.heading.1",
+    {
+     "containsInjection": true
+    }
+   ],
+   [
+    0,
+    1,
+    "conceal",
+    {
+     "conceal": ""
+    }
+   ],
+   [
+    2,
+    12,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    14,
+    28,
+    "markup.heading.2",
+    {
+     "containsInjection": true
+    }
+   ],
+   [
+    14,
+    16,
+    "conceal",
+    {
+     "conceal": ""
+    }
+   ],
+   [
+    17,
+    27,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    29,
+    36,
+    "markup.heading.3",
+    {
+     "containsInjection": true
+    }
+   ],
+   [
+    29,
+    32,
+    "conceal",
+    {
+     "conceal": ""
+    }
+   ],
+   [
+    33,
+    35,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    37,
+    45,
+    "markup.heading.4",
+    {
+     "containsInjection": true
+    }
+   ],
+   [
+    37,
+    41,
+    "conceal",
+    {
+     "conceal": ""
+    }
+   ],
+   [
+    42,
+    44,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    46,
+    55,
+    "markup.heading.5",
+    {
+     "containsInjection": true
+    }
+   ],
+   [
+    46,
+    51,
+    "conceal",
+    {
+     "conceal": ""
+    }
+   ],
+   [
+    52,
+    54,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    56,
+    66,
+    "markup.heading.6",
+    {
+     "containsInjection": true
+    }
+   ],
+   [
+    56,
+    62,
+    "conceal",
+    {
+     "conceal": ""
+    }
+   ],
+   [
+    63,
+    65,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ]
+  ]
+ },
+ {
+  "name": "md-setext-heading",
+  "filetype": "markdown",
+  "content": "Setext Title\n============\n\nAnother\n---\n",
+  "highlights": [
+   [
+    0,
+    13,
+    "markup.heading.1",
+    {
+     "containsInjection": true
+    }
+   ],
+   [
+    0,
+    12,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    13,
+    25,
+    "markup.heading.1"
+   ],
+   [
+    27,
+    35,
+    "markup.heading.2",
+    {
+     "containsInjection": true
+    }
+   ],
+   [
+    27,
+    34,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    35,
+    38,
+    "markup.heading.2"
+   ]
+  ]
+ },
+ {
+  "name": "md-inline-emphasis",
+  "filetype": "markdown",
+  "content": "plain *italic* and **bold** and ***both*** plus ~~strike~~ and `code span` here\n",
+  "highlights": [
+   [
+    0,
+    79,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    6,
+    14,
+    "markup.italic",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    6,
+    7,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    13,
+    14,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    19,
+    27,
+    "markup.strong",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    19,
+    20,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    20,
+    21,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    25,
+    26,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    26,
+    27,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    32,
+    42,
+    "markup.italic",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    32,
+    33,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    33,
+    41,
+    "markup.strong",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    33,
+    34,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    34,
+    35,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    39,
+    40,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    40,
+    41,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    41,
+    42,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    48,
+    58,
+    "markup.strikethrough",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    48,
+    49,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    49,
+    57,
+    "markup.strikethrough",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    49,
+    50,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    56,
+    57,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    57,
+    58,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    63,
+    74,
+    "markup.raw",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    63,
+    74,
+    "nospell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    63,
+    64,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    73,
+    74,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ]
+  ]
+ },
+ {
+  "name": "md-links",
+  "filetype": "markdown",
+  "content": "see [the docs](https://example.com/docs) and <https://bare.example.com> plus ![img](pic.png \"title\")\n",
+  "highlights": [
+   [
+    0,
+    100,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    4,
+    5,
+    "markup.link",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    4,
+    5,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    5,
+    13,
+    "markup.link.label",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    13,
+    14,
+    "markup.link.bracket.close",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    13,
+    14,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": " "
+    }
+   ],
+   [
+    14,
+    15,
+    "markup.link",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    15,
+    39,
+    "markup.link.url",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    15,
+    39,
+    "nospell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    39,
+    40,
+    "markup.link",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    45,
+    71,
+    "markup.link.url",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    45,
+    71,
+    "nospell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    77,
+    78,
+    "markup.link",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    78,
+    79,
+    "markup.link",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    79,
+    82,
+    "markup.link.label",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    82,
+    83,
+    "markup.link",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    83,
+    84,
+    "markup.link",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    84,
+    91,
+    "markup.link",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    84,
+    91,
+    "markup.link.url",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    84,
+    91,
+    "nospell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    92,
+    99,
+    "markup.link.label",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    99,
+    100,
+    "markup.link",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ]
+  ]
+ },
+ {
+  "name": "md-lists",
+  "filetype": "markdown",
+  "content": "- bullet one\n- bullet two\n\n1. ordered one\n2. ordered two\n\n- [ ] todo\n- [x] done\n",
+  "highlights": [
+   [
+    0,
+    2,
+    "markup.list"
+   ],
+   [
+    2,
+    12,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    13,
+    15,
+    "markup.list"
+   ],
+   [
+    15,
+    25,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    26,
+    26,
+    "punctuation.special"
+   ],
+   [
+    27,
+    30,
+    "markup.list"
+   ],
+   [
+    30,
+    41,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    42,
+    45,
+    "markup.list"
+   ],
+   [
+    45,
+    56,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    57,
+    57,
+    "punctuation.special"
+   ],
+   [
+    58,
+    60,
+    "markup.list"
+   ],
+   [
+    60,
+    63,
+    "markup.list.unchecked"
+   ],
+   [
+    64,
+    68,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    69,
+    71,
+    "markup.list"
+   ],
+   [
+    71,
+    74,
+    "markup.list.checked"
+   ],
+   [
+    75,
+    79,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ]
+  ]
+ },
+ {
+  "name": "md-quote",
+  "filetype": "markdown",
+  "content": "> quoted text line\n> more quote\n",
+  "highlights": [
+   [
+    0,
+    32,
+    "markup.quote",
+    {
+     "containsInjection": true
+    }
+   ],
+   [
+    0,
+    2,
+    "punctuation.special"
+   ],
+   [
+    2,
+    31,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    19,
+    21,
+    "punctuation.special",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ]
+  ]
+ },
+ {
+  "name": "md-thematic-break",
+  "filetype": "markdown",
+  "content": "above\n\n---\n\nbelow\n",
+  "highlights": [
+   [
+    0,
+    5,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    7,
+    11,
+    "punctuation.special"
+   ],
+   [
+    12,
+    17,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ]
+  ]
+ },
+ {
+  "name": "md-fence-ts",
+  "filetype": "markdown",
+  "content": "before\n\n```ts\nconst x: number = 42\nfunction f<T>(a: T): T { return a }\n```\n\nafter\n",
+  "highlights": [
+   [
+    0,
+    6,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    8,
+    75,
+    "markup.raw.block",
+    {
+     "containsInjection": true
+    }
+   ],
+   [
+    8,
+    11,
+    "markup.raw.block",
+    {
+     "conceal": "",
+     "concealLines": ""
+    }
+   ],
+   [
+    11,
+    13,
+    "label"
+   ],
+   [
+    11,
+    13,
+    "label",
+    {
+     "conceal": "",
+     "concealLines": ""
+    }
+   ],
+   [
+    14,
+    14,
+    "punctuation.special",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    14,
+    19,
+    "keyword",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    20,
+    21,
+    "variable",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    20,
+    21,
+    "type",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    20,
+    21,
+    "constant",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    21,
+    22,
+    "punctuation.delimiter",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    21,
+    22,
+    "punctuation.delimiter",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    23,
+    29,
+    "type.builtin",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    30,
+    31,
+    "operator",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    32,
+    34,
+    "number",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    35,
+    35,
+    "punctuation.special",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    35,
+    43,
+    "keyword.function",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    44,
+    45,
+    "variable",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    44,
+    45,
+    "type",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    44,
+    45,
+    "constant",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    44,
+    45,
+    "function",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    45,
+    46,
+    "operator",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    45,
+    46,
+    "punctuation.bracket",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    46,
+    47,
+    "type",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    47,
+    48,
+    "operator",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    47,
+    48,
+    "punctuation.bracket",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    48,
+    49,
+    "punctuation.bracket",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    49,
+    50,
+    "variable",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    49,
+    50,
+    "type",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    49,
+    50,
+    "constant",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    49,
+    50,
+    "variable.parameter",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    50,
+    51,
+    "punctuation.delimiter",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    50,
+    51,
+    "punctuation.delimiter",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    52,
+    53,
+    "type",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    53,
+    54,
+    "punctuation.bracket",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    54,
+    55,
+    "punctuation.delimiter",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    54,
+    55,
+    "punctuation.delimiter",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    56,
+    57,
+    "type",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    58,
+    59,
+    "punctuation.bracket",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    60,
+    66,
+    "keyword.return",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    67,
+    68,
+    "variable",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    67,
+    68,
+    "type",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    67,
+    68,
+    "constant",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    69,
+    70,
+    "punctuation.bracket",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    71,
+    71,
+    "punctuation.special",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    71,
+    74,
+    "markup.raw.block",
+    {
+     "conceal": "",
+     "concealLines": ""
+    }
+   ],
+   [
+    76,
+    81,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ]
+  ]
+ },
+ {
+  "name": "md-fence-js",
+  "filetype": "markdown",
+  "content": "```js\nconst y = { a: 1, b: 'two' }\n// comment\n```\n",
+  "highlights": [
+   [
+    0,
+    50,
+    "markup.raw.block",
+    {
+     "containsInjection": true
+    }
+   ],
+   [
+    0,
+    3,
+    "markup.raw.block",
+    {
+     "conceal": "",
+     "concealLines": ""
+    }
+   ],
+   [
+    3,
+    5,
+    "label"
+   ],
+   [
+    3,
+    5,
+    "label",
+    {
+     "conceal": "",
+     "concealLines": ""
+    }
+   ],
+   [
+    6,
+    6,
+    "punctuation.special",
+    {
+     "isInjection": true,
+     "injectionLang": "javascript"
+    }
+   ],
+   [
+    6,
+    11,
+    "keyword",
+    {
+     "isInjection": true,
+     "injectionLang": "javascript"
+    }
+   ],
+   [
+    12,
+    13,
+    "variable",
+    {
+     "isInjection": true,
+     "injectionLang": "javascript"
+    }
+   ],
+   [
+    14,
+    15,
+    "operator",
+    {
+     "isInjection": true,
+     "injectionLang": "javascript"
+    }
+   ],
+   [
+    16,
+    17,
+    "punctuation.bracket",
+    {
+     "isInjection": true,
+     "injectionLang": "javascript"
+    }
+   ],
+   [
+    18,
+    19,
+    "property",
+    {
+     "isInjection": true,
+     "injectionLang": "javascript"
+    }
+   ],
+   [
+    21,
+    22,
+    "number",
+    {
+     "isInjection": true,
+     "injectionLang": "javascript"
+    }
+   ],
+   [
+    22,
+    23,
+    "punctuation.delimiter",
+    {
+     "isInjection": true,
+     "injectionLang": "javascript"
+    }
+   ],
+   [
+    24,
+    25,
+    "property",
+    {
+     "isInjection": true,
+     "injectionLang": "javascript"
+    }
+   ],
+   [
+    27,
+    32,
+    "string",
+    {
+     "isInjection": true,
+     "injectionLang": "javascript"
+    }
+   ],
+   [
+    33,
+    34,
+    "punctuation.bracket",
+    {
+     "isInjection": true,
+     "injectionLang": "javascript"
+    }
+   ],
+   [
+    35,
+    35,
+    "punctuation.special",
+    {
+     "isInjection": true,
+     "injectionLang": "javascript"
+    }
+   ],
+   [
+    35,
+    45,
+    "comment",
+    {
+     "isInjection": true,
+     "injectionLang": "javascript"
+    }
+   ],
+   [
+    46,
+    46,
+    "punctuation.special",
+    {
+     "isInjection": true,
+     "injectionLang": "javascript"
+    }
+   ],
+   [
+    46,
+    49,
+    "markup.raw.block",
+    {
+     "conceal": "",
+     "concealLines": ""
+    }
+   ]
+  ]
+ },
+ {
+  "name": "md-fence-zig",
+  "filetype": "markdown",
+  "content": "```zig\nconst std = @import(\"std\");\npub fn main() !void {}\n```\n",
+  "highlights": [
+   [
+    0,
+    62,
+    "markup.raw.block",
+    {
+     "containsInjection": true
+    }
+   ],
+   [
+    0,
+    3,
+    "markup.raw.block",
+    {
+     "conceal": "",
+     "concealLines": ""
+    }
+   ],
+   [
+    3,
+    6,
+    "label"
+   ],
+   [
+    3,
+    6,
+    "label",
+    {
+     "conceal": "",
+     "concealLines": ""
+    }
+   ],
+   [
+    7,
+    7,
+    "punctuation.special",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    7,
+    12,
+    "keyword",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    13,
+    16,
+    "variable",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    13,
+    16,
+    "type",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    13,
+    16,
+    "constant",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    13,
+    16,
+    "module",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    17,
+    18,
+    "operator",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    19,
+    26,
+    "function.builtin",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    19,
+    26,
+    "keyword.import",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    26,
+    27,
+    "punctuation.bracket",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    27,
+    32,
+    "string",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    32,
+    33,
+    "punctuation.bracket",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    33,
+    34,
+    "punctuation.delimiter",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    35,
+    35,
+    "punctuation.special",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    35,
+    38,
+    "keyword.modifier",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    39,
+    41,
+    "keyword.function",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    42,
+    46,
+    "variable",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    42,
+    46,
+    "type",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    42,
+    46,
+    "constant",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    42,
+    46,
+    "function",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    46,
+    47,
+    "punctuation.bracket",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    47,
+    48,
+    "punctuation.bracket",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    49,
+    50,
+    "operator",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    50,
+    54,
+    "type.builtin",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    55,
+    56,
+    "punctuation.bracket",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    56,
+    57,
+    "punctuation.bracket",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    58,
+    58,
+    "punctuation.special",
+    {
+     "isInjection": true,
+     "injectionLang": "zig"
+    }
+   ],
+   [
+    58,
+    61,
+    "markup.raw.block",
+    {
+     "conceal": "",
+     "concealLines": ""
+    }
+   ]
+  ]
+ },
+ {
+  "name": "md-fence-unknown-lang",
+  "filetype": "markdown",
+  "content": "```rust\nfn main() { let x = 1; }\n```\n",
+  "highlights": [
+   [
+    0,
+    37,
+    "markup.raw.block"
+   ],
+   [
+    0,
+    3,
+    "markup.raw.block",
+    {
+     "conceal": "",
+     "concealLines": ""
+    }
+   ],
+   [
+    3,
+    7,
+    "label"
+   ],
+   [
+    3,
+    7,
+    "label",
+    {
+     "conceal": "",
+     "concealLines": ""
+    }
+   ],
+   [
+    8,
+    8,
+    "punctuation.special"
+   ],
+   [
+    33,
+    33,
+    "punctuation.special"
+   ],
+   [
+    33,
+    36,
+    "markup.raw.block",
+    {
+     "conceal": "",
+     "concealLines": ""
+    }
+   ]
+  ]
+ },
+ {
+  "name": "md-fence-no-lang",
+  "filetype": "markdown",
+  "content": "```\nplain fenced\n```\n",
+  "highlights": [
+   [
+    0,
+    21,
+    "markup.raw.block"
+   ],
+   [
+    0,
+    3,
+    "markup.raw.block",
+    {
+     "conceal": "",
+     "concealLines": ""
+    }
+   ],
+   [
+    4,
+    4,
+    "punctuation.special"
+   ],
+   [
+    17,
+    17,
+    "punctuation.special"
+   ],
+   [
+    17,
+    20,
+    "markup.raw.block",
+    {
+     "conceal": "",
+     "concealLines": ""
+    }
+   ]
+  ]
+ },
+ {
+  "name": "md-fence-open-ended",
+  "filetype": "markdown",
+  "content": "```ts\nconst unterminated = 1\n```",
+  "highlights": [
+   [
+    0,
+    33,
+    "markup.raw.block",
+    {
+     "containsInjection": true
+    }
+   ],
+   [
+    0,
+    3,
+    "markup.raw.block",
+    {
+     "conceal": "",
+     "concealLines": ""
+    }
+   ],
+   [
+    3,
+    5,
+    "label"
+   ],
+   [
+    3,
+    5,
+    "label",
+    {
+     "conceal": "",
+     "concealLines": ""
+    }
+   ],
+   [
+    6,
+    6,
+    "punctuation.special",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    6,
+    11,
+    "keyword",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    12,
+    24,
+    "variable",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    12,
+    24,
+    "type",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    12,
+    24,
+    "constant",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    25,
+    26,
+    "operator",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    27,
+    28,
+    "number",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    29,
+    29,
+    "punctuation.special",
+    {
+     "isInjection": true,
+     "injectionLang": "typescript"
+    }
+   ],
+   [
+    29,
+    32,
+    "markup.raw.block",
+    {
+     "conceal": "",
+     "concealLines": ""
+    }
+   ]
+  ]
+ },
+ {
+  "name": "md-table",
+  "filetype": "markdown",
+  "content": "| Alpha | Beta |\n| ------: | :--- |\n| one | two |\n| three | four |\n",
+  "highlights": [
+   [
+    0,
+    1,
+    "punctuation.special"
+   ],
+   [
+    2,
+    8,
+    "markup.heading",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    8,
+    9,
+    "punctuation.special"
+   ],
+   [
+    10,
+    15,
+    "markup.heading",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    15,
+    16,
+    "punctuation.special"
+   ],
+   [
+    17,
+    18,
+    "punctuation.special"
+   ],
+   [
+    19,
+    26,
+    "punctuation.special"
+   ],
+   [
+    27,
+    28,
+    "punctuation.special"
+   ],
+   [
+    29,
+    33,
+    "punctuation.special"
+   ],
+   [
+    34,
+    35,
+    "punctuation.special"
+   ],
+   [
+    36,
+    37,
+    "punctuation.special"
+   ],
+   [
+    42,
+    43,
+    "punctuation.special"
+   ],
+   [
+    48,
+    49,
+    "punctuation.special"
+   ],
+   [
+    50,
+    51,
+    "punctuation.special"
+   ],
+   [
+    58,
+    59,
+    "punctuation.special"
+   ],
+   [
+    65,
+    66,
+    "punctuation.special"
+   ]
+  ]
+ },
+ {
+  "name": "md-task-list-and-inline-mix",
+  "filetype": "markdown",
+  "content": "- [ ] task with *emph* and `code`\n- [x] done task with [link](https://x.io)\n",
+  "highlights": [
+   [
+    0,
+    2,
+    "markup.list"
+   ],
+   [
+    2,
+    5,
+    "markup.list.unchecked"
+   ],
+   [
+    6,
+    33,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    16,
+    22,
+    "markup.italic",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    16,
+    17,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    21,
+    22,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    27,
+    33,
+    "markup.raw",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    27,
+    33,
+    "nospell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    27,
+    28,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    32,
+    33,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    34,
+    36,
+    "markup.list"
+   ],
+   [
+    36,
+    39,
+    "markup.list.checked"
+   ],
+   [
+    40,
+    75,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    55,
+    56,
+    "markup.link",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    55,
+    56,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    56,
+    60,
+    "markup.link.label",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    60,
+    61,
+    "markup.link.bracket.close",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    60,
+    61,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": " "
+    }
+   ],
+   [
+    61,
+    62,
+    "markup.link",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    62,
+    74,
+    "markup.link.url",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    62,
+    74,
+    "nospell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    74,
+    75,
+    "markup.link",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ]
+  ]
+ },
+ {
+  "name": "md-unicode",
+  "filetype": "markdown",
+  "content": "# 中文标题\n\nbody with 🙂 emoji, **粗体** and `代码` spans\n",
+  "highlights": [
+   [
+    0,
+    7,
+    "markup.heading.1",
+    {
+     "containsInjection": true
+    }
+   ],
+   [
+    0,
+    1,
+    "conceal",
+    {
+     "conceal": ""
+    }
+   ],
+   [
+    2,
+    6,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    8,
+    49,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    28,
+    34,
+    "markup.strong",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    28,
+    29,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    29,
+    30,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    32,
+    33,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    33,
+    34,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    39,
+    43,
+    "markup.raw",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    39,
+    43,
+    "nospell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    39,
+    40,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ],
+   [
+    42,
+    43,
+    "conceal",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline",
+     "conceal": ""
+    }
+   ]
+  ]
+ },
+ {
+  "name": "md-indented-code",
+  "filetype": "markdown",
+  "content": "text\n\n    indented code line\n    another line\n",
+  "highlights": [
+   [
+    0,
+    4,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ],
+   [
+    6,
+    46,
+    "markup.raw.block"
+   ],
+   [
+    29,
+    33,
+    "punctuation.special"
+   ]
+  ]
+ },
+ {
+  "name": "md-html-and-metadata",
+  "filetype": "markdown",
+  "content": "---\ntitle: front matter\n---\n\n<div>html block</div>\n",
+  "highlights": [
+   [
+    0,
+    28,
+    "keyword.directive"
+   ]
+  ]
+ },
+ {
+  "name": "md-empty",
+  "filetype": "markdown",
+  "content": "",
+  "highlights": []
+ },
+ {
+  "name": "md-plain",
+  "filetype": "markdown",
+  "content": "just a paragraph\nsecond line wraps\n",
+  "highlights": [
+   [
+    0,
+    34,
+    "spell",
+    {
+     "isInjection": true,
+     "injectionLang": "markdown_inline"
+    }
+   ]
+  ]
+ },
+ {
+  "name": "js-basics",
+  "filetype": "javascript",
+  "content": "const a = 1\nlet s = `tpl ${a}`\nfunction f(x) { return x ?? 0 }\n// line comment\n",
+  "highlights": [
+   [
+    0,
+    5,
+    "keyword"
+   ],
+   [
+    6,
+    7,
+    "variable"
+   ],
+   [
+    8,
+    9,
+    "operator"
+   ],
+   [
+    10,
+    11,
+    "number"
+   ],
+   [
+    12,
+    15,
+    "keyword"
+   ],
+   [
+    16,
+    17,
+    "variable"
+   ],
+   [
+    18,
+    19,
+    "operator"
+   ],
+   [
+    20,
+    30,
+    "string"
+   ],
+   [
+    25,
+    29,
+    "embedded"
+   ],
+   [
+    25,
+    27,
+    "punctuation.special"
+   ],
+   [
+    27,
+    28,
+    "variable"
+   ],
+   [
+    28,
+    29,
+    "punctuation.bracket"
+   ],
+   [
+    28,
+    29,
+    "punctuation.special"
+   ],
+   [
+    31,
+    39,
+    "keyword"
+   ],
+   [
+    40,
+    41,
+    "variable"
+   ],
+   [
+    40,
+    41,
+    "function"
+   ],
+   [
+    41,
+    42,
+    "punctuation.bracket"
+   ],
+   [
+    42,
+    43,
+    "variable"
+   ],
+   [
+    43,
+    44,
+    "punctuation.bracket"
+   ],
+   [
+    45,
+    46,
+    "punctuation.bracket"
+   ],
+   [
+    47,
+    53,
+    "keyword"
+   ],
+   [
+    54,
+    55,
+    "variable"
+   ],
+   [
+    56,
+    58,
+    "operator"
+   ],
+   [
+    59,
+    60,
+    "number"
+   ],
+   [
+    61,
+    62,
+    "punctuation.bracket"
+   ],
+   [
+    63,
+    78,
+    "comment"
+   ]
+  ]
+ },
+ {
+  "name": "jsx-sample",
+  "filetype": "javascriptreact",
+  "content": "const el = <div className=\"x\">hi</div>\n",
+  "highlights": [
+   [
+    0,
+    5,
+    "keyword"
+   ],
+   [
+    6,
+    8,
+    "variable"
+   ],
+   [
+    9,
+    10,
+    "operator"
+   ],
+   [
+    11,
+    12,
+    "operator"
+   ],
+   [
+    12,
+    15,
+    "variable"
+   ],
+   [
+    16,
+    25,
+    "property"
+   ],
+   [
+    25,
+    26,
+    "operator"
+   ],
+   [
+    26,
+    29,
+    "string"
+   ],
+   [
+    29,
+    30,
+    "operator"
+   ],
+   [
+    34,
+    37,
+    "variable"
+   ],
+   [
+    37,
+    38,
+    "operator"
+   ]
+  ]
+ },
+ {
+  "name": "ts-basics",
+  "filetype": "typescript",
+  "content": "interface I { a: number }\nconst f = async (x: I): Promise<number> => x.a\n",
+  "highlights": [
+   [
+    0,
+    9,
+    "keyword.type"
+   ],
+   [
+    10,
+    11,
+    "type"
+   ],
+   [
+    12,
+    13,
+    "punctuation.bracket"
+   ],
+   [
+    14,
+    15,
+    "variable.member"
+   ],
+   [
+    15,
+    16,
+    "punctuation.delimiter"
+   ],
+   [
+    15,
+    16,
+    "punctuation.delimiter"
+   ],
+   [
+    17,
+    23,
+    "type.builtin"
+   ],
+   [
+    24,
+    25,
+    "punctuation.bracket"
+   ],
+   [
+    26,
+    31,
+    "keyword"
+   ],
+   [
+    32,
+    33,
+    "variable"
+   ],
+   [
+    32,
+    33,
+    "type"
+   ],
+   [
+    32,
+    33,
+    "constant"
+   ],
+   [
+    32,
+    33,
+    "function"
+   ],
+   [
+    34,
+    35,
+    "operator"
+   ],
+   [
+    36,
+    41,
+    "keyword.coroutine"
+   ],
+   [
+    42,
+    43,
+    "punctuation.bracket"
+   ],
+   [
+    43,
+    44,
+    "variable"
+   ],
+   [
+    43,
+    44,
+    "type"
+   ],
+   [
+    43,
+    44,
+    "constant"
+   ],
+   [
+    43,
+    44,
+    "variable.parameter"
+   ],
+   [
+    44,
+    45,
+    "punctuation.delimiter"
+   ],
+   [
+    44,
+    45,
+    "punctuation.delimiter"
+   ],
+   [
+    46,
+    47,
+    "type"
+   ],
+   [
+    47,
+    48,
+    "punctuation.bracket"
+   ],
+   [
+    48,
+    49,
+    "punctuation.delimiter"
+   ],
+   [
+    48,
+    49,
+    "punctuation.delimiter"
+   ],
+   [
+    50,
+    57,
+    "type"
+   ],
+   [
+    57,
+    58,
+    "operator"
+   ],
+   [
+    57,
+    58,
+    "punctuation.bracket"
+   ],
+   [
+    58,
+    64,
+    "type.builtin"
+   ],
+   [
+    64,
+    65,
+    "operator"
+   ],
+   [
+    64,
+    65,
+    "punctuation.bracket"
+   ],
+   [
+    66,
+    68,
+    "operator"
+   ],
+   [
+    69,
+    70,
+    "variable"
+   ],
+   [
+    69,
+    70,
+    "type"
+   ],
+   [
+    69,
+    70,
+    "constant"
+   ],
+   [
+    70,
+    71,
+    "punctuation.delimiter"
+   ],
+   [
+    71,
+    72,
+    "variable.member"
+   ]
+  ]
+ },
+ {
+  "name": "tsx-sample",
+  "filetype": "typescriptreact",
+  "content": "const c = () => <Comp prop={1} />\n",
+  "highlights": [
+   [
+    0,
+    5,
+    "keyword"
+   ],
+   [
+    6,
+    7,
+    "variable"
+   ],
+   [
+    6,
+    7,
+    "type"
+   ],
+   [
+    6,
+    7,
+    "constant"
+   ],
+   [
+    8,
+    9,
+    "operator"
+   ],
+   [
+    10,
+    11,
+    "punctuation.bracket"
+   ],
+   [
+    11,
+    12,
+    "punctuation.bracket"
+   ],
+   [
+    13,
+    15,
+    "operator"
+   ],
+   [
+    16,
+    17,
+    "operator"
+   ],
+   [
+    16,
+    17,
+    "punctuation.bracket"
+   ],
+   [
+    17,
+    21,
+    "variable"
+   ],
+   [
+    17,
+    21,
+    "type"
+   ],
+   [
+    17,
+    21,
+    "constant"
+   ],
+   [
+    22,
+    26,
+    "type"
+   ],
+   [
+    26,
+    27,
+    "operator"
+   ],
+   [
+    27,
+    28,
+    "punctuation.bracket"
+   ],
+   [
+    28,
+    29,
+    "number"
+   ],
+   [
+    29,
+    30,
+    "punctuation.bracket"
+   ],
+   [
+    32,
+    33,
+    "operator"
+   ],
+   [
+    32,
+    33,
+    "punctuation.bracket"
+   ]
+  ]
+ },
+ {
+  "name": "zig-basics",
+  "filetype": "zig",
+  "content": "const std = @import(\"std\");\npub fn main() !void {\n    std.debug.print(\"hi\\n\", .{});\n}\n",
+  "highlights": [
+   [
+    0,
+    5,
+    "keyword"
+   ],
+   [
+    6,
+    9,
+    "variable"
+   ],
+   [
+    6,
+    9,
+    "type"
+   ],
+   [
+    6,
+    9,
+    "constant"
+   ],
+   [
+    6,
+    9,
+    "module"
+   ],
+   [
+    10,
+    11,
+    "operator"
+   ],
+   [
+    12,
+    19,
+    "function.builtin"
+   ],
+   [
+    12,
+    19,
+    "keyword.import"
+   ],
+   [
+    19,
+    20,
+    "punctuation.bracket"
+   ],
+   [
+    20,
+    25,
+    "string"
+   ],
+   [
+    25,
+    26,
+    "punctuation.bracket"
+   ],
+   [
+    26,
+    27,
+    "punctuation.delimiter"
+   ],
+   [
+    28,
+    31,
+    "keyword.modifier"
+   ],
+   [
+    32,
+    34,
+    "keyword.function"
+   ],
+   [
+    35,
+    39,
+    "variable"
+   ],
+   [
+    35,
+    39,
+    "type"
+   ],
+   [
+    35,
+    39,
+    "constant"
+   ],
+   [
+    35,
+    39,
+    "function"
+   ],
+   [
+    39,
+    40,
+    "punctuation.bracket"
+   ],
+   [
+    40,
+    41,
+    "punctuation.bracket"
+   ],
+   [
+    42,
+    43,
+    "operator"
+   ],
+   [
+    43,
+    47,
+    "type.builtin"
+   ],
+   [
+    48,
+    49,
+    "punctuation.bracket"
+   ],
+   [
+    54,
+    57,
+    "variable"
+   ],
+   [
+    54,
+    57,
+    "type"
+   ],
+   [
+    54,
+    57,
+    "constant"
+   ],
+   [
+    57,
+    58,
+    "punctuation.delimiter"
+   ],
+   [
+    58,
+    63,
+    "variable"
+   ],
+   [
+    58,
+    63,
+    "type"
+   ],
+   [
+    58,
+    63,
+    "constant"
+   ],
+   [
+    58,
+    63,
+    "variable.member"
+   ],
+   [
+    63,
+    64,
+    "punctuation.delimiter"
+   ],
+   [
+    64,
+    69,
+    "variable"
+   ],
+   [
+    64,
+    69,
+    "type"
+   ],
+   [
+    64,
+    69,
+    "constant"
+   ],
+   [
+    64,
+    69,
+    "variable.member"
+   ],
+   [
+    64,
+    69,
+    "function.call"
+   ],
+   [
+    69,
+    70,
+    "punctuation.bracket"
+   ],
+   [
+    70,
+    76,
+    "string"
+   ],
+   [
+    73,
+    75,
+    "string.escape"
+   ],
+   [
+    76,
+    77,
+    "punctuation.delimiter"
+   ],
+   [
+    78,
+    79,
+    "punctuation.delimiter"
+   ],
+   [
+    79,
+    80,
+    "punctuation.bracket"
+   ],
+   [
+    80,
+    81,
+    "punctuation.bracket"
+   ],
+   [
+    81,
+    82,
+    "punctuation.bracket"
+   ],
+   [
+    82,
+    83,
+    "punctuation.delimiter"
+   ],
+   [
+    84,
+    85,
+    "punctuation.bracket"
+   ]
+  ]
+ },
+ {
+  "name": "unknown-filetype",
+  "filetype": "cobol",
+  "content": "MOVE 1 TO X.\n",
+  "highlights": []
+ },
+ {
+  "name": "md-inline-filetype",
+  "filetype": "markdown_inline",
+  "content": "plain *emph* and [link](https://x.io)\n",
+  "highlights": [
+   [
+    6,
+    12,
+    "markup.italic"
+   ],
+   [
+    6,
+    7,
+    "conceal",
+    {
+     "conceal": ""
+    }
+   ],
+   [
+    11,
+    12,
+    "conceal",
+    {
+     "conceal": ""
+    }
+   ],
+   [
+    17,
+    18,
+    "markup.link"
+   ],
+   [
+    17,
+    18,
+    "conceal",
+    {
+     "conceal": ""
+    }
+   ],
+   [
+    18,
+    22,
+    "markup.link.label"
+   ],
+   [
+    22,
+    23,
+    "markup.link.bracket.close"
+   ],
+   [
+    22,
+    23,
+    "conceal",
+    {
+     "conceal": " "
+    }
+   ],
+   [
+    23,
+    24,
+    "markup.link"
+   ],
+   [
+    24,
+    36,
+    "markup.link.url"
+   ],
+   [
+    24,
+    36,
+    "nospell"
+   ],
+   [
+    36,
+    37,
+    "markup.link"
+   ]
+  ]
+ }
+]

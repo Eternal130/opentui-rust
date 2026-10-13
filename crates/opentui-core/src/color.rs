@@ -328,6 +328,18 @@ pub fn parse_color(color: &str) -> Rgba {
     hex_to_rgb(color)
 }
 
+/// A `#RRGGBB` spelling of a packed color (theme border colors re-enter
+/// the option parsers this way upstream — `getBlockquoteBorderColor`
+/// feeds `borderColor` which re-parses; Markdown.ts:829-831).
+#[must_use]
+pub fn rgb_to_hex_string(color: Rgba) -> String {
+    fn channel(word: u16) -> u8 {
+        (word & 0xFF) as u8
+    }
+    let [r, g, b, _a] = color.0;
+    format!("#{:02X}{:02X}{:02X}", channel(r), channel(g), channel(b))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

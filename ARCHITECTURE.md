@@ -232,6 +232,77 @@ multi-cursor, extmarks) is the textarea lane. The scheduler
 `minTargetFrameTime`/`targetFrameTime` cadences, rAF draining — over
 a deterministic virtual clock.
 
+## The markdown + code family (markdown lane)
+
+`MarkdownRenderable` (Markdown.ts:270) and `CodeRenderable`
+(Code.ts:48) render THROUGH the O2a text engine: marked@17.0.1 (the
+exact pinned dependency) lexes the document into block tokens; every
+block becomes a Code/Box/Text renderable tree over
+[`TextRenderableState`]; markdown text blocks are `CodeRenderable`s
+with filetype `markdown` whose styling + concealment comes from
+tree-sitter. Three instruments pin the pipeline:
+
+1. **marked token corpus** — 40 documents through the real
+   `Lexer.lex(content, {gfm: true})`, frozen under
+   `tests/data/marked-corpus.json`; the Rust lexer port
+   (`renderables::markdown_parser`) replays every token tree
+   byte-identically (raw/text/depth/ordered/start/loose/items/header/
+   rows/align/tokens recursion). The lexer is a hand port of marked's
+   tokenizer chain (its regexes use lookaheads/backreferences the Rust
+   `regex` crate lacks) — including the em/strong delimiter-run
+   algorithm, the inline masking pre-passes (reflink/code-span/
+   anyPunctuation), list continuation with the R-flag lazy rules, and
+   marked's empirical raw quirks (e.g. hr keeps a single trailing
+   newline but drops blank-line runs; the lone-`
+` space token merges
+   into the previous token's raw).
+2. **highlight corpus** — 27 (content, filetype) cases through the
+   REAL TreeSitterClient under bun (web-tree-sitter wasm + the shipped
+   .wasm grammars + .scm queries), frozen under
+   `tests/data/highlight-corpus.json`; the Rust tree-sitter port must
+   reproduce every `[start, end, group, meta?]` tuple byte-identically
+   (capture order, offsets, conceal/conceal_lines/injection meta).
+3. **differential scenarios** — `md-*`/`code-*` (18) exercising every
+   construct: headings (atx+setext), emphasis/codespans/strikethrough,
+   links/autolinks, lists (tight/ordered/nested/tasks), blockquotes,
+   hr, fences (ts/js/zig/unknown/plain), indented code, long-line
+   wrapping inside and outside code, mixed documents, conceal=false,
+   and two full theme palettes — all byte-identical vs 0.5.14.
+
+### tree-sitter: in-process C grammars at upstream's exact pins
+
+Upstream runs tree-sitter in a worker (web-tree-sitter 0.25.10 wasm)
+loading the npm-shipped `.wasm` grammars (javascript v0.25.0,
+typescript v0.23.2, markdown + markdown_inline v0.5.1, zig v1.1.2 —
+parsers-config.ts). The port instead **links the same grammars as C
+sources compiled in-process** (`third_party/tree-sitter-grammars/`,
+vendored from the same tags via their PyPI sdists; build.rs compiles
+parser.c + scanner.c with cc) and runs the byte-identical `.scm`
+queries (`include_str!` from the spec's own assets) against the
+`tree-sitter` crate 0.25.10 — the SAME C core version as
+web-tree-sitter's wasm. This is the opencode-rust `oc-syntax` pattern
+(in-process, crate-pinned grammars) but pinned to opentui's own asset
+versions. **Grammar drift: zero** — all 27 corpus cases byte-identical
+(including the ts/js/zig fence injections and CJK/emoji offsets).
+
+Mechanism deltas (documented; output parity holds):
+* no worker thread — the port highlights synchronously; upstream's
+  async round-trip produces the same SETTLED frame the differential
+  oracle captures after `flush()` (the driver's settle loop awaits
+  `highlightingDone` until no CodeRenderable is dirty/highlighting —
+  upstream's mount invalidates mid-flight and re-runs);
+* web-tree-sitter reports node offsets as UTF-16 code units (verified
+  against the oracle with CJK/emoji); the port converts byte→UTF-16 at
+  the boundary (`Utf16Map`) so highlight tuples and the chunk sweep
+  (which slices by those indices) match;
+* `addDefaultParsers` takes compiled-in `LanguageProvider`s where
+  upstream takes `.wasm` paths;
+* streaming/`renderNode` reconciliation is upstream liveness
+  machinery; the port constructs the settled block tree (the
+  coalesced `internalBlockMode` path; tables render through the
+  raw-markdown fallback until `TextTableRenderable` lands — the
+  documented follow-up).
+
 ## The differential harness (tools/diff)
 
 * **Oracle:** `@opentui/core@0.5.14` from the npm registry (sandbox

@@ -1191,19 +1191,34 @@ impl OptimizedBuffer {
     /// text.
     #[must_use]
     pub fn get_span_lines(&self) -> Vec<CapturedLine> {
+        // Upstream (buffer.ts:172-234) derives span text from the
+        // REAL-CHAR-BYTES codepoint stream, NOT from per-cell text:
+        // every NON-continuation cell consumes exactly ONE codepoint
+        // (`lineChars[charIdx++] ?? " "`), so a multi-codepoint cluster
+        // shifts the stream — its trailing codepoints land in later
+        // cells' text and tail cells can fall past the row's end (the
+        // `?? " "` fallback). A lead cell must NOT emit its whole
+        // cluster. The stream itself is char_frame's walk
+        // (getRealCharBytes(true), verified identical).
+        let real_rows: Vec<Vec<char>> = self
+            .char_frame()
+            .split('\n')
+            .map(|row| row.chars().collect())
+            .collect();
         let mut lines = Vec::with_capacity(self.height as usize);
         for y in 0..self.height {
             let mut spans: Vec<CapturedSpan> = Vec::new();
             let mut cur: Option<CapturedSpan> = None;
+            let line_chars = real_rows.get(y as usize).map(Vec::as_slice).unwrap_or(&[]);
+            let mut char_idx = 0usize;
             for x in 0..self.width {
                 let Some(cell) = self.get(x, y) else { break };
                 let cell_text = if is_continuation_char(cell.char) {
                     String::new()
-                } else if is_grapheme_char(cell.char) {
-                    self.grapheme_bytes(grapheme_id_from_char(cell.char))
-                        .to_owned()
                 } else {
-                    char::from_u32(cell.char).map_or_else(String::new, |c| c.to_string())
+                    let c = line_chars.get(char_idx).copied().unwrap_or(' ');
+                    char_idx += 1;
+                    c.to_string()
                 };
                 let attrs = (cell.attributes & 0xff) as u8;
                 match &mut cur {
