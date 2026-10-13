@@ -1,0 +1,45 @@
+{
+  "name": "solid-for-prop-mixed",
+  "mode": "solid",
+  "width": 30,
+  "height": 8,
+  "steps": [
+    {
+      "op": "signal",
+      "id": "list",
+      "value": [
+        { "key": "r1", "value": "row one" },
+        { "key": "r2", "value": "row two" }
+      ]
+    },
+    { "op": "signal", "id": "status", "value": "idle" },
+    { "op": "signal", "id": "pad", "value": 2 },
+    {
+      "op": "el",
+      "tag": "box",
+      "id": "shell",
+      "parent": "root",
+      "options": { "flexDirection": "column", "paddingLeft": { "$signal": "pad" } },
+      "children": [
+        { "tag": "text", "id": "statusline", "options": { "content": { "$signal": "status" }, "fg": "#FFAA00" } }
+      ]
+    },
+    {
+      "op": "for",
+      "id": "rows",
+      "parent": "shell",
+      "signal": "list",
+      "item": { "tag": "text", "options": { "content": "$item", "bg": "#182028" } }
+    },
+    { "op": "flush" },
+    { "op": "signal", "id": "status", "value": "running" },
+    { "op": "signal", "id": "list", "value": [ { "key": "r1", "value": "row one" }, { "key": "r2", "value": "row two" }, { "key": "r3", "value": "row three" } ] },
+    { "op": "flush" },
+    { "op": "signal", "id": "pad", "value": 5 },
+    { "op": "signal", "id": "status", "value": "done" },
+    { "op": "signal", "id": "list", "value": [ { "key": "r2", "value": "row two" }, { "key": "r3", "value": "row three" } ] },
+    { "op": "flush" },
+    { "op": "prop", "id": "statusline", "prop": "fg", "value": "#00FF88" },
+    { "op": "flush" }
+  ]
+}

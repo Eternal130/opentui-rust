@@ -16,6 +16,7 @@ repository = "https://github.com/anomalyco/opentui (upstream spec; this port)"
 [workspace.dependencies]
 opentui-core = { path = "crates/opentui-core" }
 opentui-keymap = { path = "crates/opentui-keymap" }
+opentui-solid = { path = "crates/opentui-solid" }
 anyhow = "1.0.104"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

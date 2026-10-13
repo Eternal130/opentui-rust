@@ -1,0 +1,54 @@
+{
+  "name": "solid-mount-static",
+  "mode": "solid",
+  "width": 30,
+  "height": 6,
+  "steps": [
+    {
+      "op": "el",
+      "tag": "box",
+      "id": "shell",
+      "parent": "root",
+      "options": {
+        "flexDirection": "column",
+        "paddingLeft": 2,
+        "backgroundColor": "#101820"
+      },
+      "children": [
+        {
+          "tag": "text",
+          "id": "t1",
+          "options": {
+            "content": "hello solid"
+          }
+        },
+        {
+          "tag": "text",
+          "id": "t2",
+          "options": {
+            "content": "second line",
+            "fg": "#00FFAA"
+          }
+        }
+      ]
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "el",
+      "tag": "box",
+      "id": "b2",
+      "parent": "shell",
+      "options": {
+        "border": true,
+        "width": 12,
+        "height": 3,
+        "title": "box!"
+      }
+    },
+    {
+      "op": "flush"
+    }
+  ]
+}
