@@ -1,0 +1,43 @@
+{
+  "name": "solid-for-keyed",
+  "mode": "solid",
+  "width": 24,
+  "height": 10,
+  "steps": [
+    {
+      "op": "signal",
+      "id": "list",
+      "value": [
+        { "key": "a", "value": "alpha" },
+        { "key": "b", "value": "bravo" },
+        { "key": "c", "value": "charlie" }
+      ]
+    },
+    {
+      "op": "el",
+      "tag": "box",
+      "id": "shell",
+      "parent": "root",
+      "options": { "flexDirection": "column" },
+      "children": [
+        { "tag": "text", "id": "title", "options": { "content": "-- list --" } }
+      ]
+    },
+    {
+      "op": "for",
+      "id": "rows",
+      "parent": "shell",
+      "signal": "list",
+      "item": { "tag": "text", "options": { "content": "$item" } }
+    },
+    { "op": "flush" },
+    { "op": "signal", "id": "list", "value": [ { "key": "a", "value": "alpha" }, { "key": "b", "value": "bravo" }, { "key": "c", "value": "charlie" }, { "key": "d", "value": "delta" } ] },
+    { "op": "flush" },
+    { "op": "signal", "id": "list", "value": [ { "key": "d", "value": "delta" }, { "key": "a", "value": "alpha" }, { "key": "b", "value": "bravo" }, { "key": "c", "value": "charlie" } ] },
+    { "op": "flush" },
+    { "op": "signal", "id": "list", "value": [ { "key": "c", "value": "charlie!" }, { "key": "b", "value": "bravo" }, { "key": "d", "value": "delta" } ] },
+    { "op": "flush" },
+    { "op": "signal", "id": "list", "value": [ { "key": "b", "value": "bravo" } ] },
+    { "op": "flush" }
+  ]
+}

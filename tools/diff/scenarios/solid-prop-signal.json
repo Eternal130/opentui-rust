@@ -1,0 +1,31 @@
+{
+  "name": "solid-prop-signal",
+  "mode": "solid",
+  "width": 30,
+  "height": 5,
+  "steps": [
+    { "op": "signal", "id": "content", "value": "count: 0" },
+    { "op": "signal", "id": "color", "value": "#00FFAA" },
+    { "op": "signal", "id": "bg", "value": "#101820" },
+    {
+      "op": "el",
+      "tag": "box",
+      "id": "shell",
+      "parent": "root",
+      "options": { "flexDirection": "column", "paddingLeft": 1, "backgroundColor": { "$signal": "bg" } },
+      "children": [
+        { "tag": "text", "id": "t1", "options": { "content": { "$signal": "content" }, "fg": { "$signal": "color" } } },
+        { "tag": "text", "id": "t2", "options": { "content": "static sibling" } }
+      ]
+    },
+    { "op": "flush" },
+    { "op": "signal", "id": "content", "value": "count: 1" },
+    { "op": "flush" },
+    { "op": "signal", "id": "content", "value": "count: 42" },
+    { "op": "signal", "id": "color", "value": "#FF5577" },
+    { "op": "flush" },
+    { "op": "signal", "id": "bg", "value": "#221100" },
+    { "op": "signal", "id": "content", "value": "done" },
+    { "op": "flush" }
+  ]
+}

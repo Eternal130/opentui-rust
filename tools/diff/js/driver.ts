@@ -18,6 +18,24 @@ import {
 } from "@opentui/core"
 import { createTestRenderer } from "@opentui/core/testing"
 
+// solid-js must resolve its CLIENT build (the "node" condition serves
+// the SSR stubs) — tools/diff/js/ensure-solid-client-build.sh patches
+// the installed tree before every oracle capture.
+const {
+  testRender,
+  createElement,
+  spread,
+  insertNode,
+  setProp,
+  insert,
+  Portal,
+  createSlotNode,
+  extend,
+} = await import("@opentui/solid")
+const { createSignal, createComponent, createRoot, Show, For, runWithOwner, getOwner } = await import(
+  "solid-js"
+)
+
 class RecordingStream extends Writable {
   isTTY = true
   columns
@@ -47,6 +65,267 @@ if (!scenarioPath || !outPath) {
   process.exit(2)
 }
 const scenario = await Bun.file(scenarioPath).json()
+
+// ---------------------------------------------------------------------------
+// solid mode: drive the REAL @opentui/solid reconciler (solid-js
+// Show/For + createElement/spread/insertNode/setProp) — the oracle for
+// the opentui-solid port. The initial testRender component captures
+// the solid owner (the Portal pattern, extras.ts:19,25) so later steps
+// can create elements/effects under the RendererContext.
+// ---------------------------------------------------------------------------
+if (scenario.mode === "solid") {
+  const stdout = new RecordingStream(scenario.width, scenario.height)
+  let owner
+  const setup = await testRender(() => {
+    owner = getOwner()
+    return null
+  }, {
+    width: scenario.width,
+    height: scenario.height,
+    stdout,
+    bufferedOutput: "buffer",
+    screenMode: "main-screen",
+    consoleMode: "disabled",
+    externalOutputMode: "passthrough",
+    exitOnCtrlC: false,
+  })
+  const renderer = setup.renderer
+
+  // the differential's custom-element fixture: a plain BoxRenderable
+  // subclass registered through extend() (catalogue.ts:133-135) — the
+  // Rust driver registers the box-backed factory equivalent
+  class BadgeBox extends BoxRenderable {}
+  extend({ badge_box: BadgeBox })
+
+  const nodes = new Map() // id -> { node, parentId, dispose? }
+  const signals = new Map() // id -> [get, set]
+  const lists = new Map() // id -> [get, set] (arrays of pooled items)
+  const pools = new Map() // listId -> Map(key -> pooled {key, value} object)
+
+  const nodeOf = (id) => {
+    // mounted elements shadow the reserved "root" name
+    if (nodes.has(id)) return nodes.get(id).node
+    if (id === "root") return renderer.root
+    throw new Error(`unknown node ${id}`)
+  }
+
+  // JSON value → prop value; {"$signal"} binds reactively via a getter
+  // (the compiled-JSX getter-prop form spread's render effect reads)
+  const propValue = (v, itemValue) => {
+    if (v && typeof v === "object" && !Array.isArray(v) && "$signal" in v) return undefined
+    if (v === "$item") return itemValue
+    return v
+  }
+
+  const buildProps = (options, itemValue) => {
+    const out = {}
+    for (const [k, v] of Object.entries(options ?? {})) {
+      if (v && typeof v === "object" && !Array.isArray(v) && "$signal" in v) {
+        const [get] = signals.get(v.$signal)
+        Object.defineProperty(out, k, { get: () => get(), enumerable: true })
+      } else {
+        out[k] = propValue(v, itemValue)
+      }
+    }
+    return out
+  }
+
+  // one el-spec → a live node (createElement + spread + no insert)
+  const buildElement = (spec, itemValue) => {
+    const el = runWithOwner(owner, () => createElement(spec.tag))
+    const props = buildProps(spec.options, itemValue)
+    runWithOwner(owner, () => spread(el, props))
+    return el
+  }
+
+  // one el-spec → a live SUBTREE (children mounted into the node)
+  const buildSubtree = (spec, itemValue) => {
+    const el = buildElement(spec, itemValue)
+    if (spec.id) nodes.set(spec.id, { node: el, parentId: spec.__parentId ?? "root" })
+    for (const kid of spec.children ?? []) {
+      const child = buildSubtree(kid, itemValue)
+      insertNode(el, child)
+    }
+    return el
+  }
+
+  const mountSpec = (spec, parentId, anchorId) => {
+    const el = buildElement(spec, undefined)
+    const parent = nodeOf(parentId ?? "root")
+    const anchor = anchorId ? nodeOf(anchorId) : undefined
+    insertNode(parent, el, anchor)
+    if (spec.id) nodes.set(spec.id, { node: el, parentId: parentId ?? "root" })
+    for (const kid of spec.children ?? []) {
+      mountSpec(kid, spec.id, undefined)
+    }
+    return el
+  }
+
+  // SOLID_DBG=1 dumps the frame at each flush (scenario debugging)
+  const dumpStep = (label) => {
+    if (!process.env.SOLID_DBG) return
+    console.error(`[${label}] frame:`, JSON.stringify(setup.captureCharFrame()))
+  }
+
+  for (const step of scenario.steps) {
+    if (step.op === "signal") {
+      const value = step.value ?? step.options?.value
+      if (Array.isArray(value) && value.every((e) => e && typeof e === "object" && "key" in e)) {
+        if (!lists.has(step.id)) lists.set(step.id, createSignal([]))
+        if (!pools.has(step.id)) pools.set(step.id, new Map())
+        const pool = pools.get(step.id)
+        const [, set] = lists.get(step.id)
+        // keyed identity: reuse the pooled object when the payload is
+        // unchanged (For keeps its node); a changed payload is a NEW
+        // identity (For remounts the item)
+        set(
+          value.map(({ key, value: v }) => {
+            const prev = pool.get(key)
+            if (prev && prev.value === v) return prev
+            const obj = { key, value: v }
+            pool.set(key, obj)
+            return obj
+          }),
+        )
+      } else {
+        if (!signals.has(step.id)) signals.set(step.id, createSignal(value))
+        else signals.get(step.id)[1](value)
+      }
+      continue
+    }
+    if (step.op === "el") {
+      if (step.tag === "portal") {
+        // upstream Portal (extras.ts:14-55): children render into
+        // `mount` (a live node), a marker occupies the JSX position.
+        // A disposable root scopes the portal — disposing it runs
+        // Portal's onCleanup (container removal, extras.ts:39-48),
+        // the owner-disposal path a hosting Show/For provides in an
+        // app.
+        const parent = nodeOf(step.parent ?? "root")
+        const mountId = step.options?.mount ?? "root"
+        const specs = step.children ?? []
+        let dispose
+        const marker = runWithOwner(owner, () =>
+          createRoot((d) => {
+            dispose = d
+            return createComponent(Portal, {
+              mount: nodeOf(mountId),
+              children: () => specs.map((spec) => buildSubtree(spec, undefined)),
+            })
+          }),
+        )
+        insertNode(parent, marker)
+        nodes.set(step.id, { node: marker, parentId: step.parent ?? "root", dispose })
+        continue
+      }
+      const spec = { tag: step.tag, id: step.id, options: step.options, children: step.children }
+      mountSpec(spec, step.parent ?? "root", step.anchor ?? undefined)
+      continue
+    }
+    if (step.op === "prop") {
+      const target = nodeOf(step.id)
+      if (!target) throw new Error(`prop: unknown node ${step.id}`)
+      const value = step.value ?? step.options?.value
+      setProp(target, step.prop, propValue(value, undefined))
+      continue
+    }
+    if (step.op === "show") {
+      const [get] = signals.get(step.signal)
+      const parent = nodeOf(step.parent ?? "root")
+      const specs = step.children ?? []
+      // the compiled-JSX control-flow shape: a slot marker anchors the
+      // insertion (insert(parent, accessor, marker)) so the reconciler
+      // reconciles against the marker instead of replacing the first
+      // child (universal.js:75-84's single-value path)
+      const marker = runWithOwner(owner, () => createSlotNode())
+      insertNode(parent, marker)
+      runWithOwner(owner, () => {
+        insert(
+          parent,
+          createComponent(Show, {
+            get when() {
+              return get() === true
+            },
+            children: () => specs.map((spec) => buildSubtree(spec, undefined)),
+          }),
+          marker,
+        )
+      })
+      continue
+    }
+    if (step.op === "for") {
+      const [get] = lists.get(step.signal)
+      const parent = nodeOf(step.parent ?? "root")
+      const template = step.item
+      runWithOwner(owner, () => {
+        insert(
+          parent,
+          createComponent(For, {
+            get each() {
+              return get()
+            },
+            children: (item) => buildSubtree(template, item.value),
+          }),
+        )
+      })
+      continue
+    }
+    if (step.op === "el-remove") {
+      // upstream `_removeNode` (reconciler.ts:113-141 — not exported
+      // by the package): parent.remove + deferred destroyRecursively;
+      // a disposable scope (portals) tears down first — owner
+      // disposal runs onCleanup (the container removal)
+      const entry = nodes.get(step.id)
+      if (!entry) throw new Error(`el-remove: unknown node ${step.id}`)
+      entry.dispose?.()
+      const parent = nodeOf(entry.parentId)
+      parent.remove(entry.node)
+      setTimeout(() => {
+        if (!entry.node.parent) entry.node.destroyRecursively()
+      }, 0)
+      nodes.delete(step.id)
+      continue
+    }
+    if (step.op === "flush") {
+      await setup.flush()
+      dumpStep("flush")
+      continue
+    }
+    if (step.op === "resize") {
+      await renderer.resize(step.width, step.height)
+      stdout.columns = step.width
+      stdout.rows = step.height
+      continue
+    }
+    throw new Error(`unknown solid op: ${step.op}`)
+  }
+
+  await setup.flush()
+  await setup.renderOnce()
+
+  const buf = renderer.currentRenderBuffer
+  const spans = buf.getSpanLines().map((line) => ({
+    spans: line.spans.map((s) => ({
+      text: s.text,
+      fg: Array.from(s.fg.buffer),
+      bg: Array.from(s.bg.buffer),
+      attributes: s.attributes,
+      width: s.width,
+    })),
+  }))
+  const out = {
+    oracle: "@opentui/solid@0.5.14",
+    renderer: { width: buf.width, height: buf.height },
+    lines: spans,
+    charFrame: setup.captureCharFrame(),
+    sgrBytes: Array.from(stdout.bytes()),
+  }
+  await Bun.write(outPath, JSON.stringify(out))
+  console.log(`oracle: ${out.renderer.width}x${out.renderer.height}, ${out.sgrBytes.length} SGR bytes -> ${outPath}`)
+  renderer.destroy()
+  process.exit(0)
+}
+
 
 // Attribute names → bits — createTextAttributes vocabulary (utils.ts:4).
 const ATTR_BITS = {
@@ -219,9 +498,6 @@ for (const step of scenario.steps) {
     }
     if (step.text === undefined) throw new Error("text-add needs text")
     target.add(step.text)
-  } else {
-    throw new Error(`unknown op: ${step.op}`)
-  }
   } else if (step.op === "scrollbox") {
     const o = step.options ?? {}
     const boxish = {
@@ -245,22 +521,22 @@ for (const step of scenario.steps) {
       ...(track.thumbColor !== undefined ? { foregroundColor: track.thumbColor } : {}),
       ...(track.trackColor !== undefined ? { backgroundColor: track.trackColor } : {}),
     }
-    r = new ScrollBoxRenderable(renderer, {
+    const r = new ScrollBoxRenderable(renderer, {
       ...boxish,
       ...(Object.keys(trackOpts).length ? { scrollbarOptions: { trackOptions: trackOpts } } : {}),
       ...(o.viewportOptions !== undefined ? { viewportOptions: sub("viewportOptions") } : {}),
       ...(o.contentOptions !== undefined ? { contentOptions: sub("contentOptions") } : {}),
       ...(o.wrapperOptions !== undefined ? { wrapperOptions: sub("wrapperOptions") } : {}),
     })
+    // ScrollBox routes child adds into its content viewport (ScrollBox.add).
+    parent.add(r)
+    nodes.set(step.id, r)
   } else if (step.op === "flush") {
     await setup.flush()
     continue
   } else {
     throw new Error(`unknown op: ${step.op}`)
   }
-  // ScrollBox routes child adds into its content viewport (ScrollBox.add).
-  parent.add(r)
-  nodes.set(step.id, r)
 }
 
 // deterministic settle: run the loop until visually idle (upstream flush)

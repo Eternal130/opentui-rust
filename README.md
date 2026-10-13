@@ -28,7 +28,7 @@ upstream-attributed semantics; see `PORT-MATRIX.md` for the frozen surface.
 |---|---|---|
 | `opentui-core` | `@opentui/core` — colors (intent metadata), cell grid + draw ops, flexbox layout (taffy), renderable tree, Box/Text renderables, StyledText/TextNode content model (multi-chunk styles, align/tab/wrap none+char+word), headless renderer + SGR emission | **differentially IDENTICAL** on 17 scenarios |
 | `opentui-keymap` | `@opentui/keymap` — key stringify (exact port), Keymap facade, layered dispatch engine (adapted from opencode-rust's proven `oc-tui-core` port, cited) | skeleton |
-| `opentui-solid` | `@opentui/solid` — the reactive glue equivalent: signal boundary + builder component tree (design record in the crate docs) | design + mount-only |
+| `opentui-solid` | `@opentui/solid` — the reactive glue equivalent: `Reactive` boundary + builder trees (`box_!`/`text_!`/`scrollbox_!`), keyed reconciler (universal.js port), Show/For, Portal, hooks, extend(), scrollback writer; 8 differential scenarios vs the real package (mode `"solid"`) | reconciler + builders done |
 
 ## Layout
 
@@ -109,8 +109,10 @@ prove the emitted bytes repaint the same grid.
    event loop (requestRender scheduling semantics).
 6. **keymap-lane** — full `@opentui/keymap` type surface + opentui host +
    solid provider + addons.
-7. **solid-glue-lane** — keyed reconciler diffing (props update, child
-   reorder, unmount), Portal, scrollback writer.
+7. **solid-glue-lane** — ✅ keyed reconciler diffing (props update,
+   child reorder, unmount), Portal, scrollback writer; builder API
+   (`box_!`/`text_!`/`scrollbox_!`), hooks, extend(); 8 differential
+   scenarios vs the real `@opentui/solid` 0.5.14 (mode `"solid"`).
 8. **markdown/code-lane** — MarkdownRenderable, CodeRenderable +
    tree-sitter styled text (consumer bridges its existing syntax crate).
 9. **perf-lane** — frame budgets vs the native Zig renderer, allocation

@@ -22,9 +22,9 @@ pub mod styled_text;
 #[cfg(test)]
 mod text_buffer_tests;
 
+pub mod scroll_acceleration;
 pub mod text_buffer;
 pub mod text_node;
-pub mod scroll_acceleration;
 
 pub use ansi::TextAttributes;
 pub use buffer::OptimizedBuffer;
@@ -41,13 +41,13 @@ pub use renderables::scrollbox::{
 };
 pub use renderables::text::{TextOptions, TextRenderableState, WrapMode};
 pub use renderer::{create_cli_renderer, CliRenderer, CliRendererConfig, RenderTarget};
+pub use scroll_acceleration::{LinearScrollAccel, MacOSScrollAccel, ScrollAcceleration};
 pub use styled_text::{
     apply_style, create_text_attributes, string_to_styled_text, StylableInput, StyleAttrs,
     StyledText, TextChunk,
 };
 pub use text_buffer::{TextAlign, TextDocument};
 pub use text_node::{NodeStyle, TextNodeOptions, TextNodeRenderable};
-pub use scroll_acceleration::{LinearScrollAccel, MacOSScrollAccel, ScrollAcceleration};
 
 /// Upstream version this crate pins (`packages/core/package.json`).
 pub const SPEC_VERSION: &str = "0.5.14";

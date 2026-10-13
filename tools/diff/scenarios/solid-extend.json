@@ -1,0 +1,47 @@
+{
+  "name": "solid-extend",
+  "mode": "solid",
+  "width": 28,
+  "height": 9,
+  "steps": [
+    { "op": "signal", "id": "badgeBg", "value": "#301040" },
+    { "op": "signal", "id": "badgeText", "value": "READY" },
+    {
+      "op": "el",
+      "tag": "box",
+      "id": "shell",
+      "parent": "root",
+      "options": { "flexDirection": "column" },
+      "children": [
+        { "tag": "text", "id": "h", "options": { "content": "custom elements:" } },
+        {
+          "tag": "badge_box",
+          "id": "b1",
+          "options": {
+            "border": true,
+            "width": 14,
+            "height": 3,
+            "backgroundColor": { "$signal": "badgeBg" }
+          },
+          "children": [
+            { "tag": "text", "id": "b1t", "options": { "content": { "$signal": "badgeText" } } }
+          ]
+        },
+        {
+          "tag": "badge_box",
+          "id": "b2",
+          "options": { "border": true, "width": 14, "height": 3, "title": "b2" }
+        }
+      ]
+    },
+    { "op": "flush" },
+    { "op": "signal", "id": "badgeBg", "value": "#103040" },
+    { "op": "signal", "id": "badgeText", "value": "PATCHED" },
+    { "op": "flush" },
+    { "op": "prop", "id": "b2", "prop": "title", "value": "renamed" },
+    { "op": "prop", "id": "b2", "prop": "backgroundColor", "value": "#402010" },
+    { "op": "flush" },
+    { "op": "el-remove", "id": "b1" },
+    { "op": "flush" }
+  ]
+}
