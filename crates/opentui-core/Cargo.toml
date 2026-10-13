@@ -5,12 +5,15 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[dev-dependencies]
-opentui-keymap = { path = "../opentui-keymap" }
-
 [dependencies]
 taffy = { workspace = true }
 unicode-width = { workspace = true }
 unicode-segmentation = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+# the executor-side parity test: the edit-buffer action ids the keymap
+# commands emit (opentui_keymap::textarea::EDIT_BUFFER_ACTIONS) must be
+# exactly the ids TextareaState::execute_action implements
+opentui-keymap = { workspace = true }

@@ -11,6 +11,7 @@ import {
   InputRenderable,
   TextRenderable,
   BoxRenderable,
+  TextareaRenderable,
   TextNodeRenderable,
   StyledText,
   parseColor,
@@ -38,6 +39,182 @@ class RecordingStream extends Writable {
   }
   bytes() {
     return Buffer.concat(this.chunks)
+  }
+}
+
+
+// textarea text-op vocabulary — mirrors the Rust scenario runner 1:1
+// (the EditBufferRenderable/Textarea public surface)
+function textareaOp(ta, op) {
+  switch (op.op) {
+    case "setText":
+      ta.setText(op.text)
+      break
+    case "replaceText":
+      ta.replaceText(op.text)
+      break
+    case "insertText":
+      ta.insertText(op.text)
+      break
+    case "insertChar":
+      ta.insertChar(op.text)
+      break
+    case "setCursor":
+      ta.setCursor(op.row, op.col)
+      break
+    case "setCursorByOffset":
+      ta.cursorOffset = op.offset
+      break
+    case "moveCursorLeft":
+      ta.moveCursorLeft({ select: !!op.select })
+      break
+    case "moveCursorRight":
+      ta.moveCursorRight({ select: !!op.select })
+      break
+    case "moveCursorUp":
+      ta.moveCursorUp({ select: !!op.select })
+      break
+    case "moveCursorDown":
+      ta.moveCursorDown({ select: !!op.select })
+      break
+    case "moveWordForward":
+      ta.moveWordForward({ select: !!op.select })
+      break
+    case "moveWordBackward":
+      ta.moveWordBackward({ select: !!op.select })
+      break
+    case "gotoLine":
+      ta.gotoLine(op.line)
+      break
+    case "gotoLineHome":
+      ta.gotoLineHome({ select: !!op.select })
+      break
+    case "gotoLineEnd":
+      ta.gotoLineEnd({ select: !!op.select })
+      break
+    case "gotoVisualLineHome":
+      ta.gotoVisualLineHome({ select: !!op.select })
+      break
+    case "gotoVisualLineEnd":
+      ta.gotoVisualLineEnd({ select: !!op.select })
+      break
+    case "gotoBufferHome":
+      ta.gotoBufferHome({ select: !!op.select })
+      break
+    case "gotoBufferEnd":
+      ta.gotoBufferEnd({ select: !!op.select })
+      break
+    case "selectAll":
+      ta.selectAll()
+      break
+    case "deleteChar":
+      ta.deleteChar()
+      break
+    case "deleteCharBackward":
+      ta.deleteCharBackward()
+      break
+    case "deleteLine":
+      ta.deleteLine()
+      break
+    case "deleteToLineEnd":
+      ta.deleteToLineEnd()
+      break
+    case "deleteToLineStart":
+      ta.deleteToLineStart()
+      break
+    case "deleteWordForward":
+      ta.deleteWordForward()
+      break
+    case "deleteWordBackward":
+      ta.deleteWordBackward()
+      break
+    case "newLine":
+      ta.newLine()
+      break
+    case "deleteRange":
+      ta.deleteRange(op.startRow, op.startCol, op.endRow, op.endCol)
+      break
+    case "undo":
+      ta.undo()
+      break
+    case "redo":
+      ta.redo()
+      break
+    case "clear":
+      ta.clear()
+      break
+    case "setSelection":
+      ta.setSelection(op.start, op.end)
+      break
+    case "setSelectionInclusive":
+      ta.setSelectionInclusive(op.start, op.end)
+      break
+    case "updateSelection":
+      ta.editorView.updateSelection(op.end, undefined, undefined)
+      break
+    case "clearSelection":
+      ta.clearSelection()
+      break
+    case "deleteSelection":
+      ta.deleteSelection()
+      break
+    case "setLocalSelection":
+      ta.editorView.setLocalSelection(
+        op.anchorX, op.anchorY, op.focusX, op.focusY,
+        undefined, undefined, !!op.updateCursor, !!op.followCursor, op.behavior ?? "cell",
+      )
+      break
+    case "updateLocalSelection":
+      ta.editorView.updateLocalSelection(
+        op.anchorX, op.anchorY, op.focusX, op.focusY,
+        undefined, undefined, !!op.updateCursor, !!op.followCursor, op.behavior ?? "cell",
+      )
+      break
+    case "setViewport": {
+      const vp = ta.editorView.getViewport()
+      ta.editorView.setViewport(op.x ?? 0, op.y ?? 0, op.width ?? vp.width, op.height ?? vp.height, op.moveCursor !== false)
+      break
+    }
+    case "scrollBy":
+      {
+        // EditBufferRenderable.handleScroll semantics (450-479)
+        const vp = ta.editorView.getViewport()
+        if (op.direction === "up") {
+          const newOffsetY = Math.max(0, vp.offsetY - op.delta)
+          ta.editorView.setViewport(vp.offsetX, newOffsetY, vp.width, vp.height, true)
+        } else if (op.direction === "down") {
+          const total = ta.editorView.getTotalVirtualLineCount()
+          const maxOffsetY = Math.max(0, total - vp.height)
+          const newOffsetY = Math.min(vp.offsetY + op.delta, maxOffsetY)
+          ta.editorView.setViewport(vp.offsetX, newOffsetY, vp.width, vp.height, true)
+        }
+      }
+      break
+    case "focus":
+      ta.focus()
+      break
+    case "blur":
+      ta.blur()
+      break
+    case "placeholder":
+      ta.placeholder = op.value ?? null
+      break
+    case "key":
+      ta.handleKeyPress({
+        name: op.name,
+        ctrl: !!op.ctrl,
+        shift: !!op.shift,
+        meta: !!op.meta,
+        super: !!op.super,
+        hyper: false,
+        sequence: op.sequence,
+      })
+      break
+    case "setWrapMode":
+      ta.wrapMode = op.mode
+      break
+    default:
+      throw new Error(`unknown textarea op: ${op.op}`)
   }
 }
 
@@ -162,6 +339,42 @@ for (const step of scenario.steps) {
   }
   if (step.op === "flush") {
     await setup.flush()
+    continue
+  }
+  if (step.op === "frame") {
+    // one deterministic render tick (multi-frame textarea scenarios)
+    await setup.renderOnce()
+    continue
+  }
+  if (step.op === "textarea") {
+    const o = step.options ?? {}
+    const options = {}
+    if (o.width !== undefined) options.width = o.width
+    if (o.height !== undefined) options.height = o.height
+    if (o.initialValue !== undefined) options.initialValue = o.initialValue
+    if (o.textColor !== undefined) options.textColor = o.textColor
+    if (o.backgroundColor !== undefined) options.backgroundColor = o.backgroundColor
+    if (o.focusedTextColor !== undefined) options.focusedTextColor = o.focusedTextColor
+    if (o.focusedBackgroundColor !== undefined) options.focusedBackgroundColor = o.focusedBackgroundColor
+    if (o.placeholder !== undefined) options.placeholder = o.placeholder
+    if (o.placeholderColor !== undefined) options.placeholderColor = o.placeholderColor
+    if (o.selectionBg !== undefined) options.selectionBg = o.selectionBg
+    if (o.selectionFg !== undefined) options.selectionFg = o.selectionFg
+    if (o.wrapMode !== undefined) options.wrapMode = o.wrapMode
+    if (o.showCursor !== undefined) options.showCursor = o.showCursor
+    if (o.cursorColor !== undefined) options.cursorColor = o.cursorColor
+    if (o.scrollMargin !== undefined) options.scrollMargin = o.scrollMargin
+    const parent = node(step.parent ?? "root")
+    const r = new TextareaRenderable(renderer, options)
+    parent.add(r)
+    nodes.set(step.id, r)
+    for (const op of step.textOps ?? []) textareaOp(r, op)
+    continue
+  }
+  if (step.op === "ta-op") {
+    const target = nodes.get(step.target ?? step.id)
+    if (!target) throw new Error(`ta-op target ${step.target ?? step.id} not found`)
+    for (const op of step.textOps ?? []) textareaOp(target, op)
     continue
   }
   if (step.op === "focus") {

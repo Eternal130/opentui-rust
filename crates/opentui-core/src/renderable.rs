@@ -30,6 +30,7 @@ use crate::renderables::box_::BoxRenderableState;
 use crate::renderables::scrollbar::{ArrowState, ScrollBarState, SliderState};
 use crate::renderables::scrollbox::{ScrollBoxState, ViewportCulling};
 use crate::renderables::text::TextRenderableState;
+use crate::renderables::textarea::{MeasuredEditor, TextareaState};
 use taffy::prelude as tp;
 use taffy::tree::TaffyTree;
 
@@ -42,6 +43,8 @@ pub struct MeasureCtx {
     pub text: Option<crate::renderables::text::MeasuredText>,
     /// the single-line content width for Input leaves
     pub input_width_cols: u32,
+    /// editor content for Textarea leaves
+    pub editor: Option<MeasuredEditor>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -49,7 +52,10 @@ pub enum MeasureKind {
     #[default]
     None,
     Text,
+    /// the single-line Input leaf measure kind
     Input,
+    /// `NativeMeasureTargetKind.EditorView` (zig.ts)
+    Editor,
 }
 
 /// What a renderable paints.
@@ -59,6 +65,8 @@ pub enum Content {
     Group,
     Box(BoxRenderableState),
     Text(TextRenderableState),
+    /// `TextareaRenderable` — the editor (EditBufferRenderable.ts:85).
+    Textarea(TextareaState),
     /// `SliderRenderable` (Slider.ts:20).
     Slider(SliderState),
     /// `ArrowRenderable` (ScrollBar.ts:320).
@@ -307,6 +315,11 @@ impl Renderable {
         if let Content::Text(state) = &mut self.content {
             state.update_layout(self.w.max(0.0) as u32, self.h.max(0.0) as u32);
         }
+        // EditBufferRenderable.onResize → setViewportSize
+        // (EditBufferRenderable.ts:481-483): same clamp, keeps offsets.
+        if let Content::Textarea(state) = &mut self.content {
+            state.update_layout(self.w.max(0.0) as u32, self.h.max(0.0) as u32);
+        }
         if size_changed {
             effects.size_changed = true;
             if let Some(owner) = &self.size_hook {
@@ -422,6 +435,11 @@ impl Renderable {
                 self.h as u32,
             ),
             Content::Text(state) => state.paint(buffer, self.screen_x, self.screen_y),
+            // draws from the snapshot `prepare_paint` stashed
+            // (upstream render() = renderSelf + renderCursor; the port
+            // splits because renderCursor writes renderer state,
+            // EditBufferRenderable.ts:991-1004)
+            Content::Textarea(state) => state.paint(buffer, self.screen_x, self.screen_y),
             Content::Slider(state) => state.paint(
                 buffer,
                 self.screen_x,
@@ -431,6 +449,23 @@ impl Renderable {
             ),
             Content::Arrow(state) => state.paint(buffer, self.screen_x, self.screen_y),
             Content::Input(state) => state.paint(buffer, self.screen_x, self.screen_y),
+        }
+    }
+
+    /// `render()` phase 1 (EditBufferRenderable.ts:991-1004): stash the
+    /// draw snapshot + collect the terminal-cursor output. Runs as a
+    /// `&mut` walk before the `&self` paint.
+    pub fn prepare_paint(&mut self, cursor_out: &mut Vec<(String, u32, u32)>) {
+        if !self.visible {
+            return;
+        }
+        if let Content::Textarea(state) = &mut self.content {
+            if let Some((x, y)) = state.prepare_render(self.screen_x, self.screen_y) {
+                cursor_out.push((self.id.0.clone(), x, y));
+            }
+        }
+        for child in &mut self.children {
+            child.prepare_paint(cursor_out);
         }
     }
 

@@ -17,10 +17,19 @@
 //! binding resolution ([`keybinding`]), the single-line input
 //! renderable ([`input`]), and the frame scheduler semantics
 //! ([`scheduler`]).
+//!
+//! The editor family: [`editor`] (EditBuffer/EditorView/selection —
+//! the edit-buffer.test.ts core) and
+//! [`renderables::textarea::TextareaState`] (the TextareaRenderable
+//! port: the 36-action executor, scroll-follow, placeholder, cursor
+//! SGR emission).
 
 pub mod ansi;
 pub mod buffer;
 pub mod color;
+pub mod editor;
+#[cfg(test)]
+mod editor_tests;
 pub mod events;
 pub mod input;
 pub mod keybinding;
@@ -44,8 +53,12 @@ pub mod text_node;
 pub use ansi::TextAttributes;
 pub use buffer::OptimizedBuffer;
 pub use color::{parse_color, ColorIntent, Rgba};
+pub use editor::{
+    EditBuffer, EditorView, SelectionBehavior, SelectionOccupancy, TextSelection, VisualCursor,
+};
 pub use events::{KeyEvent, KeyHandler, MouseButton, MouseEvent, PasteEvent};
 pub use input::{InputAction, InputOptions, InputRenderableState, InputStateEvent};
+pub use keybinding::KeyBinding;
 pub use layout::{Dimension, LayoutOptions};
 pub use parse_keypress::{
     non_alphanumeric_keys, parse_keypress, terminal_named_single_stroke_keys, KeyEventType,
@@ -64,6 +77,7 @@ pub use renderables::scrollbox::{
     set_scroll_top, ScrollBoxOptions, ScrollBoxState, StickyStart, ViewportCulling,
 };
 pub use renderables::text::{TextOptions, TextRenderableState, WrapMode};
+pub use renderables::textarea::{TextareaOptions, TextareaState, TEXTAREA_ACTIONS};
 pub use renderer::{create_cli_renderer, CliRenderer, CliRendererConfig, RenderTarget};
 pub use scheduler::RenderScheduler;
 pub use scroll_acceleration::{LinearScrollAccel, MacOSScrollAccel, ScrollAcceleration};

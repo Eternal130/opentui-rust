@@ -1,0 +1,69 @@
+{
+  "name": "textarea-motion-matrix",
+  "width": 24,
+  "height": 6,
+  "steps": [
+    {
+      "op": "textarea",
+      "id": "ta",
+      "parent": "root",
+      "options": {
+        "width": 24,
+        "height": 4,
+        "initialValue": "one two three\nfour five\nsix"
+      }
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "key", "name": "e", "ctrl": true },
+        { "op": "moveCursorLeft" },
+        { "op": "moveWordBackward" },
+        { "op": "moveWordBackward" }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "moveWordForward" },
+        { "op": "moveCursorUp" },
+        { "op": "moveCursorDown" }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "gotoLine", "line": 99 },
+        { "op": "gotoLineHome" },
+        { "op": "gotoLineHome" }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "gotoBufferEnd" },
+        { "op": "deleteToLineStart" },
+        { "op": "deleteToLineEnd" }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "undo" },
+        { "op": "setCursorByOffset", "offset": 4 },
+        { "op": "deleteCharBackward" },
+        { "op": "deleteChar" }
+      ]
+    }
+  ]
+}

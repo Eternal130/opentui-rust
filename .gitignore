@@ -3,8 +3,10 @@
 
 # Differential-harness sandbox (npm install of @opentui 0.5.14 — the pinned
 # spec). package.json + bun.lock are tracked so the oracle is reproducible;
-# the installed tree is not.
-tools/diff/sandbox/node_modules/
+# the installed tree is not. No trailing slash: the pattern must match a
+# directory AND a symlink (a committed self-referencing node_modules
+# symlink once broke CI — checkout materialized it as a dangling loop).
+tools/diff/sandbox/node_modules
 # oracle caches + generated reports (regenerate on demand)
 tools/diff/out/
 

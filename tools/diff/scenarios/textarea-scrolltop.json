@@ -1,0 +1,44 @@
+{
+  "name": "textarea-scrolltop",
+  "width": 20,
+  "height": 6,
+  "steps": [
+    {
+      "op": "textarea",
+      "id": "ta",
+      "parent": "root",
+      "options": { "width": 20, "height": 3 }
+    },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [
+        { "op": "setText", "text": "alpha\nbeta\ngamma\ndelta\nepsilon\nzeta\neta" }
+      ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [ { "op": "scrollBy", "direction": "down", "delta": 2 } ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [ { "op": "scrollBy", "direction": "down", "delta": 5 } ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [ { "op": "setViewport", "x": 0, "y": 1, "moveCursor": false } ]
+    },
+    { "op": "frame" },
+    {
+      "op": "ta-op",
+      "target": "ta",
+      "textOps": [ { "op": "setViewport", "x": 0, "y": 0, "moveCursor": true } ]
+    }
+  ]
+}
