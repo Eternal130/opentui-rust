@@ -179,3 +179,65 @@ synchronous highlight-at-construction:
   compare is scoped to scenarios with focus/key/input ops
   (`compare_filtered` in `src/compare.rs`).
 
+## Full-suite refresh — the final gate
+
+Cached oracles are for ITERATION. The FINAL gate for a lane (and the
+only local run that means "green") refreshes every oracle from the
+pinned package:
+
+```sh
+tools/dev-gate.sh 'tools/diff/run-all.sh'               # all scenarios, refreshed
+tools/dev-gate.sh 'tools/diff/run-all.sh -k scrollbox'  # subset by name
+```
+
+CI is equivalent by construction (clean checkout, no cache — each
+scenario captures fresh). A lane is done when `run-all.sh` is 100%
+IDENTICAL locally AND CI is green.
+
+## The resolution incident (2026-10-13) — and the cache discipline it forced
+
+`js/driver.ts` lives in `js/`, OUTSIDE `sandbox/`. Bun resolves imports
+by walking `node_modules` up from the IMPORTING FILE — not the cwd.
+Before the solid lane added the `js/node_modules → ../sandbox/node_modules`
+symlink, that walk found nothing and bun's auto-install silently served
+bare `@opentui/core` from the GLOBAL cache — the LATEST version
+(0.6.1), not the lock-pinned 0.5.14 the sandbox had installed.
+
+0.6.x is not 0.5.14: it clips the transparent-border fast path to the
+scissor (0.5.14 writes those border cells raw — only the whole-rect
+`isRectInScissor` gate applies; vendored source `buffer.zig:2405-2409`,
+pinned by the `scrollbox-scissor-escape` differential). Consequences:
+
+* **scroll lane passed false** — its oracle capture (and the "11/11
+  IDENTICAL" claim) was a 0.6.x capture; the port's fast path had been
+  calibrated (an added `is_point_in_scissor` check + a comment
+  rationalizing "published binary clips") against the WRONG version.
+* **the fusion's 10:35 full-suite refresh captured 0.6.x oracles for
+  everything** — and the suite "passed" against them (73 scenarios
+  happen to be cell-identical across 0.5.14/0.6.1; scissor-escape
+  matched because BOTH sides clipped). It did not error because the
+  driver pre-solid-merge was functionally correct — only its module
+  RESOLUTION was wrong. The `const r` shadow that broke the scrollbox
+  arm landed later (solid lane, 10:56) and made scroll-scenario
+  captures ERROR outright; that is a different, loud failure — the
+  0.6.x captures were the silent kind.
+* **clean CI exposed it** once the symlink shipped (solid lane):
+  resolution went back to the pinned 0.5.14, the oracle started
+  escaping, and the port mismatched — the only honest signal in the
+  chain.
+
+Structural fixes now in place:
+
+1. **Driver version assertion** — `js/driver.ts` hard-fails unless the
+   RESOLVED `@opentui/core` is exactly `0.5.14`. Wrong-version
+   resolution can never render an oracle again.
+2. **Capture fingerprints** — every capture stores
+   `capture: { core, driver, scenario }` (core version + FNV-1a of the
+   driver and scenario files). `src/main.rs` recomputes the live
+   fingerprint and REFUSES a cached oracle that doesn't match,
+   self-healing into a fresh capture (`oracle cache stale —
+   refreshing`). Editing the driver, editing a scenario, or replaying
+   a pre-incident cache all invalidate automatically.
+3. **`run-all.sh`** — the always-refresh full suite (above): the final
+   gate never trusts a cache, locally or in CI.
+

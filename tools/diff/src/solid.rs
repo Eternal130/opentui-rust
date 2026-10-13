@@ -325,6 +325,9 @@ pub fn render_solid(scenario: &Scenario) -> Result<Capture> {
         .collect();
     Ok(Capture {
         oracle: "opentui-solid".into(),
+        // rust-side captures carry no oracle fingerprint (they are
+        // produced by the live harness, never cached)
+        capture: None,
         renderer: Size {
             width: buf.width,
             height: buf.height,

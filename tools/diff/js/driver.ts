@@ -20,6 +20,34 @@ import {
 } from "@opentui/core"
 import { createTestRenderer } from "@opentui/core/testing"
 
+// ---------------------------------------------------------------------------
+// Capture fingerprint — makes wrong-version/wrong-driver oracles
+// structurally impossible to consume silently.
+//
+// The resolution incident (2026-10-13): this driver lives in js/, OUTSIDE
+// sandbox/. Before the solid lane added the js/node_modules symlink, bun
+// found no node_modules on the walk-up from this file and silently
+// AUTO-INSTALLED bare "@opentui/core" from the global cache — resolving
+// the LATEST version (0.6.1), not the sandbox's pinned 0.5.14. 0.6.x
+// clips the transparent-border fast path to the scissor; 0.5.14 does
+// not. Every oracle captured before the symlink (scroll lane, the
+// fusion's 10:35 full-suite refresh) was a 0.6.x oracle — a false pass.
+// The assertions below + the hash check in src/main.rs (which refuses
+// cached captures whose fingerprint doesn't match the live driver +
+// scenario) close the whole class. See tools/diff/README.
+// ---------------------------------------------------------------------------
+const PINNED_CORE = "0.5.14"
+const corePkg = require("@opentui/core/package.json")
+if (corePkg.version !== PINNED_CORE) {
+  console.error(
+    `oracle driver: resolved @opentui/core@${corePkg.version}, expected ${PINNED_CORE} — ` +
+      `node_modules resolution drift (is tools/diff/js/node_modules linked to ../sandbox/node_modules? see tools/diff/README "the resolution incident")`,
+  )
+  process.exit(3)
+}
+
+
+
 // solid-js must resolve its CLIENT build (the "node" condition serves
 // the SSR stubs) — tools/diff/js/ensure-solid-client-build.sh patches
 // the installed tree before every oracle capture.
@@ -243,6 +271,25 @@ if (!scenarioPath || !outPath) {
   process.exit(2)
 }
 const scenario = await Bun.file(scenarioPath).json()
+
+// capture fingerprint (see the block at the top of this file): the
+// rust harness recomputes driver+scenario hashes and REFUSES a cached
+// oracle whose fingerprint doesn't match — stale/wrong-driver caches
+// self-heal into a fresh capture instead of silently poisoning a run.
+// FNV-1a 64 (non-cryptographic): a staleness guard, mirrored byte-for-
+// byte in src/main.rs.
+function fnv1a(bytes) {
+  let h = 0xcbf29ce484222325n
+  for (const b of bytes) {
+    h ^= BigInt(b)
+    h = (h * 0x100000001b3n) & 0xffffffffffffffffn
+  }
+  return h.toString(16).padStart(16, "0")
+}
+const driverHash = fnv1a(new Uint8Array(await Bun.file(import.meta.path).arrayBuffer()))
+const scenarioHash = fnv1a(new Uint8Array(await Bun.file(scenarioPath).arrayBuffer()))
+const captureFingerprint = { core: PINNED_CORE, driver: driverHash, scenario: scenarioHash }
+
 
 // ---------------------------------------------------------------------------
 // solid mode: drive the REAL @opentui/solid reconciler (solid-js
@@ -493,6 +540,7 @@ if (scenario.mode === "solid") {
   }))
   const out = {
     oracle: "@opentui/solid@0.5.14",
+    capture: captureFingerprint,
     renderer: { width: buf.width, height: buf.height },
     lines: spans,
     charFrame: setup.captureCharFrame(),
@@ -871,6 +919,7 @@ const cursorMatch = [...streamForCursor.matchAll(/\x1b\[(\d+);(\d+)H\x1b\[\?25h/
 
 const out = {
   oracle: "@opentui/core@0.5.14",
+  capture: captureFingerprint,
   renderer: { width: buf.width, height: buf.height },
   lines: spans,
   charFrame: setup.captureCharFrame(),
