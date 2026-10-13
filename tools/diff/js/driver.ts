@@ -753,7 +753,7 @@ for (const step of scenario.steps) {
       ...(track.thumbColor !== undefined ? { foregroundColor: track.thumbColor } : {}),
       ...(track.trackColor !== undefined ? { backgroundColor: track.trackColor } : {}),
     }
-    const r = new ScrollBoxRenderable(renderer, {
+    r = new ScrollBoxRenderable(renderer, {
       ...boxish,
       ...(Object.keys(trackOpts).length ? { scrollbarOptions: { trackOptions: trackOpts } } : {}),
       ...(o.viewportOptions !== undefined ? { viewportOptions: sub("viewportOptions") } : {}),
