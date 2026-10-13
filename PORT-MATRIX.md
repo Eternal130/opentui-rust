@@ -47,6 +47,13 @@ spot-checks). Upstream is MIT.
 | @opentui/keymap (+subpaths) | 12 | 14* | 4 | 2 | 6 |
 | **total** | **339** | **79** | **35** | **18** | **286** |
 
+---
+
+| @opentui/core | 279 | 55 | 21 | 4 | 254 |
+| @opentui/solid | 48 | 10 | 34 | 3 | 11 |
+| @opentui/keymap (+subpaths) | 12 | 14* | 4 | 2 | 6 |
+| **total** | **339** | **79** | **59** | **9** | **271** |
+
 \* keymap subpath symbols land in the same Rust crate; counted once in
 the 79 tier-1 set.
 
@@ -345,54 +352,54 @@ tree-sitter styling, testing helpers.
 
 | symbol | tier | upstream file:line | Rust target | status |
 |---|---|---|---|---|
-| `BoldSpanRenderable` | 2 | solid/src/elements/catalogue.ts:49 | opentui-solid | todo |
-| `Dynamic` | 2 | solid/src/elements/extras.ts:105 | opentui-solid | todo |
-| `ItalicSpanRenderable` | 2 | solid/src/elements/catalogue.ts:55 | opentui-solid | todo |
-| `LayoutSlotRenderable` | 2 | solid/src/elements/slot.ts:91 | opentui-solid | todo |
-| `LineBreakRenderable` | 2 | solid/src/elements/catalogue.ts:67 | opentui-solid | todo |
-| `LinkRenderable` | 2 | solid/src/elements/catalogue.ts:82 | opentui-solid | todo |
-| `Portal` | **1** | solid/src/elements/extras.ts:14 | opentui-solid | partial |
-| `RendererContext` | 2 | solid/src/elements/hooks.ts:12 | opentui-solid | todo |
-| `Slot` | 2 | solid/src/plugins/slot.tsx:81 | opentui-solid | todo |
-| `SlotRenderable` | 2 | solid/src/elements/slot.ts:162 | opentui-solid | todo |
-| `TextSlotRenderable` | 2 | solid/src/elements/slot.ts:54 | opentui-solid | todo |
-| `TimeToFirstDraw` | **1** | solid/src/time-to-first-draw.tsx:15 | opentui-solid | todo |
-| `UnderlineSpanRenderable` | 2 | solid/src/elements/catalogue.ts:61 | opentui-solid | todo |
-| `_render` | 2 | solid-js re-export | opentui-solid | todo |
-| `baseComponents` | 2 | solid/src/elements/catalogue.ts:92 | opentui-solid | todo |
-| `componentCatalogue` | 2 | solid/src/elements/catalogue.ts:119 | opentui-solid | todo |
-| `createComponent` | 2 | solid-js re-export | opentui-solid | todo |
-| `createDynamic` | 2 | solid/src/elements/extras.ts:75 | opentui-solid | todo |
-| `createElement` | 2 | solid-js re-export | opentui-solid | todo |
-| `createScrollbackWriter` | **1** | solid/src/scrollback.ts:145 | opentui-solid | todo |
-| `createSlot` | 2 | solid/src/plugins/slot.tsx:66 | opentui-solid | todo |
-| `createSlotNode` | 2 | solid/src/reconciler.ts:155 | opentui-solid | todo |
-| `createSolidSlotRegistry` | 2 | solid/src/plugins/slot.tsx:56 | opentui-solid | todo |
-| `createTextNode` | 2 | solid-js re-export | opentui-solid | todo |
-| `effect` | 2 | solid-js re-export | opentui-solid | todo |
-| `extend` | **1** | solid/src/elements/catalogue.ts:133 | opentui-solid | partial |
-| `getComponentCatalogue` | 2 | solid/src/elements/catalogue.ts:137 | opentui-solid | todo |
-| `insert` | 2 | solid-js re-export | opentui-solid | todo |
-| `insertNode` | 2 | solid-js re-export | opentui-solid | todo |
-| `memo` | 2 | solid-js re-export | opentui-solid | todo |
-| `mergeProps` | 2 | solid-js re-export | opentui-solid | todo |
-| `onBlur` | 2 | solid/src/elements/hooks.ts:120 | opentui-solid | todo |
-| `onFocus` | 2 | solid/src/elements/hooks.ts:108 | opentui-solid | todo |
-| `onResize` | 2 | solid/src/elements/hooks.ts:24 | opentui-solid | todo |
-| `render` | **1** | — | opentui-solid | done |
-| `setProp` | 2 | solid-js re-export | opentui-solid | todo |
-| `spread` | 2 | solid-js re-export | opentui-solid | todo |
-| `testRender` | 2 | — | opentui-solid | todo |
-| `textNodeKeys` | 2 | solid/src/elements/catalogue.ts:31 | opentui-solid | todo |
-| `use` | 2 | solid-js re-export | opentui-solid | todo |
-| `useKeyHandler` | 2 | solid/src/elements/hooks.ts:106 | opentui-solid | todo |
-| `useKeyboard` | **1** | solid/src/elements/hooks.ts:73 | opentui-solid | partial |
-| `usePaste` | **1** | solid/src/elements/hooks.ts:91 | opentui-solid | partial |
-| `useRenderer` | **1** | solid/src/elements/hooks.ts:14 | opentui-solid | done |
-| `useSelectionHandler` | 2 | solid/src/elements/hooks.ts:132 | opentui-solid | todo |
-| `useTerminalDimensions` | **1** | solid/src/elements/hooks.ts:36 | opentui-solid | done |
-| `useTimeline` | 2 | solid/src/elements/hooks.ts:144 | opentui-solid | todo |
-| `writeSolidToScrollback` | 2 | solid/src/scrollback.ts:221 | opentui-solid | todo |
+| `BoldSpanRenderable` | 2 | solid/src/elements/catalogue.ts:49 | opentui-solid::element::SpanKind::Bold | done (shape: Tag::Span) |
+| `Dynamic` | 2 | solid/src/elements/extras.ts:105 | opentui-solid | deferred (tag-string switch = builder choice) |
+| `ItalicSpanRenderable` | 2 | solid/src/elements/catalogue.ts:55 | opentui-solid::element::SpanKind::Italic | done (shape: Tag::Span) |
+| `LayoutSlotRenderable` | 2 | solid/src/elements/slot.ts:91 | opentui-solid | partial (marker machinery internalized) |
+| `LineBreakRenderable` | 2 | solid/src/elements/catalogue.ts:67 | opentui-solid::element::SpanKind::Break | done (shape: Tag::Span) |
+| `LinkRenderable` | 2 | solid/src/elements/catalogue.ts:82 | opentui-solid::element::SpanKind::Link | done (shape: Tag::Span) |
+| `Portal` | **1** | solid/src/elements/extras.ts:14 | opentui-solid::Tag::Portal + reconcile mount/unmount | done (solid-portal diff IDENTICAL) |
+| `RendererContext` | 2 | solid/src/elements/hooks.ts:12 | opentui-solid::SolidRenderer (is the context) | done |
+| `Slot` | 2 | solid/src/plugins/slot.tsx:81 | opentui-solid | deferred (plugin-side slots) |
+| `SlotRenderable` | 2 | solid/src/elements/slot.ts:162 | opentui-solid | partial (portal/show markers) |
+| `TextSlotRenderable` | 2 | solid/src/elements/slot.ts:54 | opentui-solid | deferred (plugin-side slots) |
+| `TimeToFirstDraw` | **1** | solid/src/time-to-first-draw.tsx:15 | opentui-solid | todo (events lane) |
+| `UnderlineSpanRenderable` | 2 | solid/src/elements/catalogue.ts:61 | opentui-solid::element::SpanKind::Underline | done (shape: Tag::Span) |
+| `_render` | 2 | solid-js re-export | SolidRenderer::render_root | done (semantics) |
+| `baseComponents` | 2 | solid/src/elements/catalogue.ts:92 | opentui-solid::Tag (ported subset) | partial (box/text/scrollbox/spans) |
+| `componentCatalogue` | 2 | solid/src/elements/catalogue.ts:119 | opentui-solid::extend registry | done (thread-local catalogue) |
+| `createComponent` | 2 | solid-js re-export | element trees (no component fn indirection) | done (shape: builders) |
+| `createDynamic` | 2 | solid/src/elements/extras.ts:75 | opentui-solid | deferred |
+| `createElement` | 2 | solid-js re-export | SolidRenderer::mount_element | done (semantics) |
+| `createScrollbackWriter` | **1** | solid/src/scrollback.ts:145 | opentui-solid::scrollback | done (4-pass measure + paint_lines) |
+| `createSlot` | 2 | solid/src/plugins/slot.tsx:66 | opentui-solid | deferred (plugin-side slots) |
+| `createSlotNode` | 2 | solid/src/reconciler.ts:155 | reconcile marker (Group renderable) | done (shape: marker) |
+| `createSolidSlotRegistry` | 2 | solid/src/plugins/slot.tsx:56 | opentui-solid | deferred (plugin-side slots) |
+| `createTextNode` | 2 | solid-js re-export | builder::text_node (folds into text content) | done (shape) |
+| `effect` | 2 | solid-js re-export | signal subscriptions + flush batch | done (semantics) |
+| `extend` | **1** | solid/src/elements/catalogue.ts:133 | opentui-solid::extend::extend | done (solid-extend diff IDENTICAL) |
+| `getComponentCatalogue` | 2 | solid/src/elements/catalogue.ts:137 | opentui-solid::extend::get_component_catalogue | done |
+| `insert` | 2 | solid-js re-export | reconcile_children (keyed) | done (semantics) |
+| `insertNode` | 2 | solid-js re-export | SolidRenderer::mount + insert_child_at | done (semantics) |
+| `memo` | 2 | solid-js re-export | reactive::Mapped | done (shape) |
+| `mergeProps` | 2 | solid-js re-export | builder prop list (last-wins) | done (shape) |
+| `onBlur` | 2 | solid/src/elements/hooks.ts:120 | opentui-solid | todo (focus infra = Input lane) |
+| `onFocus` | 2 | solid/src/elements/hooks.ts:108 | opentui-solid | todo (focus infra = Input lane) |
+| `onResize` | 2 | solid/src/elements/hooks.ts:24 | SolidRenderer::on_resize | done |
+| `render` | **1** | — | opentui-solid::render | done |
+| `setProp` | 2 | solid-js re-export | SolidRenderer::set_prop | done |
+| `spread` | 2 | solid-js re-export | mount/patch props (per-prop equality skip) | done (semantics) |
+| `testRender` | 2 | — | SolidRenderer::new (headless profile) | done |
+| `textNodeKeys` | 2 | solid/src/elements/catalogue.ts:31 | element::SpanKind family | done |
+| `use` | 2 | solid-js re-export | — (untracked reads by design) | done (shape: no untrack needed) |
+| `useKeyHandler` | 2 | solid/src/elements/hooks.ts:106 | keyboard() (renamed useKeyboard upstream) | done |
+| `useKeyboard` | **1** | solid/src/elements/hooks.ts:73 | SolidRenderer::keyboard (EventHub + feed_key) | done |
+| `usePaste` | **1** | solid/src/elements/hooks.ts:91 | SolidRenderer::paste (EventHub + feed_paste) | done |
+| `useRenderer` | **1** | solid/src/elements/hooks.ts:14 | SolidRenderer::use_renderer | done |
+| `useSelectionHandler` | 2 | solid/src/elements/hooks.ts:132 | opentui-solid | todo (selection = EditBuffer lane) |
+| `useTerminalDimensions` | **1** | solid/src/elements/hooks.ts:36 | SolidRenderer::terminal_dimensions (signal) | done |
+| `useTimeline` | 2 | solid/src/elements/hooks.ts:144 | opentui-core (timeline = render lane target) | deferred |
+| `writeSolidToScrollback` | 2 | solid/src/scrollback.ts:221 | ScrollbackWriter::write + paint_lines | done (shape: core writeToScrollback not ported) |
 
 ### keymap (4 runtime exports)
 

@@ -66,6 +66,10 @@ jobs:
           # resolved through the loop and the driver lost @opentui/core)
           find . -maxdepth 1 -name node_modules -type l -delete
           bun install --frozen-lockfile
+          # solid oracle: patch solid-js's node condition (SSR stub trap)
+          # + link the driver-resolution node_modules (js/ is outside
+          # sandbox/, bun would otherwise resolve from the global cache)
+          bash ../js/ensure-solid-client-build.sh
         working-directory: tools/diff/sandbox
 
       - name: Run scenarios

@@ -1,0 +1,38 @@
+{
+  "name": "solid-show-toggle",
+  "mode": "solid",
+  "width": 30,
+  "height": 6,
+  "steps": [
+    { "op": "signal", "id": "cond", "value": false },
+    {
+      "op": "el",
+      "tag": "box",
+      "id": "shell",
+      "parent": "root",
+      "options": { "flexDirection": "column" },
+      "children": [
+        { "tag": "text", "id": "header", "options": { "content": "== header ==" } }
+      ]
+    },
+    {
+      "op": "show",
+      "id": "sh",
+      "parent": "shell",
+      "signal": "cond",
+      "children": [
+        { "tag": "text", "id": "opt1", "options": { "content": "optional line A" } },
+        { "tag": "box", "id": "optbox", "options": { "border": true, "width": 14, "height": 3 }, "children": [
+          { "tag": "text", "id": "opt2", "options": { "content": "inside show" } }
+        ] }
+      ]
+    },
+    { "op": "flush" },
+    { "op": "signal", "id": "cond", "value": true },
+    { "op": "flush" },
+    { "op": "signal", "id": "cond", "value": false },
+    { "op": "flush" },
+    { "op": "signal", "id": "cond", "value": true },
+    { "op": "flush" }
+  ]
+}

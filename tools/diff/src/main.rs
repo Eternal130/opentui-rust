@@ -15,6 +15,7 @@
 
 mod compare;
 mod scenario;
+mod solid;
 mod vt;
 
 use anyhow::{Context, Result};
@@ -34,6 +35,13 @@ fn run_oracle(scenario_path: &Path, out_path: &Path) -> Result<()> {
     let root = repo_root();
     let driver = root.join("tools/diff/js/driver.ts");
     let sandbox = root.join("tools/diff/sandbox");
+    // solid-js must resolve its CLIENT build (see the script's doc)
+    let patch = root.join("tools/diff/js/ensure-solid-client-build.sh");
+    let _ = Command::new("bash")
+        .arg(&patch)
+        .current_dir(&root)
+        .status()
+        .context("running ensure-solid-client-build.sh (is bash on PATH?)")?;
     let status = Command::new("bun")
         .arg(driver)
         .arg(scenario_path)
@@ -80,7 +88,11 @@ fn main() -> Result<()> {
     let oracle: scenario::Capture =
         serde_json::from_str(&oracle_text).context("oracle JSON parse")?;
     let scenario = scenario::load(&scenario_path)?;
-    let rust = scenario::render_rust(&scenario)?;
+    let rust = if scenario.mode.as_deref() == Some("solid") {
+        solid::render_solid(&scenario)?
+    } else {
+        scenario::render_rust(&scenario)?
+    };
 
     let report = compare::compare(&oracle, &rust);
     let md = report.to_markdown(&name);

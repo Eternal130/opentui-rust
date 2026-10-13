@@ -7,6 +7,9 @@
 # directory AND a symlink (a committed self-referencing node_modules
 # symlink once broke CI — checkout materialized it as a dangling loop).
 tools/diff/sandbox/node_modules
+# the installed tree is not.
+tools/diff/node_modules
+tools/diff/sandbox/node_modules/
 # oracle caches + generated reports (regenerate on demand)
 tools/diff/out/
 

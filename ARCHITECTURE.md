@@ -137,9 +137,24 @@ scheduler factored out — the scheduler is an events-lane port target).
 Rust; the consumer runs its own Signal/Store core. The glue therefore
 exposes a `Reactive` trait boundary (consumer adapts its signals;
 standalone users get the built-in `Signal`), and components are **Rust
-builder constructors** (`text()`, `box_()`) — the 1:1 target of the
-TSX→Rust transplants. Mount-only now; keyed reconciler diffing (the
-solid reconciler semantics) is the solid-glue lane.
+builder trees** — `box_! { flexDirection: "row", paddingLeft: 2,
+children: […] }` macros with upstream camelCase prop names (plus
+snake_case chains) — the 1:1 target of the TSX→Rust transplants.
+`Show`/`For` are reactive-scope constructs (`show(signal, render)` /
+`for_list(source, render)` over keyed `ForItem`s). The reconciler
+(`reconcile.rs`) ports `@opentui/solid`'s custom renderer op-for-op:
+`reconcileArrays` (universal.js:108-163) keyed by explicit element keys
+over an immutable work list; per-prop minimal patching
+(`spreadExpression`'s equality skip + `setProperty`'s switch — events,
+id rename, style-bag sub-diff, scroll setters); unmount runs owner-
+disposal cleanups (children first, LIFO). Dynamic bindings subscribe to
+signals and enqueue patches; `SolidRenderer::flush` is the batched
+frame boundary. Portal (marker + container at the mount target),
+hooks (`useRenderer`, `useTerminalDimensions` as a signal,
+`useKeyboard`/`usePaste` as event streams), `extend()` custom elements
+and `createScrollbackWriter` (4-pass height convergence) complete the
+upstream surface. Pinned by 8 differential scenarios against the REAL
+`@opentui/solid` 0.5.14 (see `tools/diff`, mode `"solid"`).
 
 ## The editor stack (textarea lane, O2e)
 
