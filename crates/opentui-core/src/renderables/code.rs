@@ -69,6 +69,16 @@ impl CodeDocument {
 /// branches collapsed — `drawUnstyledText` settles to the highlighted
 /// document; no filetype or no parser → plain text).
 pub fn build_code_document(options: &CodeOptions, syntax_style: &SyntaxStyle) -> CodeDocument {
+    build_code_document_with_highlights(options, syntax_style).0
+}
+
+/// [`build_code_document`] plus the raw highlight list — what the Diff
+/// lane needs for the concealment source map
+/// ([`conceal_lines_source_map`]).
+pub fn build_code_document_with_highlights(
+    options: &CodeOptions,
+    syntax_style: &SyntaxStyle,
+) -> (CodeDocument, Vec<SimpleHighlight>) {
     let conceal = options.conceal.unwrap_or(true);
     let defaults = CodeDocument::defaults(&CodeDocument {
         chunks: Vec::new(),
@@ -78,10 +88,13 @@ pub fn build_code_document(options: &CodeOptions, syntax_style: &SyntaxStyle) ->
 
     let Some(filetype) = &options.filetype else {
         // renderSelf: no filetype → setText(content) (Code.ts:593-601)
-        return CodeDocument {
-            chunks: vec![plain_chunk(&options.content)],
-            plain: true,
-        };
+        return (
+            CodeDocument {
+                chunks: vec![plain_chunk(&options.content)],
+                plain: true,
+            },
+            Vec::new(),
+        );
     };
 
     let result = get_tree_sitter_client()
@@ -120,16 +133,160 @@ pub fn build_code_document(options: &CodeOptions, syntax_style: &SyntaxStyle) ->
         if options.detect_links {
             chunks = detect_links(chunks, &options.content, &highlights, ranges.as_deref());
         }
-        CodeDocument {
-            chunks,
-            plain: false,
-        }
+        (
+            CodeDocument {
+                chunks,
+                plain: false,
+            },
+            highlights,
+        )
     } else {
-        CodeDocument {
-            chunks: vec![plain_chunk(&options.content)],
-            plain: true,
+        (
+            CodeDocument {
+                chunks: vec![plain_chunk(&options.content)],
+                plain: true,
+            },
+            highlights,
+        )
+    }
+}
+
+/// `getConcealLinesSourceMap` — Code.ts:525-582: rendered-line →
+/// source-line map when `conceal_lines` ranges collapse whole lines
+/// (identity → `None`). Offsets are UTF-16 like the highlights.
+pub fn conceal_lines_source_map(
+    content: &str,
+    highlights: &[SimpleHighlight],
+    conceal: bool,
+) -> Option<Vec<i64>> {
+    if !conceal || content.is_empty() {
+        return None;
+    }
+    let conceal_line_ranges = merged_conceal_line_ranges(highlights);
+    if conceal_line_ranges.is_empty() {
+        return None;
+    }
+
+    // line boundaries in UTF-16 space (content.indexOf("\n", …))
+    let total_u16: usize = content.chars().map(char::len_utf16).sum();
+    let mut line_starts: Vec<usize> = vec![0];
+    let mut u16_pos = 0usize;
+    for ch in content.chars() {
+        if ch == '\n' {
+            line_starts.push(u16_pos + 1);
+        }
+        u16_pos += ch.len_utf16();
+    }
+
+    let mut line_sources: Vec<i64> = Vec::new();
+    let mut range_index = 0usize;
+    let mut current_rendered_line_has_text = false;
+
+    // setCurrentRenderedLineSource (Code.ts:539-548)
+    fn set_current_rendered_line_source(
+        line_sources: &mut Vec<i64>,
+        line: usize,
+        has_text: bool,
+        current_rendered_line_has_text: &mut bool,
+    ) {
+        // Until visible text is emitted, a rendered line can still map
+        // to a later collapsed source line (Code.ts:540-547)
+        if line_sources.is_empty() {
+            line_sources.push(line as i64);
+        } else if !*current_rendered_line_has_text {
+            let last = line_sources.len() - 1;
+            line_sources[last] = line as i64;
+        }
+        if has_text {
+            *current_rendered_line_has_text = true;
         }
     }
+
+    // the walk's line index IS the source line (Code.ts:550-577)
+    for (source_line, &line_start) in line_starts.iter().enumerate() {
+        let line_idx = source_line;
+        let last = line_idx == line_starts.len() - 1;
+        let newline_offset: Option<usize> = if last {
+            None
+        } else {
+            Some(line_starts[line_idx + 1] - 1)
+        };
+        let line_end = newline_offset.unwrap_or(total_u16);
+
+        while range_index < conceal_line_ranges.len()
+            && conceal_line_ranges[range_index].1 <= line_start
+        {
+            range_index += 1;
+        }
+        let range = conceal_line_ranges.get(range_index).copied();
+        let fully_concealed =
+            range.is_some_and(|r| line_end > line_start && r.0 <= line_start && r.1 >= line_end);
+        let line_break_concealed =
+            newline_offset.is_some_and(|n| range.is_some_and(|r| r.0 <= n && r.1 >= n));
+
+        if !fully_concealed || !line_break_concealed {
+            let has_text = line_end > line_start && !fully_concealed;
+            if has_text || newline_offset.is_some() || !fully_concealed {
+                set_current_rendered_line_source(
+                    &mut line_sources,
+                    source_line,
+                    has_text,
+                    &mut current_rendered_line_has_text,
+                );
+            }
+            if newline_offset.is_some() && !line_break_concealed {
+                line_sources.push(source_line as i64 + 1);
+                current_rendered_line_has_text = false;
+            }
+        }
+
+        if newline_offset.is_none() {
+            break;
+        }
+    }
+
+    // identity → undefined (Code.ts:580)
+    if line_sources.is_empty() || line_sources.iter().enumerate().all(|(i, s)| *s == i as i64) {
+        return None;
+    }
+    Some(line_sources)
+}
+
+/// `getMergedConcealLineRanges` — Code.ts:488-523: the empty-conceal
+/// `conceal_lines` ranges, sorted and merged.
+fn merged_conceal_line_ranges(highlights: &[SimpleHighlight]) -> Vec<(usize, usize)> {
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+    for highlight in highlights {
+        if highlight.meta.conceal_lines.is_none() {
+            continue;
+        }
+        let group = highlight.group.as_str();
+        let is_empty_conceal = highlight.meta.conceal.as_deref() == Some("")
+            || (highlight.meta.conceal.is_none()
+                && (group == "conceal" || group.starts_with("conceal.")));
+        if is_empty_conceal {
+            ranges.push((highlight.start, highlight.end));
+        }
+    }
+    if ranges.len() <= 1 {
+        return ranges;
+    }
+    // Overlapping conceal ranges must collapse (Code.ts:506-521)
+    ranges.sort_by_key(|r| r.0);
+    let mut write_index = 0usize;
+    for i in 1..ranges.len() {
+        let current = ranges[write_index];
+        let next = ranges[i];
+        if next.0 <= current.1 {
+            let merged_end = current.1.max(next.1);
+            ranges[write_index] = (current.0, merged_end);
+        } else {
+            write_index += 1;
+            ranges[write_index] = next;
+        }
+    }
+    ranges.truncate(write_index + 1);
+    ranges
 }
 
 fn plain_chunk(text: &str) -> TextChunk {
