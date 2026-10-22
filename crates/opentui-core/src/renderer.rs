@@ -361,6 +361,13 @@ pub struct CliRenderer {
     feed_pending: Vec<u8>,
     /// bracketed paste collector (stdin-parser.ts:552+)
     paste_collector: Option<BracketedPasteCollector>,
+    // ----- clock -----
+    /// `performance.now()`'s timeOrigin analog — the renderer's
+    /// creation instant (ms since then is the wall value).
+    time_origin: std::time::Instant,
+    /// fixed `performance.now` override — the test seam for upstream's
+    /// monkeypatch (TimeToFirstDraw.test.ts:19-20).
+    performance_now_override: Option<f64>,
 }
 
 use std::collections::HashMap;
@@ -404,6 +411,8 @@ pub fn create_cli_renderer(config: CliRendererConfig) -> CliRenderer {
         mouse_parser: MouseParser::new(),
         paste_collector: None,
         feed_pending: Vec::new(),
+        time_origin: std::time::Instant::now(),
+        performance_now_override: None,
     }
 }
 
@@ -765,6 +774,46 @@ impl CliRenderer {
         )
     }
 
+    /// `performance.now()` — ms since the renderer's timeOrigin (its
+    /// creation). Renderables that need the clock read it through the
+    /// renderer (TimeToFirstDraw.ts:99 stamps inside `renderSelf`).
+    #[must_use]
+    pub fn performance_now(&self) -> f64 {
+        self.performance_now_override
+            .unwrap_or_else(|| self.time_origin.elapsed().as_secs_f64() * 1000.0)
+    }
+
+    /// Fix `performance.now` (the port's seam for upstream tests
+    /// monkeypatching it, TimeToFirstDraw.test.ts:19-20). `None`
+    /// restores the wall clock.
+    pub fn set_performance_now(&mut self, fixed: Option<f64>) {
+        self.performance_now_override = fixed;
+    }
+
+    /// Construct a `TimeToFirstDrawRenderable` (TimeToFirstDraw.ts:40)
+    /// without mounting. The constructor's option merge
+    /// (TimeToFirstDraw.ts:47-53): `width: "100%"`, `height: 1`,
+    /// `flexShrink: 0`, `alignSelf: "center"`, caller options winning.
+    #[must_use]
+    pub fn make_time_to_first_draw(
+        &mut self,
+        id: &str,
+        opts: &crate::renderables::time_to_first_draw::TimeToFirstDrawOptions,
+    ) -> Renderable {
+        let state =
+            crate::renderables::time_to_first_draw::TimeToFirstDrawState::from_options(opts);
+        let (layout, width, height) = opts.resolved();
+        Renderable::new(
+            &mut self.tree,
+            id,
+            layout,
+            width,
+            height,
+            Content::TimeToFirstDraw(state),
+            None,
+        )
+    }
+
     /// Construct an input renderable without mounting.
     #[must_use]
     pub fn make_input(&mut self, id: &str, opts: &InputOptions) -> Renderable {
@@ -892,7 +941,8 @@ impl CliRenderer {
         // EditBufferRenderable.ts:991-1004) — the cursor is renderer
         // state, so it is collected before the paint walk
         let mut cursor_positions: Vec<(String, u32, u32)> = Vec::new();
-        self.root.inner.prepare_paint(&mut cursor_positions);
+        let now_ms = self.performance_now();
+        self.root.inner.prepare_paint(&mut cursor_positions, now_ms);
 
         // pass 3: paint into next buffer; the hit grid rebuilds in
         // paint order (addToHitGrid, Renderable.ts:1493)
@@ -2695,12 +2745,29 @@ mod tests {
             scrollbox::scroll_top(&renderer.root.inner, "sb").unwrap()
         }
 
-        fn translate_y_of(renderer: &CliRenderer) -> f32 {
+        /// Internal scrollbox node ids carry the process-global
+        /// `ScrollBoxRenderable.idCounter` suffix (ScrollBox.ts:110 —
+        /// upstream is a class static, so the number depends on how many
+        /// scrollboxes the test process already created). Resolve the
+        /// actual ids through the renderer's root→content routing table
+        /// instead of hard-coding `-0`.
+        fn scroll_node<'a>(renderer: &'a CliRenderer, kind: &str) -> &'a Renderable {
+            let content_id = renderer.content_of.get("sb").expect("sb content id");
+            let suffix = content_id.rsplit('-').next().expect("counter suffix");
             renderer
                 .root
                 .inner
-                .find("scroll-box-content-0")
-                .unwrap()
+                .find(&format!("scroll-box-{kind}-{suffix}"))
+                .unwrap_or_else(|| panic!("scroll-box-{kind}-{suffix}"))
+        }
+
+        fn translate_y_of(renderer: &CliRenderer) -> f32 {
+            let content_id = renderer.content_of.get("sb").expect("sb content id");
+            renderer
+                .root
+                .inner
+                .find(content_id)
+                .expect("content node")
                 .translate_y
         }
 
@@ -2711,23 +2778,15 @@ mod tests {
             let r = mounted_scrollbox();
             assert_eq!(scroll_top_of(&r), 0.0);
             assert_eq!(translate_y_of(&r), 0.0);
-            let vp = r.root.inner.find("scroll-box-viewport-0").unwrap();
+            let vp = scroll_node(&r, "viewport");
             assert_eq!((vp.w, vp.h), (19.0, 8.0));
-            let bar = r
-                .root
-                .inner
-                .find("scroll-box-vertical-scrollbar-0")
-                .unwrap();
+            let bar = scroll_node(&r, "vertical-scrollbar");
             let crate::renderable::Content::ScrollBar(b) = &bar.content else {
                 panic!("bar state")
             };
             assert_eq!((b.scroll_size, b.viewport_size), (10.0, 8.0));
             assert!(bar.visible);
-            let hbar = r
-                .root
-                .inner
-                .find("scroll-box-horizontal-scrollbar-0")
-                .unwrap();
+            let hbar = scroll_node(&r, "horizontal-scrollbar");
             assert!(!hbar.visible);
         }
 
