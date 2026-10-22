@@ -161,6 +161,28 @@ non-md scenarios keep the oracle module graph unchanged):
 * `{ "op": "code", "id", "parent", "options": { content, filetype,
   conceal, fg, bg, styles } }` — mounts a `CodeRenderable`.
 
+Diff/LineNumber lane vocabulary (same lazy-import discipline; the
+oracle resolves `DiffRenderable` + the `diff` npm package — jsdiff
+9.0.0, the exact `@opentui/core@0.5.14` dependency — from the pinned
+sandbox):
+
+* `{ "op": "diff", "id", "parent", "options": { diff, view
+  ("unified"|"split"), filetype, wrapMode, conceal, fg,
+  showLineNumbers, lineNumberFg, lineNumberBg, addedBg, removedBg,
+  contextBg, addedContentBg, removedContentBg, contextContentBg,
+  addedSignColor, removedSignColor, addedLineNumberBg,
+  removedLineNumberBg, width ("N%"|n), height, styles } }` — mounts a
+  `DiffRenderable` (root-level width/height like upstream's tests).
+* `set` with `prop: "diff"`/`"view"` (string values) — the two content
+  setters (Diff.ts:928-961); a view flip to split re-runs the
+  wrap-alignment rebuild.
+* 21 scenarios: geometry (gutter width/sign placement/line numbers
+  incl. double-digit), unified/split × simple/multi-hunk/asymmetric,
+  split wrap-alignment (+resize realign), styling matrix (bg/sign/
+  gutter colors, hidden gutters), the parse-error view, content/view
+  mutations, and highlighted targets (typescript styles + markdown
+  conceal incl. the fenced-code `conceal_lines` source map).
+
 Two driver mechanics make the async oracle comparable with the port's
 synchronous highlight-at-construction:
 

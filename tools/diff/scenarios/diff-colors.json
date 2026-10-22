@@ -1,0 +1,28 @@
+{
+  "name": "diff-colors",
+  "width": 80,
+  "height": 20,
+  "steps": [
+    {
+      "op": "diff",
+      "id": "d",
+      "parent": "root",
+      "options": {
+        "diff": "--- a/test.js\n+++ b/test.js\n@@ -1,3 +1,3 @@\n function hello() {\n-  console.log(\"Hello\");\n+  console.log(\"Hello, World!\");\n }",
+        "width": "100%",
+        "height": "100%",
+        "view": "unified",
+        "addedBg": "#0a3d0a",
+        "removedBg": "#3d0a0a",
+        "addedContentBg": "#123d12",
+        "removedContentBg": "#3d1212",
+        "contextContentBg": "#222222",
+        "addedSignColor": "#00ff88",
+        "removedSignColor": "#ff0044",
+        "lineNumberFg": "#aaaaaa",
+        "addedLineNumberBg": "#003300",
+        "removedLineNumberBg": "#330000"
+      }
+    }
+  ]
+}

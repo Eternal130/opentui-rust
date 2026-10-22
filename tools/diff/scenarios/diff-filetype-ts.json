@@ -1,0 +1,33 @@
+{
+  "name": "diff-filetype-ts",
+  "width": 80,
+  "height": 20,
+  "steps": [
+    {
+      "op": "diff",
+      "id": "d",
+      "parent": "root",
+      "options": {
+        "diff": "--- a/app.ts\n+++ b/app.ts\n@@ -1,5 +1,6 @@\n interface User {\n-  name: string;\n+  name: string;\n+  email: string;\n }\n const user: User = {\n-  name: \"old\",\n+  name: \"new\",\n };",
+        "width": "100%",
+        "height": "100%",
+        "view": "unified",
+        "filetype": "typescript",
+        "styles": {
+          "keyword": {
+            "fg": "#c678dd"
+          },
+          "type": {
+            "fg": "#e5c07b"
+          },
+          "string": {
+            "fg": "#98c379"
+          },
+          "property": {
+            "fg": "#e06c75"
+          }
+        }
+      }
+    }
+  ]
+}

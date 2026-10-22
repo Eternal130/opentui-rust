@@ -7,6 +7,7 @@ use opentui_core::events::KeyEvent;
 use opentui_core::input::InputOptions;
 use opentui_core::parse_keypress::{KeyEventType, KeySource, ParsedKey};
 use opentui_core::renderables::box_::{BorderSpec, BoxOptions};
+use opentui_core::renderables::diff::{DiffOptions, DiffView};
 use opentui_core::renderables::scrollbar::ScrollUnit;
 use opentui_core::renderables::scrollbox::{ScrollBoxOptions, StickyStart};
 use opentui_core::renderables::text::{ContentInput, TextOptions, WrapMode};
@@ -172,6 +173,22 @@ fn opt_f32(v: &serde_json::Value, key: &str) -> Option<opentui_core::layout::Dim
         .map(|f| opentui_core::layout::Dimension::Points(f as f32))
 }
 
+/// A yoga-style dimension from JSON — number (points) or `"N%"`.
+fn parse_dimension_json(v: &serde_json::Value) -> Option<opentui_core::layout::Dimension> {
+    use opentui_core::layout::Dimension;
+    match v {
+        serde_json::Value::Number(n) => n.as_f64().map(|f| Dimension::Points(f as f32)),
+        serde_json::Value::String(s) => {
+            let trimmed = s.strip_suffix('%')?;
+            trimmed
+                .parse::<f32>()
+                .ok()
+                .map(|p| Dimension::Percent(p / 100.0))
+        }
+        _ => None,
+    }
+}
+
 /// Attribute names → bits — the JSON spelling of `createTextAttributes`
 /// (utils.ts:4-29); raw numbers pass through.
 fn parse_attributes(v: Option<&serde_json::Value>) -> Result<u32> {
@@ -303,6 +320,7 @@ enum PendingNode {
         Box<opentui_core::renderables::markdown::MarkdownOptions>,
         opentui_core::syntax_style::SyntaxStyle,
     ),
+    Diff(Box<DiffOptions>, opentui_core::syntax_style::SyntaxStyle),
 }
 
 /// `styles` option → `SyntaxStyle.fromStyles` (syntax-style.ts:106-114).
@@ -455,6 +473,24 @@ pub fn replay(scenario: &Scenario) -> Result<CliRenderer> {
                 mount(&mut renderer, &mut by_id, &children_of, None, &roots);
                 let id = step.id.clone().context("set step needs id")?;
                 let prop = step.prop.clone().context("set step needs prop")?;
+                // the diff content/view setters take string values
+                // (`diffRenderable.diff = …` / `.view = …`, Diff.ts:928-961)
+                if matches!(prop.as_str(), "diff" | "view") {
+                    let value = step
+                        .value
+                        .clone()
+                        .and_then(|v| v.as_str().map(str::to_owned))
+                        .with_context(|| format!("set {prop} needs a string value"))?;
+                    if !renderer.has_node(&id) {
+                        anyhow::bail!("set: unknown node {id}");
+                    }
+                    match prop.as_str() {
+                        "diff" => renderer.diff_set(&id, Some(value), None),
+                        "view" => renderer.diff_set(&id, None, Some(DiffView::parse(&value))),
+                        _ => unreachable!(),
+                    };
+                    continue;
+                }
                 let value = step
                     .value
                     .as_ref()
@@ -753,6 +789,79 @@ pub fn replay(scenario: &Scenario) -> Result<CliRenderer> {
                 }
                 let style = parse_syntax_style(o)?;
                 PendingNode::Markdown(Box::new(opts), style)
+            }
+            "diff" => {
+                let mut opts = DiffOptions {
+                    diff: o
+                        .get("diff")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_owned(),
+                    ..Default::default()
+                };
+                if let Some(v) = o.get("view").and_then(|v| v.as_str()) {
+                    opts.view = DiffView::parse(v);
+                }
+                if let Some(ft) = o.get("filetype").and_then(|v| v.as_str()) {
+                    opts.filetype = Some(ft.to_owned());
+                }
+                if let Some(m) = o.get("wrapMode").and_then(|v| v.as_str()) {
+                    opts.wrap_mode = Some(WrapMode::parse(m));
+                }
+                if let Some(c) = o.get("conceal").and_then(|v| v.as_bool()) {
+                    opts.conceal = c;
+                }
+                if let Some(c) = o.get("fg").and_then(|v| v.as_str()) {
+                    opts.fg = Some(parse_color(c));
+                }
+                if let Some(v) = o.get("showLineNumbers").and_then(|v| v.as_bool()) {
+                    opts.show_line_numbers = v;
+                }
+                let color = |name: &str| o.get(name).and_then(|v| v.as_str()).map(parse_color);
+                if let Some(c) = color("lineNumberFg") {
+                    opts.line_number_fg = c;
+                }
+                if let Some(c) = color("lineNumberBg") {
+                    opts.line_number_bg = c;
+                }
+                if let Some(c) = color("addedBg") {
+                    opts.added_bg = c;
+                }
+                if let Some(c) = color("removedBg") {
+                    opts.removed_bg = c;
+                }
+                if let Some(c) = color("contextBg") {
+                    opts.context_bg = c;
+                }
+                if let Some(c) = color("addedContentBg") {
+                    opts.added_content_bg = Some(c);
+                }
+                if let Some(c) = color("removedContentBg") {
+                    opts.removed_content_bg = Some(c);
+                }
+                if let Some(c) = color("contextContentBg") {
+                    opts.context_content_bg = Some(c);
+                }
+                if let Some(c) = color("addedSignColor") {
+                    opts.added_sign_color = c;
+                }
+                if let Some(c) = color("removedSignColor") {
+                    opts.removed_sign_color = c;
+                }
+                if let Some(c) = color("addedLineNumberBg") {
+                    opts.added_line_number_bg = c;
+                }
+                if let Some(c) = color("removedLineNumberBg") {
+                    opts.removed_line_number_bg = c;
+                }
+                if let Some(v) = o.get("width").and_then(parse_dimension_json) {
+                    opts.width = v;
+                }
+                if let Some(v) = o.get("height").and_then(parse_dimension_json) {
+                    opts.height = v;
+                }
+                let style = parse_syntax_style(o)?;
+                PendingNode::Diff(Box::new(opts), style)
             }
             other => anyhow::bail!("unknown op: {other}"),
         };
@@ -1218,6 +1327,7 @@ fn mount(
             Some(PendingNode::Input(opts)) => renderer.make_input(id, &opts),
             Some(PendingNode::Code(opts, style)) => renderer.make_code(id, &opts, &style),
             Some(PendingNode::Markdown(opts, style)) => renderer.make_markdown(id, &opts, &style),
+            Some(PendingNode::Diff(opts, style)) => renderer.make_diff(id, &opts, &style),
             None => continue,
         };
         match parent {

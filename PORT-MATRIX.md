@@ -53,15 +53,15 @@ recomputed state.
 | @opentui/keymap (+subpaths) | 12 | 14* | 4 | 2 | 6 |
 | **total** | **339** | **79** | **35** | **18** | **286** |
 
-### Current (recounted 2026-10-22 from the per-symbol rows below)
+### Current (recounted 2026-10-22 from the per-symbol rows below; diff/line-number lane merged)
 
 | package | exports | done | partial | deferred | todo |
 |---|---|---|---|---|---|
-| @opentui/core | 279 | 113 | 8 | 0 | 158 |
+| @opentui/core | 279 | 115 | 8 | 0 | 156 |
 | @opentui/solid | 48 | 35 | 3 | 7 | 3 |
 | @opentui/keymap (+subpaths) | 12 | 12 | 0 | 0 | 0 |
-| **total** | **339** | **160 (47.2%)** | **11** | **7** | **161** |
-| tier-1 rows only (bold `**1**`) | 52 | 45 | 3 | 0 | 4 |
+| **total** | **339** | **162 (47.8%)** | **11** | **7** | **159** |
+| tier-1 rows only (bold `**1**`) | 52 | 47 | 3 | 0 | 2 |
 
 \* The tier-1 size has two readings, both correct: **79** = distinct
 consumer import names parsed from opencode v2.0.24's TUI imports
@@ -118,7 +118,7 @@ tree-sitter styling, testing helpers.
 | `DEUTERANOPIA_SIM_MATRIX` | 2 | core/src/post/matrices.ts:46 | opentui-core | todo |
 | `DataPathsManager` | 2 | core/src/lib/data-paths.ts:34 | opentui-core | todo |
 | `DebugOverlayCorner` | 2 | core/src/types.ts:92 | opentui-core | todo |
-| `DiffRenderable` | **1** | core/src/renderables/Diff.ts:55 | opentui-core::renderables | todo |
+| `DiffRenderable` | **1** | core/src/renderables/Diff.ts:55 | opentui-core::renderables | done (jsdiff `parsePatch` 9.0.0 ported 1:1 in `renderables/diff.rs`; unified/split + wrap-alignment + error view; 21 diff scenarios IDENTICAL) |
 | `DistortionEffect` | 2 | core/src/post/effects.ts:29 | opentui-core | todo |
 | `EditBuffer` | 2 | core/src/edit-buffer.ts:19 | opentui-core::editor | done |
 | `EditBufferRenderable` | 2 | core/src/renderables/EditBufferRenderable.ts:85 | opentui-core::renderables::textarea | done |
@@ -143,7 +143,7 @@ tree-sitter styling, testing helpers.
 | `KeyEvent` | **1** | core/src/lib/KeyHandler.ts:5 | opentui-core::events | done |
 | `KeyHandler` | 2 | core/src/lib/KeyHandler.ts:99 | opentui-core::events | done |
 | `LayoutEvents` | 2 | core/src/Renderable.ts:39 | opentui-core | todo |
-| `LineNumberRenderable` | **1** | core/src/renderables/LineNumberRenderable.ts:365 | opentui-core::renderables | todo |
+| `LineNumberRenderable` | **1** | core/src/renderables/LineNumberRenderable.ts:365 | opentui-core::renderables | done (GutterRenderable incl. measure func + conceal source-map lineInfo; via Diff, 21 scenarios IDENTICAL) |
 | `LinearScrollAccel` | 2 | core/src/lib/scroll-acceleration.ts:6 | opentui-core | done |
 | `LogLevel` | 2 | core/src/zig.ts:2339 | opentui-core | todo |
 | `MAX_LINK_URL_BYTES` | 2 | core/src/zig.ts:105 | opentui-core::ansi | todo |

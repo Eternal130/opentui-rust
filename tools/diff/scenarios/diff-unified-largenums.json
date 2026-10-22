@@ -1,0 +1,19 @@
+{
+  "name": "diff-unified-largenums",
+  "width": 80,
+  "height": 20,
+  "steps": [
+    {
+      "op": "diff",
+      "id": "d",
+      "parent": "root",
+      "options": {
+        "diff": "--- a/large.js\n+++ b/large.js\n@@ -42,9 +42,10 @@\n const line42 = 'context';\n const line43 = 'context';\n-const line44 = 'removed';\n+const line44 = 'added';\n const line45 = 'context';\n+const line46 = 'added';\n const line47 = 'context';\n const line48 = 'context';\n-const line49 = 'removed';\n+const line49 = 'changed';\n const line50 = 'context';\n const line51 = 'context';",
+        "width": "100%",
+        "height": "100%",
+        "view": "unified",
+        "showLineNumbers": true
+      }
+    }
+  ]
+}
