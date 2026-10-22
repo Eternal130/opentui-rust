@@ -1,0 +1,30 @@
+{
+  "name": "diff-toggle-view",
+  "width": 80,
+  "height": 20,
+  "steps": [
+    {
+      "op": "diff",
+      "id": "d",
+      "parent": "root",
+      "options": {
+        "diff": "--- a/test.js\n+++ b/test.js\n@@ -1,3 +1,3 @@\n function hello() {\n-  console.log(\"Hello\");\n+  console.log(\"Hello, World!\");\n }",
+        "width": "100%",
+        "height": "100%",
+        "view": "unified"
+      }
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "set",
+      "id": "d",
+      "prop": "view",
+      "value": "split"
+    },
+    {
+      "op": "flush"
+    }
+  ]
+}

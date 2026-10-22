@@ -1,0 +1,19 @@
+{
+  "name": "diff-unified-wrap-word",
+  "width": 80,
+  "height": 20,
+  "steps": [
+    {
+      "op": "diff",
+      "id": "d",
+      "parent": "root",
+      "options": {
+        "diff": "--- a/wrap.js\n+++ b/wrap.js\n@@ -1,4 +1,4 @@\n function hello() {\n-  console.log(\"This is a very long line that should wrap when wrapMode is set to word but not when it is set to none\");\n+  console.log(\"This is a very long line that has been modified and should wrap when wrapMode is set to word but not when it is set to none\");\n   return result;\n }",
+        "width": "100%",
+        "height": "100%",
+        "view": "unified",
+        "wrapMode": "word"
+      }
+    }
+  ]
+}

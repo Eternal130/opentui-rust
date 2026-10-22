@@ -26,6 +26,7 @@
 //! renderer.ts:3498-3545).
 
 use crate::buffer::OptimizedBuffer;
+use crate::color::parse_color;
 use crate::color::Rgba;
 use crate::editor::SelectionBehavior;
 use crate::events::{KeyEvent, KeyHandler, MouseButton, MouseEvent, PasteEvent};
@@ -38,6 +39,7 @@ use crate::renderable::{
     Content, MeasureCtx, MeasureKind, Renderable, RootRenderable, WalkEffects,
 };
 use crate::renderables::box_::{BoxOptions, BoxRenderableState};
+use crate::renderables::diff;
 use crate::renderables::scrollbox;
 use crate::renderables::text::{TextOptions, TextRenderableState};
 use crate::renderables::textarea::{TextareaOptions, TextareaState};
@@ -875,6 +877,568 @@ impl CliRenderer {
         self.add(r);
     }
 
+    /// Construct a `DiffRenderable`'s settled subtree (Diff.ts:110-151
+    /// constructor + `buildView` Diff.ts:177-195): the column/row root
+    /// carrying the rebuild state, with per-side
+    /// [`crate::renderables::line_number`] wrappers (unified: one at
+    /// 100%; split: two at 50% — `createOrUpdateSide` Diff.ts:427-484)
+    /// or the error view (`buildErrorView` Diff.ts:310-365).
+    #[must_use]
+    pub fn make_diff(
+        &mut self,
+        id: &str,
+        opts: &diff::DiffOptions,
+        syntax_style: &crate::syntax_style::SyntaxStyle,
+    ) -> Renderable {
+        let state = crate::renderable::DiffState {
+            options: opts.clone(),
+            view: opts.view,
+            aligned: false,
+            last_code_widths: [0.0, 0.0],
+            hunk_start_lines: Vec::new(),
+        };
+        let mut root = Renderable::new(
+            &mut self.tree,
+            id,
+            crate::layout::LayoutOptions {
+                flex_direction: Some(
+                    if opts.view == diff::DiffView::Split {
+                        "row"
+                    } else {
+                        "column"
+                    }
+                    .to_owned(),
+                ),
+                ..Default::default()
+            },
+            opts.width,
+            opts.height,
+            Content::Diff(state),
+            None,
+        );
+        let build = diff::build_diff_view(opts, None);
+        for (index, side) in build.sides.iter().enumerate() {
+            let child = self.make_diff_side(
+                &format!("{id}-{}", if index == 0 { "left" } else { "right" }),
+                side,
+                opts,
+                syntax_style,
+            );
+            root.add(&mut self.tree, child);
+        }
+        if build.error.is_some() {
+            for child in self.make_diff_error_children(id, opts, syntax_style) {
+                root.add(&mut self.tree, child);
+            }
+        }
+        if let Content::Diff(state) = &mut root.content {
+            state.hunk_start_lines = build.hunk_start_lines;
+        }
+        root
+    }
+
+    /// The error view — Diff.ts:310-365: the red message text
+    /// (flexShrink 0, width 100%) over the raw diff through a
+    /// `filetype: "diff"` code block (flexGrow 1, flexShrink 1).
+    /// Returns the children unattached (the caller adds them under the
+    /// diff root in order).
+    fn make_diff_error_children(
+        &mut self,
+        id: &str,
+        opts: &diff::DiffOptions,
+        syntax_style: &crate::syntax_style::SyntaxStyle,
+    ) -> Vec<Renderable> {
+        let message = diff::build_diff_view(opts, None)
+            .error
+            .unwrap_or_else(|| "Unknown error".to_owned());
+        let error_message = format!("Error parsing diff: {message}\n");
+        let text_state = crate::renderables::text::TextRenderableState::from_options(
+            &crate::renderables::text::TextOptions {
+                layout: crate::layout::LayoutOptions {
+                    flex_shrink: Some(0.0),
+                    ..Default::default()
+                },
+                width: Some(Dimension::Percent(1.0)),
+                content: crate::renderables::text::ContentInput::Str(error_message),
+                fg: Some(parse_color("#ef4444")),
+                ..Default::default()
+            },
+        );
+        let text_ctx = MeasureCtx {
+            kind: MeasureKind::Text,
+            text: Some(text_state.measured()),
+            ..Default::default()
+        };
+        let error_text = Renderable::new(
+            &mut self.tree,
+            &format!("{id}-error-text"),
+            crate::layout::LayoutOptions {
+                flex_shrink: Some(0.0),
+                ..Default::default()
+            },
+            Dimension::Percent(1.0),
+            Dimension::Auto,
+            Content::Text(text_state),
+            Some(text_ctx),
+        );
+
+        // the raw diff through a code block — create-branch wrapMode is
+        // `this._wrapMode` (undefined → the TextBuffer "word" default;
+        // the update branch sets "none", Diff.ts:356 — quirk kept)
+        let code_opts = crate::renderables::code::CodeOptions {
+            content: opts.diff.clone(),
+            filetype: Some("diff".to_owned()),
+            conceal: Some(opts.conceal),
+            fg: opts.fg,
+            ..Default::default()
+        };
+        let doc = crate::renderables::code::build_code_document(&code_opts, syntax_style);
+        let code_state = crate::renderables::text::TextRenderableState::from_options(
+            &crate::renderables::text::TextOptions {
+                layout: crate::layout::LayoutOptions {
+                    flex_grow: Some(1.0),
+                    flex_shrink: Some(1.0),
+                    ..Default::default()
+                },
+                width: Some(Dimension::Percent(1.0)),
+                content: crate::renderables::text::ContentInput::Styled(doc.to_styled()),
+                fg: opts.fg,
+                wrap_mode: opts.wrap_mode,
+                ..Default::default()
+            },
+        );
+        let code_ctx = MeasureCtx {
+            kind: MeasureKind::Text,
+            text: Some(code_state.measured()),
+            ..Default::default()
+        };
+        let error_code = Renderable::new(
+            &mut self.tree,
+            &format!("{id}-error-code"),
+            crate::layout::LayoutOptions {
+                flex_grow: Some(1.0),
+                flex_shrink: Some(1.0),
+                ..Default::default()
+            },
+            Dimension::Percent(1.0),
+            Dimension::Auto,
+            Content::Text(code_state),
+            Some(code_ctx),
+        );
+        vec![error_text, error_code]
+    }
+
+    /// One diff side — the `LineNumberRenderable` wrapper
+    /// (LineNumberRenderable.ts:406-442: row, height forced auto) with
+    /// its `[gutter, code]` children (:444-479).
+    fn make_diff_side(
+        &mut self,
+        id: &str,
+        spec: &diff::SideSpec,
+        opts: &diff::DiffOptions,
+        syntax_style: &crate::syntax_style::SyntaxStyle,
+    ) -> Renderable {
+        use crate::renderables::line_number as ln;
+
+        // the wrapper's content colors + the code concealment source map
+        let mut line_colors_content = std::collections::HashMap::new();
+        for (line, color) in &spec.line_colors {
+            ln::parse_line_color(
+                color,
+                &mut std::collections::HashMap::new(),
+                &mut line_colors_content,
+                *line,
+            );
+        }
+        let code_opts = crate::renderables::code::CodeOptions {
+            content: spec.content.clone(),
+            filetype: opts.filetype.clone(),
+            conceal: Some(opts.conceal),
+            fg: opts.fg,
+            ..Default::default()
+        };
+        let (doc, highlights) =
+            crate::renderables::code::build_code_document_with_highlights(&code_opts, syntax_style);
+        let source_map = crate::renderables::code::conceal_lines_source_map(
+            &spec.content,
+            &highlights,
+            opts.conceal,
+        );
+
+        // the target CodeRenderable — width/height 100% (Diff.ts:383-384)
+        let code_state = crate::renderables::text::TextRenderableState::from_options(
+            &crate::renderables::text::TextOptions {
+                width: Some(Dimension::Percent(1.0)),
+                height: Some(Dimension::Percent(1.0)),
+                content: crate::renderables::text::ContentInput::Styled(doc.to_styled()),
+                fg: opts.fg,
+                // CodeRenderable's wrapMode: the Diff's option, else the
+                // TextBuffer "word" default (TextBufferRenderable.ts:55)
+                wrap_mode: Some(opts.wrap_mode.unwrap_or_default()),
+                ..Default::default()
+            },
+        );
+        let initial_total = code_state.doc.lines.len() as u32;
+        let code_ctx = MeasureCtx {
+            kind: MeasureKind::Text,
+            text: Some(code_state.measured()),
+            ..Default::default()
+        };
+        let target = Renderable::new(
+            &mut self.tree,
+            &format!("{id}-code"),
+            crate::layout::LayoutOptions::default(),
+            Dimension::Percent(1.0),
+            Dimension::Percent(1.0),
+            Content::Text(code_state),
+            Some(code_ctx),
+        );
+
+        // the gutter — auto/auto, flexGrow 0, flexShrink 0, measured
+        // (LineNumberRenderable.ts:72-79); `showLineNumbers` maps to
+        // `gutter.visible` (Diff.ts:453, LineNumberRenderable.ts:567-571)
+        let mut line_options = ln::LineNumberOptions {
+            fg: opts.line_number_fg,
+            bg: opts.line_number_bg,
+            line_colors: spec.line_colors.clone(),
+            line_signs: spec.line_signs.clone(),
+            line_numbers: spec.line_numbers.clone(),
+            hide_line_numbers: spec.hide_line_numbers.clone(),
+            width: spec.width,
+            ..Default::default()
+        };
+        let _ = &mut line_options;
+        let gutter_state = ln::GutterState::new(&line_options);
+        let gutter_measure = gutter_state.measure_ctx(initial_total);
+        let gutter_ctx = MeasureCtx {
+            kind: MeasureKind::Gutter,
+            gutter: Some(gutter_measure),
+            ..Default::default()
+        };
+        let mut gutter = Renderable::new(
+            &mut self.tree,
+            &format!("{id}-gutter"),
+            crate::layout::LayoutOptions {
+                flex_grow: Some(0.0),
+                flex_shrink: Some(0.0),
+                ..Default::default()
+            },
+            Dimension::Auto,
+            Dimension::Auto,
+            Content::Gutter(gutter_state),
+            Some(gutter_ctx),
+        );
+        gutter.visible = opts.show_line_numbers;
+        gutter.apply_initial_display(&mut self.tree);
+
+        let mut wrapper = Renderable::new(
+            &mut self.tree,
+            id,
+            crate::layout::LayoutOptions {
+                flex_direction: Some("row".to_owned()),
+                ..Default::default()
+            },
+            spec.width,
+            // height forced "auto" (LineNumberRenderable.ts:412)
+            Dimension::Auto,
+            Content::LineNumber(ln::LineNumberState {
+                line_colors_content,
+                source_map,
+            }),
+            None,
+        );
+        wrapper.add(&mut self.tree, gutter);
+        wrapper.add(&mut self.tree, target);
+        wrapper
+    }
+
+    /// Rebuild a diff's side subtrees at the current width — the
+    /// `requestRebuild` microtask's payload (Diff.ts:221-234) applied:
+    /// `buildSplitView`'s alignment pass (Diff.ts:755-821) over the
+    /// measured per-logical-line visual counts, then fresh sides.
+    fn apply_diff_realign(&mut self, diff_id: &str, effects: &mut WalkEffects) {
+        // measure first: the counts + code widths the rebuild reads
+        // options snapshot first (a short borrow), then the measurement
+        let options = {
+            let Some(node) = self.find_node(&self.root.inner, diff_id) else {
+                return;
+            };
+            let Content::Diff(state) = &node.content else {
+                return;
+            };
+            state.options.clone()
+        };
+        let mut counts = diff::SideVisualCounts::default();
+        let mut code_widths = [0.0f32, 0.0];
+        {
+            let Some(node) = self.find_node(&self.root.inner, diff_id) else {
+                return;
+            };
+            let Content::Diff(state) = &node.content else {
+                return;
+            };
+            let _ = state;
+            for (side, wrapper) in node.children.iter().take(2).enumerate() {
+                let Some(target) = wrapper
+                    .children
+                    .iter()
+                    .skip(1)
+                    .find(|c| matches!(c.content, Content::Text(_)))
+                else {
+                    continue;
+                };
+                let Content::Text(text) = &target.content else {
+                    continue;
+                };
+                code_widths[side] = target.w;
+                let wrap_width = if text.wrap_mode == crate::renderables::text::WrapMode::None {
+                    None
+                } else {
+                    Some(text.viewport.map_or(0, |vp| vp.width))
+                }
+                .filter(|w| *w > 0);
+                let vlines = crate::text_buffer::compute_virtual_lines(
+                    &text.doc,
+                    text.wrap_mode,
+                    wrap_width,
+                );
+                let source_map = wrapper_source_map(wrapper);
+                let per_side = if side == 0 {
+                    &mut counts.left
+                } else {
+                    &mut counts.right
+                };
+                per_side.resize(text.doc.lines.len().max(vlines.len()), 0);
+                for vline in &vlines {
+                    // mapped through the concealment source map
+                    // (Code.ts:157 — lineInfo remaps rendered rows)
+                    let logical = source_map
+                        .as_ref()
+                        .and_then(|map| map.get(vline.source_line as usize).copied())
+                        .unwrap_or(i64::from(vline.source_line));
+                    if logical >= 0 && (logical as usize) < per_side.len() {
+                        per_side[logical as usize] += 1;
+                    }
+                }
+            }
+        }
+        let build = diff::build_diff_view(&options, Some(&counts));
+        let style = crate::syntax_style::SyntaxStyle::create();
+        // fresh side subtrees (createOrUpdateSide's maps + the final
+        // content, Diff.ts:908-925), then swap them in
+        let mut children: Vec<Renderable> = Vec::new();
+        for (index, side) in build.sides.iter().enumerate() {
+            children.push(self.make_diff_side(
+                &format!("{diff_id}-{}", if index == 0 { "left" } else { "right" }),
+                side,
+                &options,
+                &style,
+            ));
+        }
+        {
+            let Self { tree, root, .. } = self;
+            let Some(node) = root.inner.find_mut(diff_id) else {
+                return;
+            };
+            let diff_node = node.node;
+            while !node.children.is_empty() {
+                let child_id = node.children[0].id.0.clone();
+                if let Some(child) = node.remove_child_by_id(tree, &child_id) {
+                    let _ = tree.remove(child.node);
+                }
+            }
+            for child in children {
+                node.add(tree, child);
+            }
+            if let Content::Diff(state) = &mut node.content {
+                state.aligned = true;
+                state.last_code_widths = code_widths;
+                state.hunk_start_lines = build.hunk_start_lines;
+            }
+            let _ = tree.mark_dirty(diff_node);
+        }
+        effects.size_changed = true;
+    }
+
+    /// Refresh a gutter's measure to the target's current virtual line
+    /// count — upstream `line-info-change` → `gutter.remeasure()`
+    /// (LineNumberRenderable.ts:96-103, 379-383).
+    fn apply_gutter_remeasure(&mut self, wrapper_id: &str, effects: &mut WalkEffects) {
+        let mut refresh: Option<(tp::NodeId, u32)> = None;
+        {
+            let Some(node) = Self::find_node_mut(&mut self.root.inner, wrapper_id) else {
+                return;
+            };
+            let Some(target) = node
+                .children
+                .iter()
+                .skip(1)
+                .find(|c| matches!(c.content, Content::Text(_)))
+            else {
+                return;
+            };
+            let Content::Text(text) = &target.content else {
+                return;
+            };
+            let wrap_width = if text.wrap_mode == crate::renderables::text::WrapMode::None {
+                None
+            } else {
+                Some(text.viewport.map_or(0, |vp| vp.width))
+            }
+            .filter(|w| *w > 0);
+            let vlines =
+                crate::text_buffer::compute_virtual_lines(&text.doc, text.wrap_mode, wrap_width);
+            if let Some(gutter) = node.children.first() {
+                refresh = Some((gutter.node, vlines.len() as u32));
+            }
+        }
+        let Some((gutter_node, total)) = refresh else {
+            return;
+        };
+        if let Some(ctx) = self.tree.get_node_context_mut(gutter_node) {
+            if let Some(measure) = &mut ctx.gutter {
+                measure.total_lines = total;
+            }
+        }
+        let _ = self.tree.mark_dirty(gutter_node);
+        effects.size_changed = true;
+    }
+
+    /// Deferred tree repairs collected by the update walk
+    /// ([`crate::renderable::RepairEvent`]) — applied between settle
+    /// passes, each driving another layout like upstream's
+    /// `requestRender`.
+    fn apply_repairs(&mut self, effects: &mut WalkEffects) {
+        let repairs = std::mem::take(&mut effects.repairs);
+        for repair in repairs {
+            match repair {
+                crate::renderable::RepairEvent::GutterRemeasure { wrapper } => {
+                    self.apply_gutter_remeasure(&wrapper, effects);
+                }
+                crate::renderable::RepairEvent::DiffRealign { diff } => {
+                    self.apply_diff_realign(&diff, effects);
+                }
+            }
+        }
+    }
+
+    /// `diffRenderable.diff = value` / `.view = value` — the two
+    /// content setters (Diff.ts:928-961): re-parse + rebuild the sides
+    /// (the split path's microtask rebuild settles synchronously here).
+    pub fn diff_set(&mut self, id: &str, diff: Option<String>, view: Option<diff::DiffView>) {
+        let mut changed = false;
+        {
+            let Self { tree, root, .. } = self;
+            let Some(node) = root.inner.find_mut(id) else {
+                return;
+            };
+            let Content::Diff(state) = &mut node.content else {
+                return;
+            };
+            if let Some(value) = diff {
+                if state.options.diff != value {
+                    state.options.diff = value;
+                    changed = true;
+                }
+            }
+            if let Some(value) = view {
+                if state.view != value {
+                    state.view = value;
+                    state.options.view = value;
+                    node.layout.flex_direction = Some(
+                        if value == diff::DiffView::Split {
+                            "row"
+                        } else {
+                            "column"
+                        }
+                        .to_owned(),
+                    );
+                    let style = crate::layout::taffy_style(&node.layout, node.width, node.height);
+                    let _ = tree.set_style(node.node, style);
+                    changed = true;
+                }
+            }
+            if changed {
+                state.aligned = false;
+                state.last_code_widths = [0.0, 0.0];
+            }
+        }
+        if !changed {
+            return;
+        }
+        self.rebuild_diff(id);
+        self.render();
+    }
+
+    /// Rebuild a diff's subtrees from its current options (the
+    /// `buildView` payload; unified rebuilds immediately, split defers
+    /// to the realign pass — Diff.ts:240-246).
+    fn rebuild_diff(&mut self, id: &str) {
+        let options = {
+            let Some(node) = Self::find_node_mut(&mut self.root.inner, id) else {
+                return;
+            };
+            let Content::Diff(state) = &node.content else {
+                return;
+            };
+            state.options.clone()
+        };
+        let style = crate::syntax_style::SyntaxStyle::create();
+        let build = diff::build_diff_view(&options, None);
+        let mut children: Vec<Renderable> = Vec::new();
+        for (index, side) in build.sides.iter().enumerate() {
+            children.push(self.make_diff_side(
+                &format!("{id}-{}", if index == 0 { "left" } else { "right" }),
+                side,
+                &options,
+                &style,
+            ));
+        }
+        if build.error.is_some() {
+            children.extend(self.make_diff_error_children(id, &options, &style));
+        }
+        {
+            let Self { tree, root, .. } = self;
+            let Some(node) = root.inner.find_mut(id) else {
+                return;
+            };
+            let diff_node = node.node;
+            while !node.children.is_empty() {
+                let child_id = node.children[0].id.0.clone();
+                if let Some(child) = node.remove_child_by_id(tree, &child_id) {
+                    let _ = tree.remove(child.node);
+                }
+            }
+            for child in children {
+                node.add(tree, child);
+            }
+            if let Content::Diff(state) = &mut node.content {
+                state.hunk_start_lines = build.hunk_start_lines;
+            }
+            let _ = tree.mark_dirty(diff_node);
+        }
+    }
+
+    /// `getHunkRowOffsets()` (Diff.ts:1254-1259) — the hunk-start visual
+    /// rows resolved against the left code's current line sources.
+    #[must_use]
+    pub fn diff_hunk_row_offsets(&self, id: &str) -> Vec<usize> {
+        let Some(node) = self.find_node(&self.root.inner, id) else {
+            return Vec::new();
+        };
+        let Content::Diff(state) = &node.content else {
+            return Vec::new();
+        };
+        // computeHunkRowOffsets reads leftCodeRenderable.lineInfo
+        // (Diff.ts:1266) — the left wrapper's target, remapped through
+        // its concealment source map
+        let Some(wrapper) = node.children.first() else {
+            return Vec::new();
+        };
+        let sources = wrapper_text_sources(wrapper);
+        diff::compute_hunk_row_offsets(&state.hunk_start_lines, &sources)
+    }
+
     /// Update an input leaf's measure context after its value changed
     /// (`content-changed` → `yogaNode.markDirty`,
     /// EditBufferRenderable.ts:203-210).
@@ -914,6 +1478,7 @@ impl CliRenderer {
             &mut effects,
         );
         self.apply_recalcs(&mut effects);
+        self.apply_repairs(&mut effects);
         let mut guard = 0;
         while effects.any() && guard < 16 {
             self.layout_pass();
@@ -934,6 +1499,7 @@ impl CliRenderer {
                 eprintln!("[walk{}] vp={}", guard + 2, vp);
             }
             self.apply_recalcs(&mut effects);
+            self.apply_repairs(&mut effects);
             guard += 1;
         }
 
@@ -1092,6 +1658,11 @@ impl CliRenderer {
 
     /// Live child ids under `parent_id` (ScrollBox ids route into the
     /// content viewport) — reconciler/test observability of child order.
+    #[must_use]
+    pub fn has_node(&self, id: &str) -> bool {
+        self.root.inner.find(id).is_some()
+    }
+
     #[must_use]
     pub fn child_ids(&self, parent_id: &str) -> Option<Vec<String>> {
         let target = self
@@ -1310,6 +1881,18 @@ impl CliRenderer {
                 avail_w,
                 avail_h,
             );
+            return tp::Size {
+                width: w,
+                height: h,
+            };
+        }
+        if ctx.kind == MeasureKind::Gutter {
+            // GutterRenderable.setupMeasureFunc (LineNumberRenderable.ts:106-125):
+            // content-derived dimensions — calculateWidth × the target's
+            // virtual line count — ignoring the incoming constraints.
+            let empty = crate::renderables::line_number::GutterMeasure::default();
+            let measure = ctx.gutter.as_ref().unwrap_or(&empty);
+            let (w, h) = measure.measure();
             return tp::Size {
                 width: w,
                 height: h,
@@ -2382,6 +2965,50 @@ fn find_node_mut<'a>(root: &'a mut Renderable, id: &str) -> Option<&'a mut Rende
     root.children.iter_mut().find_map(|c| find_node_mut(c, id))
 }
 
+/// A diff-side wrapper's Code concealment source map (the
+/// `LineNumberState` payload — Code.ts `_renderedLineSources`).
+fn wrapper_source_map(wrapper: &Renderable) -> Option<Vec<i64>> {
+    match &wrapper.content {
+        Content::LineNumber(state) => state.source_map.clone(),
+        _ => None,
+    }
+}
+
+/// A diff-side wrapper's target line sources — the wrapped virtual
+/// lines' source rows remapped through the concealment source map
+/// (`CodeRenderable.lineInfo`, Code.ts:147-160).
+fn wrapper_text_sources(wrapper: &Renderable) -> Vec<u32> {
+    let Some(target) = wrapper
+        .children
+        .iter()
+        .skip(1)
+        .find(|c| matches!(c.content, Content::Text(_)))
+    else {
+        return Vec::new();
+    };
+    let Content::Text(text) = &target.content else {
+        return Vec::new();
+    };
+    let wrap_width = if text.wrap_mode == crate::renderables::text::WrapMode::None {
+        None
+    } else {
+        Some(text.viewport.map_or(0, |vp| vp.width))
+    }
+    .filter(|w| *w > 0);
+    let vlines = crate::text_buffer::compute_virtual_lines(&text.doc, text.wrap_mode, wrap_width);
+    let source_map = wrapper_source_map(wrapper);
+    vlines
+        .iter()
+        .map(|v| {
+            source_map
+                .as_ref()
+                .and_then(|map| map.get(v.source_line as usize).copied())
+                .filter(|s| *s >= 0)
+                .map_or(v.source_line, |s| s as u32)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2918,5 +3545,117 @@ mod tests {
                 "accelerated residue: {residue} (linear would be 0)"
             );
         }
+    }
+    // --- Diff / LineNumber lane -------------------------------------------------
+
+    const UPSTREAM_SIMPLE_DIFF: &str = r#"--- a/test.js
++++ b/test.js
+@@ -1,3 +1,3 @@
+ function hello() {
+-  console.log("Hello");
++  console.log("Hello, World!");
+ }"#;
+
+    /// Diff.test.ts:127-150 (unified view renders correctly) — the pinned
+    /// snapshot (Diff.test.ts.snap:3-25): the 5-wide gutter, the minus /
+    /// plus signs, and the shared line number 2 on the remove/add pair.
+    #[test]
+    fn diff_unified_renders_the_upstream_snapshot_frame() {
+        let mut renderer = create_cli_renderer(CliRendererConfig {
+            width: 80,
+            height: 20,
+            ..Default::default()
+        });
+        let opts = diff::DiffOptions {
+            diff: UPSTREAM_SIMPLE_DIFF.to_owned(),
+            view: diff::DiffView::Unified,
+            ..Default::default()
+        };
+        let d = renderer.make_diff("d", &opts, &crate::syntax_style::SyntaxStyle::create());
+        renderer.add(d);
+        renderer.render();
+        let frame = renderer.current_render_buffer.char_frame();
+        let rows: Vec<String> = frame.lines().map(|r| format!("{r:<80}")).collect();
+        assert_eq!(
+            rows[0],
+            format!("{:<80}", " 1   function hello() {"),
+            "snap line 4"
+        );
+        assert_eq!(
+            rows[1],
+            format!("{:<80}", r#" 2 -   console.log("Hello");"#),
+            "snap line 5"
+        );
+        assert_eq!(
+            rows[2],
+            format!("{:<80}", r#" 2 +   console.log("Hello, World!");"#),
+            "snap line 6"
+        );
+        assert_eq!(rows[3], format!("{:<80}", " 3   }"), "snap line 7");
+        // rows 4+ blank (snap lines 8-23)
+        assert!(rows[4..].iter().all(|r| r.trim().is_empty()));
+    }
+
+    /// Diff.test.ts:152-176 (split view renders correctly) — the pinned
+    /// snapshot (Diff.test.ts.snap:27-49): both 50% panes with their own
+    /// gutters, the change paired across the middle.
+    #[test]
+    fn diff_split_renders_the_upstream_snapshot_frame() {
+        let mut renderer = create_cli_renderer(CliRendererConfig {
+            width: 80,
+            height: 20,
+            ..Default::default()
+        });
+        let opts = diff::DiffOptions {
+            diff: UPSTREAM_SIMPLE_DIFF.to_owned(),
+            view: diff::DiffView::Split,
+            ..Default::default()
+        };
+        let d = renderer.make_diff("d", &opts, &crate::syntax_style::SyntaxStyle::create());
+        renderer.add(d);
+        renderer.render();
+        let frame = renderer.current_render_buffer.char_frame();
+        let rows: Vec<String> = frame.lines().map(|r| format!("{r:<80}")).collect();
+        assert_eq!(
+            rows[0],
+            format!(
+                "{:<80}",
+                " 1   function hello() {                  1   function hello() {"
+            ),
+            "snap line 28"
+        );
+        assert_eq!(
+            rows[1],
+            format!(
+                "{:<80}",
+                r#" 2 -   console.log("Hello");             2 +   console.log("Hello, World!");"#
+            ),
+            "snap line 29"
+        );
+        assert_eq!(
+            rows[2],
+            format!("{:<80}", " 3   }                                   3   }"),
+            "snap line 30"
+        );
+    }
+
+    /// getHunkRowOffsets (Diff.ts:1254-1281) — the hunk-start visual
+    /// rows against the left code line sources (Diff.test.ts:3182).
+    #[test]
+    fn diff_hunk_row_offsets_resolve_through_wrapping() {
+        let mut renderer = create_cli_renderer(CliRendererConfig {
+            width: 80,
+            height: 20,
+            ..Default::default()
+        });
+        let opts = diff::DiffOptions {
+            diff: UPSTREAM_SIMPLE_DIFF.to_owned(),
+            ..Default::default()
+        };
+        let d = renderer.make_diff("d", &opts, &crate::syntax_style::SyntaxStyle::create());
+        renderer.add(d);
+        renderer.render();
+        // one hunk starting at logical line 0, unwrapped → visual row 0
+        assert_eq!(renderer.diff_hunk_row_offsets("d"), vec![0]);
     }
 }

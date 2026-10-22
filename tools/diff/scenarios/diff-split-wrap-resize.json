@@ -1,0 +1,30 @@
+{
+  "name": "diff-split-wrap-resize",
+  "width": 80,
+  "height": 20,
+  "steps": [
+    {
+      "op": "diff",
+      "id": "d",
+      "parent": "root",
+      "options": {
+        "diff": "--- a/wrap.txt\n+++ b/wrap.txt\n@@ -1,3 +1,3 @@\n short line\n-This is an extremely long line that will definitely wrap multiple times when rendered in a split view with word wrapping enabled because it contains so many words and characters\n+This is an extremely long line that has been modified and will definitely wrap multiple times when rendered in a split view with word wrapping enabled because it contains so many words and characters and even more content\n another short line",
+        "width": "100%",
+        "height": "100%",
+        "view": "split",
+        "wrapMode": "word"
+      }
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "resize",
+      "width": 60,
+      "height": 20
+    },
+    {
+      "op": "flush"
+    }
+  ]
+}
