@@ -1,0 +1,45 @@
+{
+ "name": "et-resize-grow",
+ "width": 16,
+ "height": 6,
+ "steps": [
+  {
+   "op": "embedded-terminal",
+   "id": "term",
+   "parent": "root",
+   "options": {
+    "width": 10,
+    "height": 4
+   }
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "aaaa bbbb cccc dddd eeee ffff"
+   ]
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "set",
+   "id": "term",
+   "prop": "width",
+   "value": 8
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "set",
+   "id": "term",
+   "prop": "width",
+   "value": 14
+  },
+  {
+   "op": "flush"
+  }
+ ]
+}

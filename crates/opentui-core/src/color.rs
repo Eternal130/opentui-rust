@@ -118,6 +118,13 @@ impl Rgba {
         Rgba::from_values(r, g, b, a)
     }
 
+    /// `ansi.defaultColor` — ansi.zig:197: terminal-default intent with
+    /// an RGB snapshot (the embedded terminal's transparent background,
+    /// compositor.zig:19-21).
+    pub fn default_color(r: u8, g: u8, b: u8, a: u8) -> Rgba {
+        pack_rgba8(r, g, b, a, pack_meta(ColorIntent::Default, 0))
+    }
+
     /// Indexed ANSI color with an RGB snapshot for blending fallbacks. —
     /// ansi.zig:191, RGBA.ts:118 `fromIndex`.
     pub fn from_index(index: u8) -> Rgba {

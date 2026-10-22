@@ -40,6 +40,7 @@ pub mod color;
 pub mod editor;
 #[cfg(test)]
 mod editor_tests;
+pub mod embedded_terminal;
 pub mod events;
 pub mod input;
 pub mod keybinding;

@@ -54,6 +54,17 @@ pub struct Step {
     /// `key` op: raw bytes through the renderer's input pipeline
     #[serde(default)]
     pub sequence: Option<Vec<u8>>,
+    /// `mouse` op: the event shape ("down"/"up"/"move"/"scroll") +
+    /// coordinates/direction (upstream's mockMouse vocabulary,
+    /// testing/integration.test.ts:119-135)
+    #[serde(default, rename = "type")]
+    pub mouse_type: Option<String>,
+    #[serde(default)]
+    pub direction: Option<String>,
+    #[serde(default)]
+    pub x: Option<i32>,
+    #[serde(default)]
+    pub y: Option<i32>,
     #[serde(default)]
     pub method: Option<String>,
     #[serde(default)]
@@ -321,6 +332,7 @@ enum PendingNode {
         opentui_core::syntax_style::SyntaxStyle,
     ),
     Diff(Box<DiffOptions>, opentui_core::syntax_style::SyntaxStyle),
+    EmbeddedTerminal(Box<opentui_core::renderables::embedded_terminal::EmbeddedTerminalOptions>),
 }
 
 /// `styles` option → `SyntaxStyle.fromStyles` (syntax-style.ts:106-114).
@@ -441,6 +453,21 @@ pub fn replay(scenario: &Scenario) -> Result<CliRenderer> {
                 renderer.feed_bytes(&seq);
                 continue;
             }
+            "mouse" => {
+                // upstream's own mockMouse vocabulary (the JS driver drives
+                // setup.mockMouse; the port feeds the renderer pipeline)
+                mount(&mut renderer, &mut by_id, &children_of, None, &roots);
+                let x = step.x.unwrap_or(0);
+                let y = step.y.unwrap_or(0);
+                let event = mock_mouse_event(
+                    step.mouse_type.as_deref().unwrap_or("down"),
+                    x,
+                    y,
+                    step.direction.as_deref(),
+                )?;
+                renderer.process_mouse_event(event);
+                continue;
+            }
             "textarea" => {
                 mount(&mut renderer, &mut by_id, &children_of, None, &roots);
                 let opts = textarea_options_from_json(&step.options)?;
@@ -489,6 +516,28 @@ pub fn replay(scenario: &Scenario) -> Result<CliRenderer> {
                         "view" => renderer.diff_set(&id, None, Some(DiffView::parse(&value))),
                         _ => unreachable!(),
                     };
+                    continue;
+                }
+                // the embedded terminal's property setters
+                // (`terminal.transparentBackground = v`, `.width = n`,
+                // EmbeddedTerminal.ts:104-115 + the width/height resize path)
+                if matches!(prop.as_str(), "transparentBackground" | "width" | "height") {
+                    if !renderer.has_node(&id) {
+                        anyhow::bail!("set: unknown node {id}");
+                    }
+                    match (prop.as_str(), step.value.clone()) {
+                        ("transparentBackground", Some(serde_json::Value::Bool(v))) => {
+                            renderer.embedded_terminal_set_transparent_background(&id, v);
+                        }
+                        ("width" | "height", Some(v)) if v.is_number() => {
+                            renderer.embedded_terminal_resize_prop(
+                                &id,
+                                prop.as_str() == "height",
+                                v.as_f64().unwrap_or_default() as f32,
+                            );
+                        }
+                        (other, _) => anyhow::bail!("set: bad value for {other}"),
+                    }
                     continue;
                 }
                 let value = step
@@ -570,6 +619,35 @@ pub fn replay(scenario: &Scenario) -> Result<CliRenderer> {
                             .and_then(serde_json::Value::as_str)
                             .context("scrollChildIntoView needs child id")?;
                         renderer.scroll_child_into_view(&id, child);
+                    }
+                    "write" => {
+                        // `terminal.write(data)` (EmbeddedTerminal.ts:142-150)
+                        let data = args
+                            .first()
+                            .and_then(serde_json::Value::as_str)
+                            .context("write needs a string arg")?;
+                        if !renderer.embedded_terminal_write(&id, data.as_bytes()) {
+                            anyhow::bail!("call: write target {id} is not an embedded terminal");
+                        }
+                    }
+                    "invalidate" => {
+                        if !renderer.embedded_terminal_invalidate(&id) {
+                            anyhow::bail!(
+                                "call: invalidate target {id} is not an embedded terminal"
+                            );
+                        }
+                    }
+                    "scroll" => {
+                        // driver-side viewport scroll (`embeddedTerminalScroll`
+                        // via the mouse fallback, EmbeddedTerminal.ts:351)
+                        let delta = args
+                            .first()
+                            .and_then(serde_json::Value::as_i64)
+                            .context("scroll needs a numeric delta")?
+                            as i32;
+                        if !renderer.embedded_terminal_scroll(&id, delta) {
+                            anyhow::bail!("call: scroll target {id} is not an embedded terminal");
+                        }
                     }
                     other => anyhow::bail!("call: unsupported method {other}"),
                 }
@@ -741,6 +819,33 @@ pub fn replay(scenario: &Scenario) -> Result<CliRenderer> {
                     opts.placeholder_color = Some(opentui_core::color::parse_color(v));
                 }
                 PendingNode::Input(opts)
+            }
+            "embedded-terminal" => {
+                let mut opts =
+                    opentui_core::renderables::embedded_terminal::EmbeddedTerminalOptions::default(
+                    );
+                if let Some(v) = o.get("cols").and_then(|v| v.as_u64()) {
+                    opts.cols = Some(v.clamp(1, u32::from(u16::MAX) as u64) as u16);
+                }
+                if let Some(v) = o.get("rows").and_then(|v| v.as_u64()) {
+                    opts.rows = Some(v.clamp(1, u32::from(u16::MAX) as u64) as u16);
+                }
+                if let Some(v) = o.get("width").and_then(|v| v.as_f64()) {
+                    opts.width = Some(v.max(0.0) as u32);
+                }
+                if let Some(v) = o.get("height").and_then(|v| v.as_f64()) {
+                    opts.height = Some(v.max(0.0) as u32);
+                }
+                if let Some(v) = o.get("maxScrollback").and_then(|v| v.as_u64()) {
+                    opts.max_scrollback = Some(v as usize);
+                }
+                if let Some(v) = o.get("transparentBackground").and_then(|v| v.as_bool()) {
+                    opts.transparent_background = v;
+                }
+                if let Some(v) = o.get("selectable").and_then(|v| v.as_bool()) {
+                    opts.selectable = v;
+                }
+                PendingNode::EmbeddedTerminal(Box::new(opts))
             }
             "code" => {
                 let mut opts = opentui_core::renderables::code::CodeOptions {
@@ -1085,6 +1190,47 @@ fn op_to_action(op: &str, select: bool) -> Option<&'static str> {
     })
 }
 
+/// The mockMouse event vocabulary (testing/integration.test.ts:119-135)
+/// as RawMouseEvent inputs to the renderer's mouse pipeline.
+fn mock_mouse_event(
+    kind: &str,
+    x: i32,
+    y: i32,
+    direction: Option<&str>,
+) -> Result<opentui_core::parse_mouse::RawMouseEvent> {
+    use opentui_core::parse_mouse::{MouseEventType, RawMouseEvent, ScrollDirection, ScrollInfo};
+    let (event_type, scroll) = match kind {
+        "down" => (MouseEventType::Down, None),
+        "up" => (MouseEventType::Up, None),
+        "move" => (MouseEventType::Move, None),
+        "scroll" => {
+            let dir = match direction.unwrap_or("up") {
+                "up" => ScrollDirection::Up,
+                "down" => ScrollDirection::Down,
+                "left" => ScrollDirection::Left,
+                "right" => ScrollDirection::Right,
+                other => anyhow::bail!("mouse: unknown scroll direction {other}"),
+            };
+            (
+                MouseEventType::Scroll,
+                Some(ScrollInfo {
+                    direction: dir,
+                    delta: 3,
+                }),
+            )
+        }
+        other => anyhow::bail!("mouse: unknown type {other}"),
+    };
+    Ok(RawMouseEvent {
+        event_type,
+        button: 0,
+        x,
+        y,
+        modifiers: Default::default(),
+        scroll,
+    })
+}
+
 fn apply_text_ops(renderer: &mut CliRenderer, id: &str, ops: &[TextOp]) -> Result<()> {
     for op in ops {
         let select = op.select.unwrap_or(false);
@@ -1328,6 +1474,7 @@ fn mount(
             Some(PendingNode::Code(opts, style)) => renderer.make_code(id, &opts, &style),
             Some(PendingNode::Markdown(opts, style)) => renderer.make_markdown(id, &opts, &style),
             Some(PendingNode::Diff(opts, style)) => renderer.make_diff(id, &opts, &style),
+            Some(PendingNode::EmbeddedTerminal(opts)) => renderer.make_embedded_terminal(id, &opts),
             None => continue,
         };
         match parent {

@@ -1,0 +1,27 @@
+{
+ "name": "et-scroll-region",
+ "width": 16,
+ "height": 5,
+ "steps": [
+  {
+   "op": "embedded-terminal",
+   "id": "term",
+   "parent": "root",
+   "options": {
+    "width": 16,
+    "height": 5
+   }
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "l1\r\nl2\r\nl3\r\nl4\r\nl5\r\nl6\r\nl7"
+   ]
+  },
+  {
+   "op": "flush"
+  }
+ ]
+}

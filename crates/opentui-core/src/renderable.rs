@@ -109,6 +109,10 @@ pub enum Content {
     /// `DiffRenderable` (Diff.ts:55) — the column/row root; paints
     /// nothing itself, carries the rebuild state.
     Diff(DiffState),
+    /// `EmbeddedTerminalRenderable` (EmbeddedTerminal.ts:42) — the
+    /// embedded VT pane wrapping the engine
+    /// (`crate::embedded_terminal::Engine`, the native-module port).
+    EmbeddedTerminal(Box<crate::renderables::embedded_terminal::EmbeddedTerminalState>),
 }
 
 /// The Diff root's live state — what the renderer needs to rebuild the
@@ -447,6 +451,11 @@ impl Renderable {
         if let Content::Textarea(state) = &mut self.content {
             state.update_layout(self.w.max(0.0) as u32, self.h.max(0.0) as u32);
         }
+        // EmbeddedTerminal.onResize → embeddedTerminalResize + invalidate
+        // + flushResponses + onTerminalResize (EmbeddedTerminal.ts:272-281)
+        if let Content::EmbeddedTerminal(state) = &mut self.content {
+            state.update_layout(self.w.max(0.0) as u32, self.h.max(0.0) as u32);
+        }
         if size_changed {
             effects.size_changed = true;
             if let Some(owner) = &self.size_hook {
@@ -724,19 +733,37 @@ impl Renderable {
             Content::Gutter(_) => {}
             // the Diff root paints nothing itself (Renderable group)
             Content::Diff(_) => {}
+            // renderSelf → compose at the screen origin
+            // (EmbeddedTerminal.ts:283-298); the cursor half is
+            // collected in `prepare_paint` (it writes renderer state)
+            Content::EmbeddedTerminal(state) => state.paint(buffer, self.screen_x, self.screen_y),
         }
     }
 
     /// `render()` phase 1 (EditBufferRenderable.ts:991-1004): stash the
     /// draw snapshot + collect the terminal-cursor output. Runs as a
     /// `&mut` walk before the `&self` paint.
-    pub fn prepare_paint(&mut self, cursor_out: &mut Vec<(String, u32, u32)>, now_ms: f64) {
+    pub fn prepare_paint(&mut self, cursor_out: &mut Vec<(String, u32, u32, bool)>, now_ms: f64) {
         if !self.visible {
             return;
         }
         if let Content::Textarea(state) = &mut self.content {
             if let Some((x, y)) = state.prepare_render(self.screen_x, self.screen_y) {
-                cursor_out.push((self.id.0.clone(), x, y));
+                cursor_out.push((self.id.0.clone(), x, y, true));
+            }
+        }
+        // EmbeddedTerminal.ts:285-298 — the compose fires the
+        // screen-change callback and (when focused) the terminal cursor
+        // position; the port collects the cursor for the renderer's
+        // `setCursorPosition` phase (the style/color halves re-derive in
+        // the renderer's cursor pass).
+        if let Content::EmbeddedTerminal(state) = &mut self.content {
+            state.on_screen_change_count += 1;
+            if self.focused {
+                if let Some(cursor) = state.render_cursor(self.screen_x, self.screen_y) {
+                    let (x, y, visible) = cursor.position;
+                    cursor_out.push((self.id.0.clone(), x, y, visible));
+                }
             }
         }
         // TimeToFirstDraw.ts:98-100 — the first-renderSelf stamp of

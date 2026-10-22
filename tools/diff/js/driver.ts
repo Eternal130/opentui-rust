@@ -715,6 +715,19 @@ for (const step of scenario.steps) {
     renderer.stdin.emit("data", Buffer.from(Uint8Array.from(step.sequence ?? [])))
     continue
   }
+  if (step.op === "mouse") {
+    // upstream's own mockMouse (testing/integration.test.ts:119-135) —
+    // the same driver the upstream EmbeddedTerminal tests use
+    const type = step.type ?? "down"
+    const x = step.x ?? 0
+    const y = step.y ?? 0
+    if (type === "scroll") await setup.mockMouse.scroll(x, y, step.direction ?? "up")
+    else if (type === "down") await setup.mockMouse.pressDown(x, y)
+    else if (type === "up") await setup.mockMouse.release(x, y)
+    else if (type === "move") await setup.mockMouse.moveTo(x, y)
+    else throw new Error(`mouse: unknown type ${type}`)
+    continue
+  }
   if (step.op === "text-node") {
     // attach a TextNodeRenderable to an existing text renderable
     const target = nodes.get(step.parent)
@@ -878,6 +891,19 @@ for (const step of scenario.steps) {
       ...(o.removedLineNumberBg !== undefined ? { removedLineNumberBg: o.removedLineNumberBg } : {}),
       ...(o.width !== undefined ? { width: o.width } : {}),
       ...(o.height !== undefined ? { height: o.height } : {}),
+    })
+  } else if (step.op === "embedded-terminal") {
+    const o = step.options ?? {}
+    const { EmbeddedTerminalRenderable } = await import("@opentui/core")
+    r = new EmbeddedTerminalRenderable(renderer, {
+      id: step.id,
+      ...(o.cols !== undefined ? { cols: o.cols } : {}),
+      ...(o.rows !== undefined ? { rows: o.rows } : {}),
+      ...(o.width !== undefined ? { width: o.width } : {}),
+      ...(o.height !== undefined ? { height: o.height } : {}),
+      ...(o.maxScrollback !== undefined ? { maxScrollback: o.maxScrollback } : {}),
+      ...(o.transparentBackground !== undefined ? { transparentBackground: o.transparentBackground } : {}),
+      ...(o.selectable !== undefined ? { selectable: o.selectable } : {}),
     })
   } else {
     throw new Error(`unknown op: ${step.op}`)

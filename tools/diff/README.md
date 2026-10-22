@@ -183,6 +183,33 @@ sandbox):
   mutations, and highlighted targets (typescript styles + markdown
   conceal incl. the fenced-code `conceal_lines` source map).
 
+Embedded-terminal lane vocabulary (both drivers; the JS side lazily
+`await import`s `EmbeddedTerminalRenderable` like the diff lane):
+
+* `{ "op": "embedded-terminal", "id", "parent", "options": { cols,
+  rows, width, height, maxScrollback, transparentBackground,
+  selectable } }` — mounts an `EmbeddedTerminalRenderable`.
+* `{ "op": "call", "method": "write" | "invalidate" | "scroll",
+  "args": [...] }` — the generic invocation arm routes the terminal's
+  `write` (PTY bytes as a JSON string), `invalidate`, and the
+  `embeddedTerminalScroll` viewport scroll (the mouse fallback,
+  EmbeddedTerminal.ts:351).
+* `{ "op": "set", "prop": "transparentBackground" | "width" |
+  "height" }` — the property setters (the resize path reflows).
+* `{ "op": "mouse", "type": "down" | "up" | "move" | "scroll",
+  "x", "y", "direction"?: "up"|"down" }` — upstream's own mockMouse
+  vocabulary (testing/integration.test.ts:119-135) through BOTH
+  renderers' real mouse pipelines — drives the scrollback viewport
+  scroll and the renderer-level cell selection.
+* 18 scenarios: geometry (empty/plain), the SGR styling matrix
+  (palette/RGB/256, bold/dim/italic/underline/blink/hidden/strike/
+  inverse, BCE erase), OSC 10/11, wrap + wide chars, cursor ops
+  (CUP/EL/ED, DECTCEM), LF overflow + alt screen, scrollback (scroll
+  up/down + write-while-scrolled), resize reflow (shrink/grow/height,
+  probe-frozen ghostty semantics), transparent background (the
+  default-intent bg words), focus + terminal-cursor compare, and a
+  mouse-drag cell selection.
+
 Two driver mechanics make the async oracle comparable with the port's
 synchronous highlight-at-construction:
 

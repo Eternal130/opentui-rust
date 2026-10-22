@@ -1,0 +1,27 @@
+{
+ "name": "et-colors",
+ "width": 16,
+ "height": 5,
+ "steps": [
+  {
+   "op": "embedded-terminal",
+   "id": "term",
+   "parent": "root",
+   "options": {
+    "width": 16,
+    "height": 5
+   }
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "\u001b[31mred\u001b[0m|\u001b[1;34mbold-blue\u001b[0m|\u001b[38;5;208mpal208\u001b[0m|\u001b[38;2;10;20;30mrgb\u001b[0m|\u001b[48;5;17mbgd\u001b[0m"
+   ]
+  },
+  {
+   "op": "flush"
+  }
+ ]
+}

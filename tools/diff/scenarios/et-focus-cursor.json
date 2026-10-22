@@ -1,0 +1,31 @@
+{
+ "name": "et-focus-cursor",
+ "width": 16,
+ "height": 5,
+ "steps": [
+  {
+   "op": "embedded-terminal",
+   "id": "term",
+   "parent": "root",
+   "options": {
+    "width": 16,
+    "height": 5
+   }
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "hello \u001b[1;32mstyled\u001b[0m\r\nrow2"
+   ]
+  },
+  {
+   "op": "focus",
+   "id": "term"
+  },
+  {
+   "op": "flush"
+  }
+ ]
+}
