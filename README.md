@@ -27,7 +27,7 @@ upstream-attributed semantics; see `PORT-MATRIX.md` for the frozen surface.
 | crate | ports | status |
 |---|---|---|
 | `opentui-core` | `@opentui/core` — colors (intent metadata), cell grid + draw ops, flexbox layout (taffy), renderable tree, Box/Text renderables, StyledText/TextNode content model (multi-chunk styles, align/tab/wrap none+char+word), headless renderer + SGR emission, the events/input family (parse.keypress legacy+kitty, mouse, bracketed paste, KeyHandler dispatch, keybinding resolution, Input renderable, scheduler), and the editor stack (EditBuffer/EditorView/selection + TextareaRenderable with the 36-action executor, scroll-follow, placeholder, cursor SGR emission) | **differentially IDENTICAL** on 48 scenarios |
-| `opentui-keymap` | `@opentui/keymap` — key stringify (exact port), Keymap facade, layered dispatch engine (adapted from opencode-rust's proven `oc-tui-core` port, cited) | skeleton |
+| `opentui-keymap` | `@opentui/keymap` — the full 0.5.14 surface: key stringify (exact port), Keymap facade, layered dispatch engine (adapted from opencode-rust's proven `oc-tui-core` port, cited), opentui host, solid provider + hooks, universal/opentui addons + extras (14 additions beyond the frozen 339) — 11 modules | **complete**: all 12 keymap matrix rows done, 64-test behavioral suite |
 | `opentui-solid` | `@opentui/solid` — the reactive glue equivalent: `Reactive` boundary + builder trees (`box_!`/`text_!`/`scrollbox_!`), keyed reconciler (universal.js port), Show/For, Portal, hooks, extend(), scrollback writer; 8 differential scenarios vs the real package (mode `"solid"`) | reconciler + builders done |
 
 ## Layout
@@ -136,8 +136,11 @@ prove the emitted bytes repaint the same grid.
 5. ~~**events-lane**~~ — done: mouse parser, hit grid, focus
    traversal, renderer event loop (requestRender scheduling
    semantics).
-6. **keymap-lane** — full `@opentui/keymap` type surface + opentui host +
-   solid provider + addons.
+6. ~~**keymap-lane**~~ — **done**: full `@opentui/keymap` 0.5.14 surface
+   (commit `511fe8a`) — key stringify, Keymap facade, layered dispatch,
+   opentui host, solid provider, addons; all 12 keymap matrix rows +
+   14 O2c additions beyond the frozen 339, with a 64-test behavioral
+   suite porting upstream's own addon/extras tests.
 7. **solid-glue-lane** — ✅ keyed reconciler diffing (props update,
    child reorder, unmount), Portal, scrollback writer; builder API
    (`box_!`/`text_!`/`scrollbox_!`), hooks, extend(); 8 differential
