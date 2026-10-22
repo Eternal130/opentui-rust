@@ -1,0 +1,51 @@
+{
+ "name": "et-selection-drag",
+ "width": 16,
+ "height": 5,
+ "steps": [
+  {
+   "op": "embedded-terminal",
+   "id": "term",
+   "parent": "root",
+   "options": {
+    "width": 16,
+    "height": 5
+   }
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "hello world"
+   ]
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "mouse",
+   "x": 1,
+   "y": 0,
+   "type": "down"
+  },
+  {
+   "op": "mouse",
+   "x": 6,
+   "y": 0,
+   "type": "move"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "mouse",
+   "x": 6,
+   "y": 0,
+   "type": "up"
+  },
+  {
+   "op": "flush"
+  }
+ ]
+}

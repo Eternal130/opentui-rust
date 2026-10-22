@@ -1,0 +1,140 @@
+{
+ "name": "et-scrollback",
+ "width": 16,
+ "height": 5,
+ "steps": [
+  {
+   "op": "embedded-terminal",
+   "id": "term",
+   "parent": "root",
+   "options": {
+    "width": 16,
+    "height": 5
+   }
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "line1\r\n"
+   ]
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "line2\r\n"
+   ]
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "line3\r\n"
+   ]
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "line4\r\n"
+   ]
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "line5\r\n"
+   ]
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "line6\r\n"
+   ]
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "line7\r\n"
+   ]
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "line8\r\n"
+   ]
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "line9\r\n"
+   ]
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "bottom"
+   ]
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "mouse",
+   "x": 2,
+   "y": 2,
+   "type": "scroll",
+   "direction": "up"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "mouse",
+   "x": 2,
+   "y": 2,
+   "type": "scroll",
+   "direction": "up"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "mouse",
+   "x": 2,
+   "y": 2,
+   "type": "scroll",
+   "direction": "down"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "tail"
+   ]
+  },
+  {
+   "op": "flush"
+  }
+ ]
+}

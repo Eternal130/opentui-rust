@@ -1,0 +1,46 @@
+{
+ "name": "et-alt-screen",
+ "width": 16,
+ "height": 5,
+ "steps": [
+  {
+   "op": "embedded-terminal",
+   "id": "term",
+   "parent": "root",
+   "options": {
+    "width": 16,
+    "height": 5
+   }
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "primary"
+   ]
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "\u001b[?1049h\u001b[31malt-screen\u001b[0m"
+   ]
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "\u001b[?1049l"
+   ]
+  },
+  {
+   "op": "flush"
+  }
+ ]
+}

@@ -1,0 +1,28 @@
+{
+ "name": "et-transparent",
+ "width": 16,
+ "height": 5,
+ "steps": [
+  {
+   "op": "embedded-terminal",
+   "id": "term",
+   "parent": "root",
+   "options": {
+    "width": 16,
+    "height": 5,
+    "transparentBackground": true
+   }
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "ab\u001b[42mcd\u001b[0mef"
+   ]
+  },
+  {
+   "op": "flush"
+  }
+ ]
+}

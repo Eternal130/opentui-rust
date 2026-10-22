@@ -1,0 +1,19 @@
+{
+ "name": "et-empty",
+ "width": 16,
+ "height": 5,
+ "steps": [
+  {
+   "op": "embedded-terminal",
+   "id": "term",
+   "parent": "root",
+   "options": {
+    "width": 16,
+    "height": 5
+   }
+  },
+  {
+   "op": "flush"
+  }
+ ]
+}

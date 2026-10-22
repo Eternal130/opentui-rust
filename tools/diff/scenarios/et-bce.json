@@ -1,0 +1,27 @@
+{
+ "name": "et-bce",
+ "width": 16,
+ "height": 5,
+ "steps": [
+  {
+   "op": "embedded-terminal",
+   "id": "term",
+   "parent": "root",
+   "options": {
+    "width": 16,
+    "height": 5
+   }
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "\u001b[41mab\u001b[3G\u001b[K"
+   ]
+  },
+  {
+   "op": "flush"
+  }
+ ]
+}

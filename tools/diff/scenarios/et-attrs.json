@@ -1,0 +1,27 @@
+{
+ "name": "et-attrs",
+ "width": 20,
+ "height": 5,
+ "steps": [
+  {
+   "op": "embedded-terminal",
+   "id": "term",
+   "parent": "root",
+   "options": {
+    "width": 20,
+    "height": 5
+   }
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "\u001b[1mbold\u001b[0m \u001b[2mdim\u001b[0m \u001b[3mita\u001b[0m \u001b[4mund\u001b[0m \u001b[5mblink\u001b[0m \u001b[8mhidd\u001b[0m \u001b[9mstrk\u001b[0m \u001b[7minv\u001b[0m"
+   ]
+  },
+  {
+   "op": "flush"
+  }
+ ]
+}

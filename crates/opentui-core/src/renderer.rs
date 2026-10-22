@@ -314,6 +314,13 @@ pub type MouseEventHandler = Box<dyn FnMut(&mut MouseEvent) + Send>;
 type RendererEventListener = Box<dyn FnMut(&CliRenderEvent) + Send>;
 
 /// `CliRenderer` — the render loop owner.
+/// A live mouse cell-selection (anchor + focus in screen coordinates).
+struct MouseSelection {
+    target: String,
+    anchor: (i32, i32),
+    focus: (i32, i32),
+}
+
 pub struct CliRenderer {
     pub config: CliRendererConfig,
     pub tree: TaffyTree<MeasureCtx>,
@@ -343,6 +350,13 @@ pub struct CliRenderer {
     hit_grid: Vec<HitRect>,
     /// mouse handlers per renderable id
     mouse_handlers: HashMap<String, MouseEventHandler>,
+    /// the embedded terminal's inline focus request (forwardMouse,
+    /// EmbeddedTerminal.ts:339) — flushed by the dispatch tail
+    pending_focus: Option<String>,
+    /// the mouse-driven cell selection (renderer.ts's selection block:
+    /// `startSelection` on left-down over a selectable renderable,
+    /// `updateSelection` while dragging — the embedded arm)
+    mouse_selection: Option<MouseSelection>,
     /// renderer event listeners (CliRenderEvents)
     event_listeners: Vec<RendererEventListener>,
     /// `capturedRenderable` id (renderer.ts:3765-3792)
@@ -404,6 +418,8 @@ pub fn create_cli_renderer(config: CliRendererConfig) -> CliRenderer {
         focused: None,
         hit_grid: Vec::new(),
         mouse_handlers: HashMap::new(),
+        pending_focus: None,
+        mouse_selection: None,
         event_listeners: Vec::new(),
         captured: None,
         last_over: None,
@@ -875,6 +891,143 @@ impl CliRenderer {
     pub fn add_input(&mut self, id: &str, opts: &InputOptions) {
         let r = self.make_input(id, opts);
         self.add(r);
+    }
+
+    /// Construct an `EmbeddedTerminalRenderable` node
+    /// (EmbeddedTerminal.ts:42-78): width/height default from cols/rows,
+    /// `buffered: true`, focusable.
+    #[must_use]
+    pub fn make_embedded_terminal(
+        &mut self,
+        id: &str,
+        opts: &crate::renderables::embedded_terminal::EmbeddedTerminalOptions,
+    ) -> Renderable {
+        let width = opts.width.unwrap_or(opts.cols.map_or(80, u32::from));
+        let height = opts.height.unwrap_or(opts.rows.map_or(24, u32::from));
+        let state = crate::renderables::embedded_terminal::EmbeddedTerminalState::new(opts);
+        let mut r = Renderable::new(
+            &mut self.tree,
+            id,
+            crate::layout::LayoutOptions::default(),
+            crate::layout::Dimension::Points(width as f32),
+            crate::layout::Dimension::Points(height as f32),
+            Content::EmbeddedTerminal(Box::new(state)),
+            None,
+        );
+        r.focusable = true;
+        r
+    }
+
+    /// Mount convenience for the embedded terminal.
+    pub fn add_embedded_terminal(
+        &mut self,
+        id: &str,
+        opts: &crate::renderables::embedded_terminal::EmbeddedTerminalOptions,
+    ) {
+        let r = self.make_embedded_terminal(id, opts);
+        self.add(r);
+    }
+
+    /// `terminal.write(data)` (EmbeddedTerminal.ts:142-150): feed +
+    /// flush responses + requestRender.
+    pub fn embedded_terminal_write(&mut self, id: &str, data: &[u8]) -> bool {
+        let Some(node) = Self::find_node_mut(&mut self.root.inner, id) else {
+            return false;
+        };
+        let Content::EmbeddedTerminal(state) = &mut node.content else {
+            return false;
+        };
+        state.write(data);
+        true
+    }
+
+    /// `terminal.screen()` (EmbeddedTerminal.ts:117-140) — None for
+    /// unknown/non-terminal ids.
+    pub fn embedded_terminal_screen(
+        &self,
+        id: &str,
+    ) -> Option<crate::renderables::embedded_terminal::EmbeddedTerminalScreen> {
+        let node = self.find_node(&self.root.inner, id)?;
+        let Content::EmbeddedTerminal(state) = &node.content else {
+            return None;
+        };
+        Some(state.screen(node.w.max(0.0) as u16, node.h.max(0.0) as u16))
+    }
+
+    /// `terminal.transparentBackground = value` (:104-115).
+    pub fn embedded_terminal_set_transparent_background(&mut self, id: &str, value: bool) -> bool {
+        let Some(node) = Self::find_node_mut(&mut self.root.inner, id) else {
+            return false;
+        };
+        let Content::EmbeddedTerminal(state) = &mut node.content else {
+            return false;
+        };
+        state.set_transparent_background(value)
+    }
+
+    /// Drain the `onData` records (`send`, EmbeddedTerminal.ts:374-376).
+    pub fn embedded_terminal_take_data(
+        &mut self,
+        id: &str,
+    ) -> Option<
+        Vec<(
+            Vec<u8>,
+            crate::renderables::embedded_terminal::EmbeddedTerminalDataSource,
+        )>,
+    > {
+        let node = Self::find_node_mut(&mut self.root.inner, id)?;
+        let Content::EmbeddedTerminal(state) = &mut node.content else {
+            return None;
+        };
+        Some(std::mem::take(&mut state.on_data))
+    }
+
+    /// `terminal.invalidate()` (EmbeddedTerminal.ts:152-156).
+    pub fn embedded_terminal_invalidate(&mut self, id: &str) -> bool {
+        let Some(node) = Self::find_node_mut(&mut self.root.inner, id) else {
+            return false;
+        };
+        let Content::EmbeddedTerminal(state) = &mut node.content else {
+            return false;
+        };
+        state.invalidate();
+        true
+    }
+
+    /// `terminal.width = n` / `.height = n` — the Renderable setter
+    /// path (style update → relayout → onResize).
+    pub fn embedded_terminal_resize_prop(&mut self, id: &str, is_height: bool, value: f32) -> bool {
+        let Some(node) = Self::find_node_mut(&mut self.root.inner, id) else {
+            return false;
+        };
+        if !matches!(node.content, Content::EmbeddedTerminal(_)) {
+            return false;
+        }
+        let dim = crate::layout::Dimension::Points(value.max(0.0));
+        let mut style = self.tree.style(node.node).expect("taffy style").clone();
+        if is_height {
+            node.height = dim;
+            style.size.height = taffy::style::Dimension::length(value.max(0.0));
+        } else {
+            node.width = dim;
+            style.size.width = taffy::style::Dimension::length(value.max(0.0));
+        }
+        let _ = self.tree.set_style(node.node, style);
+        let _ = self.tree.mark_dirty(node.node);
+        true
+    }
+
+    /// `forwardMouse`'s scroll fallback (`embeddedTerminalScroll`,
+    /// EmbeddedTerminal.ts:348-356) — the scenario/driver entry.
+    pub fn embedded_terminal_scroll(&mut self, id: &str, delta: i32) -> bool {
+        let Some(node) = Self::find_node_mut(&mut self.root.inner, id) else {
+            return false;
+        };
+        let Content::EmbeddedTerminal(state) = &mut node.content else {
+            return false;
+        };
+        state.engine.scroll_viewport(delta);
+        true
     }
 
     /// Construct a `DiffRenderable`'s settled subtree (Diff.ts:110-151
@@ -1506,7 +1659,7 @@ impl CliRenderer {
         // pass 2.5: textarea prepare (renderSelf snapshot + renderCursor,
         // EditBufferRenderable.ts:991-1004) — the cursor is renderer
         // state, so it is collected before the paint walk
-        let mut cursor_positions: Vec<(String, u32, u32)> = Vec::new();
+        let mut cursor_positions: Vec<(String, u32, u32, bool)> = Vec::new();
         let now_ms = self.performance_now();
         self.root.inner.prepare_paint(&mut cursor_positions, now_ms);
 
@@ -1524,14 +1677,34 @@ impl CliRenderer {
         // (1030-1034); with no focused editor at all the port's only
         // cursor writers are editors (the textareas above, the input
         // in update_terminal_cursor below), so the cursor hides.
-        for (id, x, y) in &cursor_positions {
+        for (id, x, y, visible) in &cursor_positions {
             if let Some(node) = self.find_node(&self.root.inner, id) {
-                if let Content::Textarea(state) = &node.content {
-                    let (style, blinking, color) = state.cursor_style();
-                    self.cursor_state.set_style(style, blinking, color);
+                match &node.content {
+                    Content::Textarea(state) => {
+                        let (style, blinking, color) = state.cursor_style();
+                        self.cursor_state.set_style(style, blinking, color);
+                    }
+                    // EmbeddedTerminal.ts:293-297 — bar→line,
+                    // underline→underline, else block + the cursor color
+                    Content::EmbeddedTerminal(state) if *visible => {
+                        let cursor = state.engine.cursor();
+                        let style = match cursor.style {
+                            0 => crate::renderables::textarea::CursorStyle::Line,
+                            2 => crate::renderables::textarea::CursorStyle::Underline,
+                            _ => crate::renderables::textarea::CursorStyle::Block,
+                        };
+                        let (r, g, b) =
+                            cursor.color.unwrap_or(crate::embedded_terminal::DEFAULT_FG);
+                        self.cursor_state.set_style(
+                            style,
+                            cursor.blinking,
+                            crate::color::Rgba::rgb(r, g, b),
+                        );
+                    }
+                    _ => {}
                 }
             }
-            self.cursor_state.set_position(*x, *y, true);
+            self.cursor_state.set_position(*x, *y, *visible);
         }
         if cursor_positions.is_empty() {
             self.cursor_state.visible = false;
@@ -2298,8 +2471,48 @@ impl CliRenderer {
     /// `sendMouseEvent` (renderer.ts:3623-3630): deliver to the
     /// target's handler.
     fn send_mouse_event(&mut self, target: &str, event: &mut MouseEvent) {
+        // The embedded terminal's `setupMouse` wrappers
+        // (EmbeddedTerminal.ts:313-335): forward before user callbacks;
+        // encoded output (or a viewport scroll) prevents default.
+        if self
+            .find_node(&self.root.inner, target)
+            .is_some_and(|n| matches!(n.content, Content::EmbeddedTerminal(_)))
+        {
+            self.embedded_terminal_forward_mouse(target, event);
+        }
         if let Some(handler) = self.mouse_handlers.get_mut(target) {
             handler(event);
+        }
+    }
+
+    /// `forwardMouse` (EmbeddedTerminal.ts:337-361) — left-press focuses,
+    /// encode + send; an unencoded wheel event becomes a ±3 scroll.
+    fn embedded_terminal_forward_mouse(&mut self, target: &str, event: &mut MouseEvent) {
+        use crate::parse_mouse::MouseEventType as T;
+        let is_left_down = event.event_type == T::Down && event.button == 0;
+        let (screen_x, screen_y, consumed) = {
+            let Some(node) = Self::find_node_mut(&mut self.root.inner, target) else {
+                return;
+            };
+            let (screen_x, screen_y) = (node.screen_x, node.screen_y);
+            let Content::EmbeddedTerminal(state) = &mut node.content else {
+                return;
+            };
+            let forward = crate::renderables::embedded_terminal::mouse_event_for_terminal(
+                event, screen_x, screen_y,
+            );
+            let (consumed, _scroll) = state.forward_mouse(&forward);
+            (screen_x, screen_y, consumed)
+        };
+        if is_left_down {
+            // `this.focus()` (:339) — defers the renderer-level focus to
+            // the dispatch tail (the port's node borrow scopes first)
+            self.pending_focus = Some(target.to_owned());
+            let _ = (screen_x, screen_y);
+        }
+        if consumed {
+            event.prevent_default();
+            event.stop_propagation();
         }
     }
 
@@ -2310,6 +2523,12 @@ impl CliRenderer {
         let source = self.captured.clone();
         let mut event = MouseEvent::new(Some(target), attributes, source.as_deref(), false);
         self.send_mouse_event(target, &mut event);
+
+        // the embedded terminal's inline `focus()` (forwardMouse,
+        // EmbeddedTerminal.ts:339) — flushed before the auto-focus walk
+        if let Some(id) = self.pending_focus.take() {
+            self.focus_renderable(&id);
+        }
 
         if self.config.auto_focus
             && event.event_type == crate::parse_mouse::MouseEventType::Down
@@ -2374,6 +2593,9 @@ impl CliRenderer {
             if let Some(target) = scroll_target {
                 let mut evt = MouseEvent::new(Some(&target), &event, None, false);
                 self.send_mouse_event(&target, &mut evt);
+                if let Some(id) = self.pending_focus.take() {
+                    self.focus_renderable(&id);
+                }
             }
             return true;
         }
@@ -2438,8 +2660,73 @@ impl CliRenderer {
                 self.captured = Some(id.clone());
             }
             self.dispatch_mouse_event(&id, &event);
+            // the renderer's selection block (renderer.ts:3680-3710):
+            // left-down over a selectable embedded terminal anchors a
+            // cell selection; drags update it (upstream
+            // startSelection/updateSelection)
+            if event.event_type == crate::parse_mouse::MouseEventType::Down
+                && event.button == MouseButton::Left as i32
+            {
+                self.start_mouse_selection(&id, event.x, event.y);
+            } else if matches!(
+                event.event_type,
+                crate::parse_mouse::MouseEventType::Drag | crate::parse_mouse::MouseEventType::Up
+            ) {
+                self.update_mouse_selection(event.x, event.y);
+            }
         }
         true
+    }
+
+    /// `startSelection` (renderer.ts + EmbeddedTerminal.ts:176-181) —
+    /// `shouldStartSelection` gates the anchor.
+    fn start_mouse_selection(&mut self, id: &str, x: i32, y: i32) {
+        let Some(node) = self.find_node(&self.root.inner, id) else {
+            return;
+        };
+        let Content::EmbeddedTerminal(state) = &node.content else {
+            return;
+        };
+        if !state.should_start_selection(
+            x,
+            y,
+            node.screen_x,
+            node.screen_y,
+            node.w.max(0.0) as u32,
+            node.h.max(0.0) as u32,
+        ) {
+            return;
+        }
+        self.mouse_selection = Some(MouseSelection {
+            target: id.to_owned(),
+            anchor: (x, y),
+            focus: (x, y),
+        });
+    }
+
+    /// `updateSelection` — recompute the terminal's local selection
+    /// (`onSelectionChanged`, EmbeddedTerminal.ts:183-216).
+    fn update_mouse_selection(&mut self, x: i32, y: i32) {
+        let Some(sel) = self.mouse_selection.as_mut() else {
+            return;
+        };
+        sel.focus = (x, y);
+        let (id, anchor, focus) = (sel.target.clone(), sel.anchor, sel.focus);
+        let Some(node) = Self::find_node_mut(&mut self.root.inner, &id) else {
+            return;
+        };
+        let Content::EmbeddedTerminal(state) = &mut node.content else {
+            return;
+        };
+        state.on_selection_changed(Some(
+            crate::renderables::embedded_terminal::SelectionUpdate {
+                behavior_cell: true,
+                anchor: (anchor.0 - node.screen_x, anchor.1 - node.screen_y),
+                focus: (focus.0 - node.screen_x, focus.1 - node.screen_y),
+                width: node.w.max(0.0) as u32,
+                height: node.h.max(0.0) as u32,
+            },
+        ));
     }
 
     // -----------------------------------------------------------------
@@ -2497,6 +2784,7 @@ impl CliRenderer {
     }
 
     fn apply_focus_state(&mut self, id: &str, focused: bool) {
+        let mut park_cursor = false;
         if let Some(node) = Self::find_node_mut(&mut self.root.inner, id) {
             node.focused = focused;
             match &mut node.content {
@@ -2516,8 +2804,22 @@ impl CliRenderer {
                         state.blur();
                     }
                 }
+                // `EmbeddedTerminal.focus`/`blur` (EmbeddedTerminal.ts:227-253):
+                // the mode-1004 focus report; blur parks the terminal
+                // cursor at (0,0) hidden (:251)
+                Content::EmbeddedTerminal(state) => {
+                    if focused {
+                        state.focus();
+                    } else {
+                        state.blur();
+                        park_cursor = true;
+                    }
+                }
                 _ => {}
             }
+        }
+        if park_cursor {
+            self.cursor_state.set_position(0, 0, false);
         }
     }
 
@@ -2834,6 +3136,18 @@ impl CliRenderer {
             self.textarea_key_press(&id, event);
             return;
         }
+        // the focused embedded terminal's handleKeyPress
+        // (EmbeddedTerminal.ts:255-259 + the keyrelease internal
+        // registration, :227-240 — release events ride the same path)
+        {
+            let Some(node) = Self::find_node_mut(&mut self.root.inner, &id) else {
+                return;
+            };
+            if let Content::EmbeddedTerminal(state) = &mut node.content {
+                state.handle_key_press(event);
+                return;
+            }
+        }
         let Some(node) = Self::find_node_mut(&mut self.root.inner, &id) else {
             return;
         };
@@ -2864,6 +3178,12 @@ impl CliRenderer {
         let Some(node) = Self::find_node_mut(&mut self.root.inner, &id) else {
             return;
         };
+        if let Content::EmbeddedTerminal(state) = &mut node.content {
+            // `handlePaste` (EmbeddedTerminal.ts:261-263)
+            let event = PasteEvent::new(bytes, None);
+            state.handle_paste(&event);
+            return;
+        }
         if let Content::Input(state) = &mut node.content {
             let mut event = PasteEvent::new(bytes, None);
             state.handle_paste(&mut event);

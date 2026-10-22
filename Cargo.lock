@@ -115,6 +115,7 @@ dependencies = [
  "tree-sitter-language",
  "unicode-segmentation",
  "unicode-width 0.2.2",
+ "vte",
 ]
 
 [[package]]

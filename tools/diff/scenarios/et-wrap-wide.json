@@ -1,0 +1,35 @@
+{
+ "name": "et-wrap-wide",
+ "width": 16,
+ "height": 5,
+ "steps": [
+  {
+   "op": "embedded-terminal",
+   "id": "term",
+   "parent": "root",
+   "options": {
+    "width": 16,
+    "height": 5
+   }
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "abcdefghij0123456789AB"
+   ]
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "a\u754cb\r\n\u65e5\u672c\u8a9e"
+   ]
+  },
+  {
+   "op": "flush"
+  }
+ ]
+}

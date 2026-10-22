@@ -53,15 +53,33 @@ recomputed state.
 | @opentui/keymap (+subpaths) | 12 | 14* | 4 | 2 | 6 |
 | **total** | **339** | **79** | **35** | **18** | **286** |
 
-### Current (recounted 2026-10-22 from the per-symbol rows below; diff/line-number lane merged)
+### Current (recounted 2026-10-22 from the per-symbol rows below; embedded-terminal lane merged)
 
 | package | exports | done | partial | deferred | todo |
 |---|---|---|---|---|---|
-| @opentui/core | 279 | 115 | 8 | 0 | 156 |
+| @opentui/core | 279 | 115 | 9 | 0 | 155 |
 | @opentui/solid | 48 | 35 | 3 | 7 | 3 |
 | @opentui/keymap (+subpaths) | 12 | 12 | 0 | 0 | 0 |
-| **total** | **339** | **162 (47.8%)** | **11** | **7** | **159** |
-| tier-1 rows only (bold `**1**`) | 52 | 47 | 3 | 0 | 2 |
+| **total** | **339** | **162 (47.8%)** | **12** | **7** | **158** |
+| tier-1 rows only (bold `**1**`) | 52 | 47 | 4 | 0 | 1 |
+
+Embedded-terminal lane note (the `partial`): upstream's class wraps a
+native FFI handle backed by Ghostty's `libghostty-vt`
+(`packages/native/src/embedded-terminal/`), so "done" would mean
+porting a real terminal emulator. The lane shipped
+`opentui-core::embedded_terminal` — a VT engine on the `vte` state
+machine (already in the lockfile via the vt100 replay dependency) with
+ghostty's compositor semantics (`compositor.zig`) and Ghostty's input
+encoders (`src/input/{key_encode,mouse_encode,paste}.zig`) ported from
+the MIT source. Observable parity is pinned: 18 `et-*` differential
+scenarios (geometry, SGR/BCE styling, OSC 10/11, wrap+wide, cursor
+ops, scroll+scrollback incl. reflow-on-resize, alt screen,
+transparent bg, focus cursor, mouse-drag selection) + 31 unit tests
+porting `EmbeddedTerminal.test.ts` — all IDENTICAL vs the pinned
+0.5.14. Narrowed vs ghostty: grapheme clustering is
+single-codepoint+width, tab stops are fixed at 8, the kitty key table
+covers `physicalKey`'s vocabulary, and unpinned VT corners (IRM,
+modifyOtherKeys state 2, DECSTBM interactions) are best-effort.
 
 \* The tier-1 size has two readings, both correct: **79** = distinct
 consumer import names parsed from opencode v2.0.24's TUI imports
@@ -124,7 +142,7 @@ tree-sitter styling, testing helpers.
 | `EditBufferRenderable` | 2 | core/src/renderables/EditBufferRenderable.ts:85 | opentui-core::renderables::textarea | done |
 | `EditBufferRenderableEvents` | 2 | core/src/renderables/EditBufferRenderable.ts:36 | opentui-core::renderables::textarea | partial |
 | `EditorView` | 2 | core/src/editor-view.ts:23 | opentui-core::editor | done |
-| `EmbeddedTerminalRenderable` | **1** | core/src/renderables/EmbeddedTerminal.ts:42 | opentui-core::renderables | todo |
+| `EmbeddedTerminalRenderable` | **1** | core/src/renderables/EmbeddedTerminal.ts:42 | opentui-core::renderables | partial (renderable 1:1 + a vte-based engine pinned by 18 differential scenarios + 31 ported upstream tests; NOT full ghostty-vt emulation — see note) |
 | `ExtmarksController` | 2 | core/src/lib/extmarks.ts:33 | opentui-core | todo |
 | `FlamesEffect` | 2 | core/src/post/effects.ts:605 | opentui-core | todo |
 | `FrameBuffer` | 2 | core/src/renderables/composition/constructs.ts:56 | opentui-core::buffer | todo |

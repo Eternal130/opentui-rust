@@ -1,0 +1,43 @@
+{
+ "name": "et-cursor-ops",
+ "width": 16,
+ "height": 5,
+ "steps": [
+  {
+   "op": "embedded-terminal",
+   "id": "term",
+   "parent": "root",
+   "options": {
+    "width": 16,
+    "height": 5
+   }
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "abcdef"
+   ]
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "\u001b[2;3Hxy\u001b[1;1H"
+   ]
+  },
+  {
+   "op": "call",
+   "id": "term",
+   "method": "write",
+   "args": [
+    "abc\u001b[3G\u001b[K"
+   ]
+  },
+  {
+   "op": "flush"
+  }
+ ]
+}

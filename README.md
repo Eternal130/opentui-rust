@@ -156,6 +156,19 @@ prove the emitted bytes repaint the same grid.
    a CI `perf` job guards generous ceilings. Full render cycle at
    120x30: **0.029 ms** median (~170x under the 5ms target, parity
    or faster vs the REAL 0.5.14 under bun on the same box).
+10. **clipboard/ttfd + diff/line-number lanes** — done (landed in
+   history): createClipboard, createRendererClipboardAdapter,
+   TimeToFirstDraw; DiffRenderable + LineNumberRenderable (jsdiff
+   parsePatch port), 21 differential scenarios, 95/95 IDENTICAL.
+11. **embedded-terminal-lane** — the tier-1
+   `EmbeddedTerminalRenderable`: the TS class ported 1:1 over
+   `opentui-core::embedded_terminal`, a VT engine on the `vte` state
+   machine with ghostty's compositor + input encoders
+   (key/mouse/paste/focus) ported from the MIT source; 18 `et-*`
+   differential scenarios (geometry/styling/OSC/wrap/cursor/scroll/
+   scrollback/reflow/alt-screen/transparent/focus-cursor/selection)
+   + 31 ported upstream tests, all IDENTICAL — marked **partial** in
+   PORT-MATRIX (a vte-based engine, not full ghostty-vt emulation).
 
 ## License attribution
 
