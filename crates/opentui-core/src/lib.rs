@@ -35,6 +35,7 @@
 
 pub mod ansi;
 pub mod buffer;
+pub mod clipboard;
 pub mod color;
 pub mod editor;
 #[cfg(test)]
@@ -63,6 +64,17 @@ pub mod tree_sitter;
 
 pub use ansi::TextAttributes;
 pub use buffer::OptimizedBuffer;
+pub use clipboard::{
+    create_clipboard, create_host_clipboard_with_backend, create_renderer_clipboard_adapter,
+    validate_clipboard_text, AbortSignal, ClipboardClearResult, ClipboardError, ClipboardOptions,
+    ClipboardReadOptions, ClipboardReadResult, ClipboardSelection, ClipboardService,
+    ClipboardTarget, ClipboardWriteDestination, ClipboardWriteOptions, ClipboardWriteResult,
+    HostClipboardBackend, HostClipboardClearResult, HostClipboardOperationOptions,
+    HostClipboardOptions, HostClipboardReadOptions, HostClipboardService,
+    HostClipboardWriteOptions, HostClipboardWriteResult, NormalizedHostClipboardOptions,
+    Osc52Support, RendererClipboardAdapter, RendererClipboardBoundary, TerminalClipboardAdapter,
+    TerminalClipboardOperationResult,
+};
 pub use color::{parse_color, ColorIntent, Rgba};
 pub use editor::{
     EditBuffer, EditorView, SelectionBehavior, SelectionOccupancy, TextSelection, VisualCursor,

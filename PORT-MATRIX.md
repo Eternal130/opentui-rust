@@ -57,11 +57,11 @@ recomputed state.
 
 | package | exports | done | partial | deferred | todo |
 |---|---|---|---|---|---|
-| @opentui/core | 279 | 109 | 8 | 0 | 162 |
-| @opentui/solid | 48 | 34 | 3 | 7 | 4 |
+| @opentui/core | 279 | 113 | 8 | 0 | 158 |
+| @opentui/solid | 48 | 35 | 3 | 7 | 3 |
 | @opentui/keymap (+subpaths) | 12 | 12 | 0 | 0 | 0 |
-| **total** | **339** | **155 (45.7%)** | **11** | **7** | **166** |
-| tier-1 rows only (bold `**1**`) | 52 | 42 | 3 | 0 | 7 |
+| **total** | **339** | **160 (47.2%)** | **11** | **7** | **161** |
+| tier-1 rows only (bold `**1**`) | 52 | 45 | 3 | 0 | 4 |
 
 \* The tier-1 size has two readings, both correct: **79** = distinct
 consumer import names parsed from opencode v2.0.24's TUI imports
@@ -107,7 +107,7 @@ tree-sitter styling, testing helpers.
 | `CliRenderEvents` | **1** | core/src/renderer.ts:750 | opentui-core::renderer | done |
 | `CliRenderer` | **1** | core/src/renderer.ts:780 | opentui-core::renderer | done |
 | `Clipboard` | 2 | core/src/lib/clipboard.ts:337 | opentui-core | todo |
-| `ClipboardTarget` | 2 | core/src/lib/clipboard.ts:292 | opentui-core | todo |
+| `ClipboardTarget` | 2 | core/src/lib/clipboard.ts:292 | opentui-core | done (ABI enum; clipboard.test.ts:19-24 pinned) |
 | `CloudsEffect` | 2 | core/src/post/effects.ts:494 | opentui-core | todo |
 | `Code` | 2 | core/src/renderables/composition/constructs.ts:60 | opentui-core | todo |
 | `CodeRenderable` | **1** | core/src/renderables/Code.ts:48 | opentui-core::renderables | done |
@@ -211,7 +211,7 @@ tree-sitter styling, testing helpers.
 | `TextRenderable` | **1** | core/src/renderables/Text.ts:13 | opentui-core::renderables | done |
 | `TextTableRenderable` | 2 | core/src/renderables/TextTable.ts:99 | opentui-core::renderables | todo |
 | `TextareaRenderable` | **1** | core/src/renderables/Textarea.ts:145 | opentui-core::renderables::textarea | done |
-| `TimeToFirstDrawRenderable` | 2 | core/src/renderables/TimeToFirstDraw.ts:40 | opentui-core::renderables | todo |
+| `TimeToFirstDrawRenderable` | 2 | core/src/renderables/TimeToFirstDraw.ts:40 | opentui-core::renderables | done (pulled in by solid `TimeToFirstDraw`; TimeToFirstDraw.test.ts ported + ECMA toFixed) |
 | `Timeline` | 2 | core/src/animation/Timeline.ts:284 | opentui-core | todo |
 | `TreeSitterClient` | **1** | core/src/lib/tree-sitter/client.ts:74 | opentui-core::tree_sitter | done |
 | `VRenderable` | 2 | core/src/renderables/composition/VRenderable.ts:19 | opentui-core::renderables | todo |
@@ -259,13 +259,13 @@ tree-sitter styling, testing helpers.
 | `convertThemeToStyles` | 2 | core/src/syntax-style.ts:41 | opentui-core::syntax_style | done |
 | `coordinateToCharacterIndex` | 2 | core/src/lib/ascii.font.ts:196 | opentui-core | todo |
 | `createCliRenderer` | **1** | core/src/renderer.ts:723 | opentui-core::renderer | done |
-| `createClipboard` | **1** | core/src/lib/clipboard.ts:179 | opentui-core | todo |
+| `createClipboard` | **1** | core/src/lib/clipboard.ts:179 | opentui-core | done (sync port: destination policies/remote-gating/pre-abort pinned by clipboard-service.test.ts; async dispose-wait degenerate) |
 | `createCoreSlotRegistry` | 2 | core/src/plugins/core-slot.ts:168 | opentui-core | todo |
 | `createExtmarksController` | 2 | core/src/lib/extmarks.ts:859 | opentui-core | todo |
 | `createHostClipboard` | 2 | core/src/lib/clipboard.ts:165 | opentui-core | todo |
 | `createIcyStreamDemuxer` | 2 | core/src/audio-stream/icy/demuxer.ts:108 | opentui-core | todo |
 | `createMarkdownCodeBlockRenderer` | **1** | core/src/renderables/Markdown.ts:171 | opentui-core::renderer | partial |
-| `createRendererClipboardAdapter` | **1** | core/src/lib/clipboard.ts:308 | opentui-core::renderer | todo |
+| `createRendererClipboardAdapter` | **1** | core/src/lib/clipboard.ts:308 | opentui-core::clipboard | done (boundary trait; clipboard-service.test.ts:207-236 ported) |
 | `createSlotRegistry` | 2 | core/src/plugins/registry.ts:378 | opentui-core | todo |
 | `createTerminalPalette` | 2 | core/src/lib/terminal-palette.ts:395 | opentui-core | todo |
 | `createTextAttributes` | 2 | core/src/utils.ts:4 | opentui-core::styled_text | done |
@@ -377,7 +377,7 @@ tree-sitter styling, testing helpers.
 | `Slot` | 2 | solid/src/plugins/slot.tsx:81 | opentui-solid | deferred (plugin-side slots) |
 | `SlotRenderable` | 2 | solid/src/elements/slot.ts:162 | opentui-solid | partial (portal/show markers) |
 | `TextSlotRenderable` | 2 | solid/src/elements/slot.ts:54 | opentui-solid | deferred (plugin-side slots) |
-| `TimeToFirstDraw` | **1** | solid/src/time-to-first-draw.tsx:15 | opentui-solid | todo (events lane) |
+| `TimeToFirstDraw` | **1** | solid/src/time-to-first-draw.tsx:15 | opentui-solid::time_to_first_draw | done (extend-registered `time_to_first_draw` intrinsic + builder; registration explicit — Rust has no import side effects) |
 | `UnderlineSpanRenderable` | 2 | solid/src/elements/catalogue.ts:61 | opentui-solid::element::SpanKind::Underline | done (shape: Tag::Span) |
 | `_render` | 2 | solid-js re-export | SolidRenderer::render_root | done (semantics) |
 | `baseComponents` | 2 | solid/src/elements/catalogue.ts:92 | opentui-solid::Tag (ported subset) | partial (box/text/scrollbox/spans) |
