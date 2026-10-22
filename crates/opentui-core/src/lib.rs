@@ -34,6 +34,9 @@
 //! [`renderables::code`] `CodeOptions` + [`detect_links`]).
 
 pub mod ansi;
+pub mod audio;
+#[cfg(test)]
+mod audio_tests;
 pub mod buffer;
 pub mod clipboard;
 pub mod color;

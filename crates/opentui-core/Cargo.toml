@@ -16,6 +16,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tree-sitter = "0.25.10"
 tree-sitter-language = "0.1.9"
+# the MP3 decoder — the same one upstream's miniaudio uses (dr_mp3
+# builds directly on minimp3), for loadSound's real decode path
+minimp3 = "0.5"
 # the VT state machine for the embedded terminal engine (already in the
 # lockfile as the vt100 replay dependency — no new transitive deps)
 vte = "0.11"
