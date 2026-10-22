@@ -84,6 +84,9 @@ pub enum Content {
     ScrollBox(BoxRenderableState, ScrollBoxState),
     /// `InputRenderable` (Input.ts:46) — the single-line input.
     Input(InputRenderableState),
+    /// `TimeToFirstDrawRenderable` (TimeToFirstDraw.ts:40) — the
+    /// first-draw timestamp line.
+    TimeToFirstDraw(crate::renderables::time_to_first_draw::TimeToFirstDrawState),
 }
 
 /// `OverflowString` — Renderable.ts:71 ("visible" | "hidden" | "scroll");
@@ -480,13 +483,20 @@ impl Renderable {
             ),
             Content::Arrow(state) => state.paint(buffer, self.screen_x, self.screen_y),
             Content::Input(state) => state.paint(buffer, self.screen_x, self.screen_y),
+            // TimeToFirstDraw.ts:105,107 — upstream draws at
+            // `this.x`/`this.y` (the PARENT-RELATIVE layout position),
+            // not `_screenX`: correct at root level, mispositioned
+            // when nested. Bug-for-bug.
+            Content::TimeToFirstDraw(state) => {
+                state.paint(buffer, self.x as i32, self.y as i32, self.w)
+            }
         }
     }
 
     /// `render()` phase 1 (EditBufferRenderable.ts:991-1004): stash the
     /// draw snapshot + collect the terminal-cursor output. Runs as a
     /// `&mut` walk before the `&self` paint.
-    pub fn prepare_paint(&mut self, cursor_out: &mut Vec<(String, u32, u32)>) {
+    pub fn prepare_paint(&mut self, cursor_out: &mut Vec<(String, u32, u32)>, now_ms: f64) {
         if !self.visible {
             return;
         }
@@ -495,6 +505,12 @@ impl Renderable {
                 cursor_out.push((self.id.0.clone(), x, y));
             }
         }
+        // TimeToFirstDraw.ts:98-100 — the first-renderSelf stamp of
+        // `performance.now()` (the port stamps in this prepare pass of
+        // the same frame; the value is identical)
+        if let Content::TimeToFirstDraw(state) = &mut self.content {
+            state.stamp(now_ms);
+        }
         // fill the Text vline cache while we hold &mut (perf lane): the
         // `&self` paint then borrows the cached lines instead of
         // recomputing them every frame
@@ -502,7 +518,7 @@ impl Renderable {
             let _ = state.vlines();
         }
         for child in &mut self.children {
-            child.prepare_paint(cursor_out);
+            child.prepare_paint(cursor_out, now_ms);
         }
     }
 
