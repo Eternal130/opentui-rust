@@ -53,15 +53,43 @@ recomputed state.
 | @opentui/keymap (+subpaths) | 12 | 14* | 4 | 2 | 6 |
 | **total** | **339** | **79** | **35** | **18** | **286** |
 
-### Current (recounted 2026-10-22 from the per-symbol rows below; embedded-terminal lane merged)
+### Current (recounted 2026-10-22 from the per-symbol rows below; audio lane merged)
 
 | package | exports | done | partial | deferred | todo |
 |---|---|---|---|---|---|
-| @opentui/core | 279 | 115 | 9 | 0 | 155 |
+| @opentui/core | 279 | 117 | 10 | 0 | 152 |
 | @opentui/solid | 48 | 35 | 3 | 7 | 3 |
 | @opentui/keymap (+subpaths) | 12 | 12 | 0 | 0 | 0 |
-| **total** | **339** | **162 (47.8%)** | **12** | **7** | **158** |
-| tier-1 rows only (bold `**1**`) | 52 | 47 | 4 | 0 | 1 |
+| **total** | **339** | **164 (48.4%)** | **13** | **7** | **155** |
+| tier-1 rows only (bold `**1**`) | 52 | 47 | 5 | 0 | 0 |
+
+Audio lane note (the tier-1 `partial` — last tier-1 row landed): the
+`Audio` row is the *consumer contract* opencode v2's TUI uses
+(`packages/tui/src/audio.ts`, the only consumer), ported 1:1 over an
+injectable `AudioLib` trait (the render-lib seam upstream's own tests
+monkey-patch). Semantics are real: MP3 decode via `minimp3` — the
+same decoder upstream's miniaudio uses (`dr_mp3` builds on minimp3) —
+plus RIFF/WAVE PCM/IEEE-float; native status codes (−1 invalid / −2
+no-space / −3 decode / −4 not-found / −5 device), 1-based monotonic
+sound ids, the 32-voice budget, volume `[0,4]` / pan `[-1,1]` clamps,
+the implicit default group, node-EventEmitter error semantics
+(unhandled "error" throws — audio.test.ts:952), and dispose's
+stop→destroy→disposed ladder incl. engine retention on destroy
+failure. Narrowed exactly: (1) the default backend is a **null
+in-memory sink** — no audio device I/O exists in a headless crate
+(mixing is observable via `HeadlessAudioLib::render_frames`, never
+audible; the −5 no-device start failure is pinned via an injected
+lib, as upstream's tests do); (2) FLAC reports `err_decode`
+(upstream's dr_flac decodes it); (3) `AudioStartOptions` fields are
+accepted but not applied (null device has no period config); (4) MP3
+samples pass through minimp3's i16 output scaled to f32. Pinned by 27
+unit tests (ports of audio.test.ts:229-426/952 + consumer-flow +
+native-state-machine pins). No `tools/diff` scenario: audio output is
+not cell-grid observable — the differential harness compares rendered
+grids, and `Audio` emits no cells; the decode/state-machine contract
+is pinned by the unit tests instead. Capture
+(`openCapture`/`startCapture`/…), icy streaming (`playStream*`), the
+recorder (`recordToFile`), device selection and stats stay **todo**.
 
 Embedded-terminal lane note (the `partial`): upstream's class wraps a
 native FFI handle backed by Ghostty's `libghostty-vt`
@@ -107,10 +135,10 @@ tree-sitter styling, testing helpers.
 | `ATTRIBUTE_BASE_BITS` | 2 | core/src/types.ts:21 | opentui-core | todo |
 | `ATTRIBUTE_BASE_MASK` | 2 | core/src/types.ts:22 | opentui-core | todo |
 | `ArrowRenderable` | 2 | core/src/renderables/ScrollBar.ts:320 | opentui-core::renderables | done |
-| `Audio` | **1** | core/src/audio.ts:2752 | opentui-core | todo |
+| `Audio` | **1** | core/src/audio.ts:2752 | opentui-core | partial (the tier-1 consumer contract — create/on("error")/loadSound/isStarted/start/play/dispose + stop·isMixerStarted — over a swappable `AudioLib` seam; native status-code/id/32-voice-cap state machine + real MP3 (minimp3, upstream's dr_mp3 engine) & WAV-PCM decode; output is a null in-memory sink (no device I/O), FLAC reports err_decode; capture/stream/recorder/device families todo) |
 | `AudioCaptureStream` | 2 | core/src/audio.ts:1759 | opentui-core | todo |
 | `AudioCaptureStreamError` | 2 | core/src/audio.ts:371 | opentui-core | todo |
-| `AudioInitializationError` | 2 | core/src/audio.ts:358 | opentui-core | todo |
+| `AudioInitializationError` | 2 | core/src/audio.ts:358 | opentui-core | done (all three actions, status + cause chaining; pinned by audio.test.ts:229-246, 248-277 ports) |
 | `AudioRecorder` | 2 | core/src/audio.ts:2249 | opentui-core | todo |
 | `AudioRecorderError` | 2 | core/src/audio.ts:382 | opentui-core | todo |
 | `AudioStream` | 2 | core/src/audio.ts:867 | opentui-core | todo |
@@ -365,7 +393,7 @@ tree-sitter styling, testing helpers.
 | `reverse` | 2 | core/src/lib/styled-text.ts:116 | opentui-core::styled_text::styles | done |
 | `rgbToHex` | 2 | core/src/lib/RGBA.ts:244 | opentui-core | todo |
 | `setRenderLibPath` | 2 | core/src/zig.ts:6925 | opentui-core | todo |
-| `setupAudio` | 2 | core/src/audio.ts:3685 | opentui-core | todo |
+| `setupAudio` | 2 | core/src/audio.ts:3685 | opentui-core | done (delegates to Audio.create — the Audio row's narrowing applies; audio.test.ts:244-246 ported) |
 | `strikethrough` | 2 | core/src/lib/styled-text.ts:114 | opentui-core::styled_text::styles | done |
 | `stringToStyledText` | 2 | core/src/lib/styled-text.ts:36 | opentui-core::styled_text | done |
 | `stripAnsiSequences` | 2 | core/src/lib/paste.ts:16 | opentui-core::paste | done |
