@@ -1,0 +1,18 @@
+{
+  "name": "diff-split-multiline",
+  "width": 80,
+  "height": 20,
+  "steps": [
+    {
+      "op": "diff",
+      "id": "d",
+      "parent": "root",
+      "options": {
+        "diff": "--- a/math.js\n+++ b/math.js\n@@ -1,7 +1,11 @@\n function add(a, b) {\n   return a + b;\n }\n \n+function subtract(a, b) {\n+  return a - b;\n+}\n+\n function multiply(a, b) {\n-  return a * b;\n+  return a * b * 1;\n }",
+        "width": "100%",
+        "height": "100%",
+        "view": "split"
+      }
+    }
+  ]
+}

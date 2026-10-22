@@ -849,6 +849,36 @@ for (const step of scenario.steps) {
       ...(o.fg !== undefined ? { fg: o.fg } : {}),
       ...(o.bg !== undefined ? { bg: o.bg } : {}),
     })
+  } else if (step.op === "diff") {
+    const o = step.options ?? {}
+    const styles = o.styles ?? {}
+    const { DiffRenderable, SyntaxStyle } = await import("@opentui/core")
+    const syntaxStyle = SyntaxStyle.fromStyles(styles)
+    r = new DiffRenderable(renderer, {
+      id: step.id,
+      diff: o.diff ?? "",
+      syntaxStyle,
+      ...(o.view !== undefined ? { view: o.view } : {}),
+      ...(o.filetype !== undefined ? { filetype: o.filetype } : {}),
+      ...(o.wrapMode !== undefined ? { wrapMode: o.wrapMode } : {}),
+      ...(o.conceal !== undefined ? { conceal: o.conceal } : {}),
+      ...(o.fg !== undefined ? { fg: o.fg } : {}),
+      ...(o.showLineNumbers !== undefined ? { showLineNumbers: o.showLineNumbers } : {}),
+      ...(o.lineNumberFg !== undefined ? { lineNumberFg: o.lineNumberFg } : {}),
+      ...(o.lineNumberBg !== undefined ? { lineNumberBg: o.lineNumberBg } : {}),
+      ...(o.addedBg !== undefined ? { addedBg: o.addedBg } : {}),
+      ...(o.removedBg !== undefined ? { removedBg: o.removedBg } : {}),
+      ...(o.contextBg !== undefined ? { contextBg: o.contextBg } : {}),
+      ...(o.addedContentBg !== undefined ? { addedContentBg: o.addedContentBg } : {}),
+      ...(o.removedContentBg !== undefined ? { removedContentBg: o.removedContentBg } : {}),
+      ...(o.contextContentBg !== undefined ? { contextContentBg: o.contextContentBg } : {}),
+      ...(o.addedSignColor !== undefined ? { addedSignColor: o.addedSignColor } : {}),
+      ...(o.removedSignColor !== undefined ? { removedSignColor: o.removedSignColor } : {}),
+      ...(o.addedLineNumberBg !== undefined ? { addedLineNumberBg: o.addedLineNumberBg } : {}),
+      ...(o.removedLineNumberBg !== undefined ? { removedLineNumberBg: o.removedLineNumberBg } : {}),
+      ...(o.width !== undefined ? { width: o.width } : {}),
+      ...(o.height !== undefined ? { height: o.height } : {}),
+    })
   } else {
     throw new Error(`unknown op: ${step.op}`)
   }

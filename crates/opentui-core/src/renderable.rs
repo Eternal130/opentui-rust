@@ -27,6 +27,8 @@ use crate::buffer::OptimizedBuffer;
 use crate::input::InputRenderableState;
 use crate::layout::{taffy_style, Dimension, LayoutOptions};
 use crate::renderables::box_::BoxRenderableState;
+use crate::renderables::diff::{DiffOptions, DiffView};
+use crate::renderables::line_number::{GutterMeasure, GutterState, LineNumberState};
 use crate::renderables::scrollbar::{ArrowState, ScrollBarState, SliderState};
 use crate::renderables::scrollbox::{ScrollBoxState, ViewportCulling};
 use crate::renderables::text::TextRenderableState;
@@ -45,6 +47,9 @@ pub struct MeasureCtx {
     pub input_width_cols: u32,
     /// editor content for Textarea leaves
     pub editor: Option<MeasuredEditor>,
+    /// gutter measure inputs (width calc + the target's current virtual
+    /// line count) for LineNumber gutters
+    pub gutter: Option<GutterMeasure>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -56,6 +61,8 @@ pub enum MeasureKind {
     Input,
     /// `NativeMeasureTargetKind.EditorView` (zig.ts)
     Editor,
+    /// `GutterRenderable.setupMeasureFunc` (LineNumberRenderable.ts:106-128)
+    Gutter,
 }
 
 /// What a renderable paints.
@@ -87,6 +94,39 @@ pub enum Content {
     /// `TimeToFirstDrawRenderable` (TimeToFirstDraw.ts:40) — the
     /// first-draw timestamp line.
     TimeToFirstDraw(crate::renderables::time_to_first_draw::TimeToFirstDrawState),
+    /// `LineNumberRenderable` (LineNumberRenderable.ts:365) — the
+    /// gutter+target wrapper. Paints the full-width content backgrounds
+    /// (`renderSelf` :540-565) and the gutter column (the
+    /// GutterRenderable child paints nothing itself — it needs the
+    /// target sibling's virtual lines, which only the wrapper can see).
+    LineNumber(LineNumberState),
+    /// The `GutterRenderable` leaf (LineNumberRenderable.ts:37) — a
+    /// measured child of a [`Content::LineNumber`] wrapper carrying its
+    /// paint state; painting is owned by the wrapper (paint order
+    /// preserved: wrapper fills → gutter → target, mirroring the render
+    /// walk).
+    Gutter(GutterState),
+    /// `DiffRenderable` (Diff.ts:55) — the column/row root; paints
+    /// nothing itself, carries the rebuild state.
+    Diff(DiffState),
+}
+
+/// The Diff root's live state — what the renderer needs to rebuild the
+/// sides through the settle loop (upstream rebuilds on width
+/// availability: `queueMicrotask` Diff.ts:221-234 + `line-info-change`
+/// :248-288).
+#[derive(Debug, Clone)]
+pub struct DiffState {
+    pub options: DiffOptions,
+    pub view: DiffView,
+    /// split wrap-alignment applied at the current width
+    /// (`canDoWrapAlignment`, Diff.ts:718)
+    pub aligned: bool,
+    /// `_lastCodeWidths` (Diff.ts:102) — a change re-arms the realign
+    /// (handleLineInfoChange, Diff.ts:255-262)
+    pub last_code_widths: [f32; 2],
+    /// `_hunkStartLines` (Diff.ts:62) — getHunkRowOffsets input
+    pub hunk_start_lines: Vec<usize>,
 }
 
 /// `OverflowString` — Renderable.ts:71 ("visible" | "hidden" | "scroll");
@@ -134,17 +174,70 @@ pub struct WalkEffects {
     pub size_changed: bool,
     /// size-change hooks fired (applied in order after the walk)
     pub events: Vec<RecalcEvent>,
+    /// deferred tree repairs (need `&mut` taffy — collected here, applied
+    /// by the renderer between passes)
+    pub repairs: Vec<RepairEvent>,
+}
+
+/// A deferred repair collected during an update walk — the walk holds
+/// `&mut` nodes but only an immutable tree view, so anything touching
+/// the taffy tree (measure contexts, dirty marks, subtree rebuilds)
+/// round-trips through the renderer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RepairEvent {
+    /// The gutter's measure total is stale vs the target's current
+    /// virtual line count — refresh the measure context and re-layout
+    /// (upstream: `line-info-change` → `gutter.remeasure()`,
+    /// LineNumberRenderable.ts:379-383).
+    GutterRemeasure {
+        /// the LineNumber wrapper's id (the gutter is its first child)
+        wrapper: String,
+    },
+    /// Split-view wrap alignment can run now that the diff has width —
+    /// rebuild the sides with the measured visual counts (upstream:
+    /// `requestRebuild` microtask, Diff.ts:221-234, applied at
+    /// buildSplitView Diff.ts:755-821).
+    DiffRealign {
+        /// the Diff root's id
+        diff: String,
+    },
 }
 
 impl WalkEffects {
     pub fn any(&self) -> bool {
-        self.display_flipped || self.translated || self.size_changed || !self.events.is_empty()
+        self.display_flipped
+            || self.translated
+            || self.size_changed
+            || !self.events.is_empty()
+            || !self.repairs.is_empty()
     }
 }
 
 /// Stable identity (upstream `id` option; auto ids `r_N`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RenderableId(pub String);
+
+/// A `LineNumberRenderable` wrapper's target virtual-line count at its
+/// current viewport — the gutter's measure input
+/// (`target.virtualLineCount`, LineNumberRenderable.ts:118).
+fn wrapper_vline_count(wrapper: &Renderable) -> Option<u32> {
+    let target = wrapper
+        .children
+        .iter()
+        .skip(1)
+        .find(|c| matches!(c.content, Content::Text(_)))?;
+    let Content::Text(text) = &target.content else {
+        return None;
+    };
+    let wrap_width = if text.wrap_mode == crate::renderables::text::WrapMode::None {
+        None
+    } else {
+        Some(text.viewport.map_or(0, |vp| vp.width))
+    }
+    .filter(|w| *w > 0);
+    let vlines = crate::text_buffer::compute_virtual_lines(&text.doc, text.wrap_mode, wrap_width);
+    Some(vlines.len() as u32)
+}
 
 pub struct Renderable {
     pub id: RenderableId,
@@ -396,6 +489,70 @@ impl Renderable {
         for child in &mut self.children {
             child.update_layout(tree, (sx, sy), (self.w, self.h), effects);
         }
+
+        // post-children hooks (need the children's fresh sizes)
+        if let Content::LineNumber(state) = &self.content {
+            // The gutter measures the TARGET's virtual line count
+            // (LineNumberRenderable.ts:106-128); the target just got its
+            // viewport this walk — refresh when the count moved.
+            if let Some(count) = wrapper_vline_count(self) {
+                if let Some(gutter) = self.children.first() {
+                    if let Some(ctx) = tree.get_node_context(gutter.node) {
+                        if ctx
+                            .gutter
+                            .as_ref()
+                            .is_some_and(|measure| measure.total_lines != count)
+                        {
+                            effects.repairs.push(RepairEvent::GutterRemeasure {
+                                wrapper: self.id.0.clone(),
+                            });
+                        }
+                    }
+                }
+                let _ = state;
+            }
+        }
+        if let Content::Diff(state) = &self.content {
+            // Split wrap-alignment waits for width (Diff.ts:718) and
+            // re-arms when the code panes resize. Upstream hears this
+            // through `line-info-change` (Diff.ts:248-288) — i.e. only
+            // once the panes' wrapping has SETTLED; reading raw layout
+            // widths mid-convergence (a fresh gutter still measuring
+            // its unwrapped count) would ping-pong rebuilds forever.
+            // Gate on both sides' gutter measures being current.
+            let wraps = matches!(
+                state.options.wrap_mode,
+                Some(crate::renderables::text::WrapMode::Word)
+                    | Some(crate::renderables::text::WrapMode::Char)
+            );
+            if state.view == DiffView::Split && wraps && self.w > 0.0 {
+                let code_width = |side: usize| {
+                    self.children
+                        .get(side)
+                        .and_then(|wrapper| wrapper.children.get(1))
+                        .map_or(0.0, |code| code.w)
+                };
+                let settled = (0..2).all(|side| {
+                    self.children.get(side).is_some_and(|wrapper| {
+                        let gutter_ok = wrapper.children.first().is_some_and(|gutter| {
+                            tree.get_node_context(gutter.node).is_some_and(|ctx| {
+                                ctx.gutter.as_ref().is_some_and(|measure| {
+                                    measure.total_lines
+                                        == wrapper_vline_count(wrapper).unwrap_or(u32::MAX)
+                                })
+                            })
+                        });
+                        gutter_ok
+                    })
+                });
+                let widths = [code_width(0), code_width(1)];
+                if settled && (!state.aligned || widths != state.last_code_widths) {
+                    effects.repairs.push(RepairEvent::DiffRealign {
+                        diff: self.id.0.clone(),
+                    });
+                }
+            }
+        }
     }
 
     /// `getScissorRect` — Renderable.ts:1544-1556: the node's screen rect;
@@ -490,6 +647,83 @@ impl Renderable {
             Content::TimeToFirstDraw(state) => {
                 state.paint(buffer, self.x as i32, self.y as i32, self.w)
             }
+            // LineNumberRenderable.ts:540-565 (`renderSelf` fills) +
+            // the gutter paint (:246-351) — the wrapper paints both,
+            // reading the target child's virtual lines. Render order:
+            // wrapper fills → gutter → target (upstream's walk order).
+            Content::LineNumber(state) => {
+                let gutter = self
+                    .children
+                    .first()
+                    .filter(|c| matches!(c.content, Content::Gutter(_)));
+                let target = self
+                    .children
+                    .iter()
+                    .skip(1)
+                    .find(|c| matches!(c.content, Content::Text(_)));
+                let Some(target) = target else {
+                    return;
+                };
+                let Content::Text(text) = &target.content else {
+                    return;
+                };
+                // vline cache is warm (prepare_paint pass); fall back to
+                // a local recompute when cold
+                let recomputed;
+                let vlines: &[crate::text_buffer::VirtualLine] = if text.vlines_valid {
+                    &text.vlines
+                } else {
+                    let wrap_width =
+                        if text.wrap_mode == crate::renderables::text::WrapMode::None {
+                            None
+                        } else {
+                            Some(text.viewport.map_or(0, |vp| vp.width))
+                        }
+                        .filter(|w| *w > 0);
+                    recomputed = crate::text_buffer::compute_virtual_lines(
+                        &text.doc,
+                        text.wrap_mode,
+                        wrap_width,
+                    );
+                    &recomputed
+                };
+                let row_sources: Vec<u32> = vlines.iter().map(|v| v.source_line).collect();
+                // target.scrollY — the code target never scrolls inside a
+                // Diff (upstream reads it; always 0 here)
+                let scroll_y = 0i64;
+                crate::renderables::line_number::paint_line_number_self(
+                    state,
+                    buffer,
+                    self.x as i64,
+                    self.y as i64,
+                    self.w as u32,
+                    self.h as u32,
+                    gutter.is_some_and(|g| g.visible),
+                    gutter.map_or(0, |g| g.w as u32),
+                    &row_sources,
+                    state.source_map.as_deref(),
+                    scroll_y,
+                );
+                if let Some(gutter) = gutter.filter(|g| g.visible) {
+                    if let Content::Gutter(gutter_state) = &gutter.content {
+                        crate::renderables::line_number::paint_gutter(
+                            gutter_state,
+                            gutter.w as u32,
+                            gutter.h as u32,
+                            &row_sources,
+                            state.source_map.as_deref(),
+                            scroll_y,
+                            buffer,
+                            gutter.screen_x,
+                            gutter.screen_y,
+                        );
+                    }
+                }
+            }
+            // the gutter leaf paints through its wrapper (above)
+            Content::Gutter(_) => {}
+            // the Diff root paints nothing itself (Renderable group)
+            Content::Diff(_) => {}
         }
     }
 

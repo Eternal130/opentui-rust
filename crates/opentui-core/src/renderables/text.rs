@@ -137,11 +137,11 @@ pub struct TextRenderableState {
     pub truncate: bool,
     /// `setViewport` state (TextBufferRenderable.ts:106-108 via
     /// onResize) — None until first layout.
-    viewport: Option<Viewport>,
+    pub(crate) viewport: Option<Viewport>,
     /// virtual lines cached for (mode, wrap width)
-    vlines: Vec<crate::text_buffer::VirtualLine>,
+    pub(crate) vlines: Vec<crate::text_buffer::VirtualLine>,
     vlines_wrap_width: Option<u32>,
-    vlines_valid: bool,
+    pub(crate) vlines_valid: bool,
 }
 
 impl TextRenderableState {
