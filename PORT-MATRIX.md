@@ -38,7 +38,13 @@ spot-checks). Upstream is MIT.
 | textarea/editor (O2e) | SGR scenarios vs the real textarea (12: multiline/scroll-follow/selection×3/placeholder/wrap/ops/keyboard-actions/opaque/unicode) + behavior suite (editor_tests.rs) porting upstream's edit-buffer/editor-view/keybinding tests with oracle-verified matrices |
 | solid glue | consumer-side: opencode-rust screens mount via builders (their PTY goldens) |
 
-## Stats (bootstrap snapshot)
+## Stats
+
+### Bootstrap snapshot (historical — frozen at bootstrap, kept for provenance)
+
+The counts as of the repo's bootstrap. Later lanes updated the
+per-symbol rows below, not this table; see the current table for the
+recomputed state.
 
 | package | exports | tier 1 | done | partial | todo |
 |---|---|---|---|---|---|
@@ -47,15 +53,23 @@ spot-checks). Upstream is MIT.
 | @opentui/keymap (+subpaths) | 12 | 14* | 4 | 2 | 6 |
 | **total** | **339** | **79** | **35** | **18** | **286** |
 
----
+### Current (recounted 2026-10-22 from the per-symbol rows below)
 
-| @opentui/core | 279 | 55 | 21 | 4 | 254 |
-| @opentui/solid | 48 | 10 | 34 | 3 | 11 |
-| @opentui/keymap (+subpaths) | 12 | 14* | 4 | 2 | 6 |
-| **total** | **339** | **79** | **59** | **9** | **271** |
+| package | exports | done | partial | deferred | todo |
+|---|---|---|---|---|---|
+| @opentui/core | 279 | 109 | 8 | 0 | 162 |
+| @opentui/solid | 48 | 34 | 3 | 7 | 4 |
+| @opentui/keymap (+subpaths) | 12 | 12 | 0 | 0 | 0 |
+| **total** | **339** | **155 (45.7%)** | **11** | **7** | **166** |
+| tier-1 rows only (bold `**1**`) | 52 | 42 | 3 | 0 | 7 |
 
-\* keymap subpath symbols land in the same Rust crate; counted once in
-the 79 tier-1 set.
+\* The tier-1 size has two readings, both correct: **79** = distinct
+consumer import names parsed from opencode v2.0.24's TUI imports
+across core/solid/keymap(+`opentui`/`solid`/`extras`/`addons/opentui`)
+subpaths (the reading used in "How this table was frozen" above);
+**52** = the bold tier-1 rows actually present in the matrix below
+(39 core + 9 solid + 4 keymap). Keymap subpath symbols land in the
+same Rust crate; counted once.
 
 The tier-2 bulk falls into families that map 1:1 to the next lanes (see
 README §roadmap): renderables (ScrollBox/Textarea/Input/Select/Markdown/
