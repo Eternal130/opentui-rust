@@ -35,6 +35,7 @@
 
 pub mod ansi;
 pub mod audio;
+mod audio_native;
 #[cfg(test)]
 mod audio_tests;
 pub mod buffer;

@@ -16,6 +16,7 @@
 //! captures) match the oracle's exactly. Sources fetched from the PyPI
 //! sdists of the same tags (GitHub releases mirror).
 
+use std::env;
 use std::path::PathBuf;
 
 fn grammar_dir(name: &str) -> PathBuf {
@@ -23,6 +24,13 @@ fn grammar_dir(name: &str) -> PathBuf {
         .join("../../third_party/tree-sitter-grammars")
         .join(name)
         .join("src")
+}
+
+fn miniaudio_dir() -> PathBuf {
+    // vendored, read-only — the exact miniaudio upstream's
+    // miniaudio_shim.c compiles
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../third_party/opentui/packages/native/src/vendor/miniaudio")
 }
 
 fn main() {
@@ -52,5 +60,29 @@ fn main() {
             build.file(path);
         }
         build.compile(&format!("tree-sitter-{name}"));
+    }
+
+    // miniaudio (dr_flac always; the real playback device only behind
+    // the `device-audio` feature — native/opentui_audio.c documents
+    // the two flavors)
+    let device_audio = env::var_os("CARGO_FEATURE_DEVICE_AUDIO").is_some();
+    let shim = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("native/opentui_audio.c");
+    println!("cargo:rerun-if-changed={}", shim.display());
+    println!("cargo:rerun-if-changed={}", miniaudio_dir().display());
+    let mut miniaudio = cc::Build::new();
+    miniaudio
+        .include(miniaudio_dir())
+        .file(&shim)
+        .flag_if_supported("-Wno-unused-parameter")
+        .warnings(false);
+    if device_audio {
+        miniaudio.define("OPENTUI_DEVICE_AUDIO", None);
+    }
+    miniaudio.compile("opentui_audio");
+    if device_audio && cfg!(target_os = "linux") {
+        // miniaudio's Linux backends (ALSA/Pulse) need these
+        println!("cargo:rustc-link-lib=pthread");
+        println!("cargo:rustc-link-lib=m");
+        println!("cargo:rustc-link-lib=dl");
     }
 }
