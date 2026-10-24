@@ -15,10 +15,7 @@
 //! miniaudio engine (`packages/native/src/audio.zig`). The engine is
 //! created with `noDevice = TRUE` (native `create`, audio.zig:2562) —
 //! creation never touches an audio device; the device is opened lazily
-//! by `audioStart`. This crate is headless: it has no audio device, and
-//! producing audible output is not a thing a cell-grid library can
-//! honestly claim. The port therefore splits exactly along upstream's
-//! own seam:
+//! by `audioStart`. This crate ports both halves of that seam:
 //!
 //! - the [`AudioLib`] trait is the render-lib surface the tier-1
 //!   members call (`createAudioEngine`, `audioStart`, `audioStop`,
@@ -29,34 +26,48 @@
 //!   `[-1,1]` clamps, the implicit `default` group, the noDevice
 //!   create-then-lazy-start lifecycle) with **real decoding** of the
 //!   formats the consumer feeds — MP3 via `minimp3` (the same decoder
-//!   upstream's miniaudio uses: `dr_mp3` builds directly on `minimp3`)
-//!   and RIFF/WAVE PCM + IEEE-float — and a **null output sink**: no
-//!   device is opened, mixed output is observable only through
-//!   [`HeadlessAudioLib::render_frames`] (the sink driver), never
-//!   audible. `audioStart` on the null device always succeeds (0); the
-//!   no-device failure path (`err_device` = −5) is pinned by tests via
-//!   an injected [`AudioLib`], mirroring how upstream's own tests
-//!   replace `lib.audioStart` (audio.test.ts:254).
+//!   upstream's miniaudio uses: `dr_mp3` builds directly on `minimp3`),
+//!   RIFF/WAVE PCM + IEEE-float, and FLAC via `dr_flac` from the
+//!   vendored miniaudio (`crates/opentui-core/native/opentui_audio.c`
+//!   compiles the exact header upstream's `miniaudio_shim.c` builds).
+//!
+//! **Output sink.** Default builds are headless by design — a cell-grid
+//! library should not open audio hardware on `start()` — so the default
+//! sink is in-memory: no device is opened, mixed output is observable
+//! only through [`HeadlessAudioLib::render_frames`] (the sink driver),
+//! and `audioStart` on the null device always succeeds (0). With the
+//! `device-audio` cargo feature enabled, the same `HeadlessAudioLib`
+//! opens a **real miniaudio playback device** in `audioStart` — the
+//! native `start` path (audio.zig:1596-1683): f32, engine channels /
+//! sample rate, `StartOptions` period/profile fields, the device
+//! callback pulls mixed frames (mirroring `audioCallback`,
+//! audio.zig:2447), init/start failure reports `err_device` (−5) with
+//! full rollback and **no silent fallback** to the null sink, and the
+//! device's channel count feeds back into `output_channels` when in
+//! `1..=MA_MAX_CHANNELS` (audio.zig:1660-1664). The engine is shared
+//! between the control thread and the device callback through a mutex
+//! (the callback `try_lock`s, silencing on contention, exactly like
+//! native's lock-miss path).
 //!
 //! **Narrowed vs upstream (exact enumeration):**
 //!
-//! 1. FLAC decode is not ported — `fLaC` payloads report `err_decode`
-//!    (−3). Upstream's miniaudio (`dr_flac`) decodes them. MP3 + WAV
-//!    cover every format opencode v2 feeds `loadSound` (its assets are
-//!    all `.mp3`).
-//! 2. WAV decode supports uncompressed RIFF/WAVE (PCM u8/s16/s24/s32
+//! 1. WAV decode supports uncompressed RIFF/WAVE (PCM u8/s16/s24/s32
 //!    and IEEE f32/f64), the `dr_wav` formats that matter here;
 //!    compressed WAV codecs report `err_decode`.
-//! 3. The output sink is in-memory (null device). Volume/pan/loop are
-//!    stored and applied by the sink driver, but no device I/O exists.
-//! 4. `AudioStartOptions` fields are accepted and validated for shape
-//!    only — the null device has no period/buffer configuration. (The
+//! 2. `AudioStartOptions` fields are validated for shape only on the
+//!    null sink (default builds have no period/buffer configuration to
+//!    apply; with `device-audio` they configure the real device). (The
 //!    JS getter-throws → `−1` packing edge is a JS-domain artifact; the
 //!    `−1` status is reproducible via an injected lib, as upstream's
 //!    tests do.)
-//! 5. MP3 samples come back through minimp3's i16 output scaled to
+//! 3. MP3 samples come back through minimp3's i16 output scaled to
 //!    f32 (`i16 / 32768.0`); upstream reads minimp3's float output
-//!    directly (same decoder, one quantization step apart).
+//!    directly (same decoder, one quantization step apart). FLAC keeps
+//!    dr_flac itself, so its f32 output is bit-exact with upstream.
+//! 4. Default-build `audioStart` is the null device: the `err_device`
+//!    (−5) no-device failure path is exercised with the `device-audio`
+//!    feature (or pinned via an injected [`AudioLib`], mirroring how
+//!    upstream's own tests replace `lib.audioStart`, audio.test.ts:254).
 //!
 //! Capture (`openCapture`/`startCapture`/…), icy streaming
 //! (`playStream*`), the recorder (`recordToFile`), device selection and
@@ -71,6 +82,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use minimp3::{Decoder, Error as Mp3Error, Frame};
 
@@ -525,8 +537,12 @@ struct HeadlessGroup {
 /// device-less (`noDevice = TRUE`), started lazily. `sample_rate` /
 /// `output_channels` are the create-time config (native
 /// `ma_engine_get_sample_rate` reads the same state) — native-parity
-/// bookkeeping until the tier-2 stats/device lanes land.
-#[derive(Debug, Clone)]
+/// bookkeeping until the tier-2 stats/device lanes land. Shared
+/// between the control thread and (with `device-audio`) the miniaudio
+/// device callback via [`Mutex`] — the callback `try_lock`s like
+/// native's lock-miss path (audio.zig:2466-2470), so addresses are
+/// stable behind an `Arc`.
+#[derive(Debug)]
 #[allow(dead_code)]
 struct HeadlessEngine {
     sample_rate: u32,
@@ -537,6 +553,10 @@ struct HeadlessEngine {
     started: bool,
     has_device: bool,
     destroyed: bool,
+    /// The open playback device (native `Engine.device`) — only with
+    /// `device-audio`; `None` otherwise (and always on the null sink).
+    #[cfg(feature = "device-audio")]
+    device: Option<DeviceHandle>,
 }
 
 impl HeadlessEngine {
@@ -554,6 +574,8 @@ impl HeadlessEngine {
             started: false,
             has_device: false,
             destroyed: false,
+            #[cfg(feature = "device-audio")]
+            device: None,
         }
     }
 
@@ -563,11 +585,12 @@ impl HeadlessEngine {
 }
 
 /// The default [`AudioLib`]: native-engine state-machine semantics
-/// with real MP3/WAV decode and a null output device. See the module
-/// doc for the exact honesty statement.
-#[derive(Debug, Clone, Default)]
+/// with real MP3/WAV/FLAC decode and a null output device (default
+/// builds) or a real miniaudio playback device (the `device-audio`
+/// feature). See the module doc for the exact honesty statement.
+#[derive(Debug, Default)]
 pub struct HeadlessAudioLib {
-    engines: Vec<Option<HeadlessEngine>>,
+    engines: Vec<Option<Arc<Mutex<HeadlessEngine>>>>,
 }
 
 impl HeadlessAudioLib {
@@ -576,72 +599,53 @@ impl HeadlessAudioLib {
         Self::default()
     }
 
-    fn engine_mut(&mut self, handle: AudioEngineHandle) -> Option<&mut HeadlessEngine> {
-        let index = handle.0.checked_sub(1)? as usize;
-        self.engines.get_mut(index)?.as_mut()
+    fn lock_engine(engine: &Mutex<HeadlessEngine>) -> MutexGuard<'_, HeadlessEngine> {
+        // poisoning only happens if a mixing panics mid-mutation; the
+        // state is still consistent enough to keep serving
+        engine
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    fn engine(&self, handle: AudioEngineHandle) -> Option<&HeadlessEngine> {
+    fn engine_arc(&self, handle: AudioEngineHandle) -> Option<Arc<Mutex<HeadlessEngine>>> {
         let index = handle.0.checked_sub(1)? as usize;
-        self.engines.get(index)?.as_ref()
+        self.engines.get(index)?.clone()
+    }
+
+    /// The engine's mutex, borrowed for the lifetime of `self` — the
+    /// Arc never leaves the Vec while it is borrowed, so the address
+    /// outlives the guard.
+    fn engine_mutex(&self, handle: AudioEngineHandle) -> Option<&Mutex<HeadlessEngine>> {
+        let index = handle.0.checked_sub(1)? as usize;
+        Some(self.engines.get(index)?.as_ref()?.as_ref())
+    }
+
+    fn engine_mut(&mut self, handle: AudioEngineHandle) -> Option<MutexGuard<'_, HeadlessEngine>> {
+        Some(Self::lock_engine(self.engine_mutex(handle)?))
+    }
+
+    fn engine(&self, handle: AudioEngineHandle) -> Option<MutexGuard<'_, HeadlessEngine>> {
+        Some(Self::lock_engine(self.engine_mutex(handle)?))
     }
 
     /// The null-sink driver: mix `frame_count` frames of all active
     /// voices into `channels` interleaved channels, advancing voice
     /// cursors (non-looping voices finish and free their slot —
-    /// native `reapFinishedVoices`, audio.zig:1241-1252). This is the
-    /// observable stand-in for device consumption; linear up/down-mix
-    /// and balance-law pan, not miniaudio's full DSP graph. Never
-    /// called by [`Audio`] — the tier-1 surface has no mixFrames.
+    /// native `reapFinishedVoices`, audio.zig:1241-1252). On the null
+    /// sink this is the observable stand-in for device consumption;
+    /// with `device-audio` the same mixer ([`mix_frames_into`]) feeds
+    /// the real device callback. Linear up/down-mix and balance-law
+    /// pan, not miniaudio's full DSP graph. Never called by [`Audio`]
+    /// — the tier-1 surface has no mixFrames.
     pub fn render_frames(
         &mut self,
         engine: AudioEngineHandle,
         frame_count: usize,
         channels: usize,
     ) -> Option<Vec<f32>> {
-        let engine = self.engine_mut(engine)?;
+        let mut guard = self.engine_mut(engine)?;
         let mut out = vec![0.0f32; frame_count * channels];
-        let mut voices = std::mem::take(&mut engine.voices);
-        for slot in voices.iter_mut() {
-            let Some(voice) = slot.as_mut() else { continue };
-            let sound = &engine.sounds[voice.sound_index];
-            if !sound.loaded {
-                continue;
-            }
-            let sound_channels = sound.channels as usize;
-            let total_frames = sound.samples.len().checked_div(sound_channels).unwrap_or(0);
-            let (gl, gr) = stereo_gains(voice.pan);
-            for frame in 0..frame_count {
-                if voice.cursor_frame >= total_frames {
-                    if voice.loop_ && total_frames > 0 {
-                        voice.cursor_frame = 0;
-                    } else {
-                        // finished — reap the slot
-                        *slot = None;
-                        break;
-                    }
-                }
-                let base = voice.cursor_frame * sound_channels;
-                let (l, r) = match sound_channels {
-                    1 => (sound.samples[base], sound.samples[base]),
-                    _ => (sound.samples[base], sound.samples[base + 1]),
-                };
-                let l = l * voice.volume * gl;
-                let r = r * voice.volume * gr;
-                let dest = frame * channels;
-                out[dest] += l;
-                if channels > 1 {
-                    out[dest + 1] += r;
-                    // extra channels copy the right channel (a
-                    // deterministic choice — the null sink's law)
-                    for ch in 2..channels {
-                        out[dest + ch] += r;
-                    }
-                }
-                voice.cursor_frame += 1;
-            }
-        }
-        engine.voices = voices;
+        mix_frames_into(&mut guard, &mut out, channels);
         Some(out)
     }
 
@@ -706,6 +710,226 @@ fn stereo_gains(pan: f32) -> (f32, f32) {
     (1.0 - pan.max(0.0), 1.0 - (-pan).max(0.0))
 }
 
+/// The mixer both sinks share: mix `out.len() / channels` frames of
+/// all active voices into `out` (interleaved), advancing voice
+/// cursors and reaping finished voices (native
+/// `readEngineStereo`-equivalent — the null-sink law: linear
+/// up/down-mix, extra channels copy the right channel).
+fn mix_frames_into(engine: &mut HeadlessEngine, out: &mut [f32], channels: usize) {
+    debug_assert!(channels > 0 && out.len().is_multiple_of(channels));
+    let frame_count = out.len() / channels;
+    let mut voices = std::mem::take(&mut engine.voices);
+    for slot in voices.iter_mut() {
+        let Some(voice) = slot.as_mut() else { continue };
+        let sound = &engine.sounds[voice.sound_index];
+        if !sound.loaded {
+            continue;
+        }
+        let sound_channels = sound.channels as usize;
+        let total_frames = sound.samples.len().checked_div(sound_channels).unwrap_or(0);
+        let (gl, gr) = stereo_gains(voice.pan);
+        for frame in 0..frame_count {
+            if voice.cursor_frame >= total_frames {
+                if voice.loop_ && total_frames > 0 {
+                    voice.cursor_frame = 0;
+                } else {
+                    // finished — reap the slot
+                    *slot = None;
+                    break;
+                }
+            }
+            let base = voice.cursor_frame * sound_channels;
+            let (l, r) = match sound_channels {
+                1 => (sound.samples[base], sound.samples[base]),
+                _ => (sound.samples[base], sound.samples[base + 1]),
+            };
+            let l = l * voice.volume * gl;
+            let r = r * voice.volume * gr;
+            let dest = frame * channels;
+            out[dest] += l;
+            if channels > 1 {
+                out[dest + 1] += r;
+                // extra channels copy the right channel (a
+                // deterministic choice — the null sink's law)
+                for ch in 2..channels {
+                    out[dest + ch] += r;
+                }
+            }
+            voice.cursor_frame += 1;
+        }
+    }
+    engine.voices = voices;
+}
+
+// ---------------------------------------------------------------------------
+// the real playback device — `device-audio` feature (native `start`,
+// audio.zig:1596-1683; FFI in audio_native / native/opentui_audio.c)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "device-audio")]
+mod device_backend {
+    use super::{mix_frames_into, HeadlessEngine};
+    use std::ffi::c_void;
+    use std::fmt;
+
+    /// An owned playback device handle. `Drop` runs the native `stop`
+    /// teardown (ma_device_stop + uninit + context uninit,
+    /// audio.zig:1692-1704 / native/opentui_audio.c) — so dropping the
+    /// engine (or the whole lib) can never leak a running device.
+    pub(super) struct DeviceHandle {
+        pub(super) raw: *mut crate::audio_native::OpaqueAudioDevice,
+    }
+
+    // SAFETY: the handle is moved/destroyed only by the thread that
+    // owns the engine (control thread); the audio callback never
+    // touches it — it reaches the engine through the separate user
+    // pointer, guarded by the engine mutex.
+    unsafe impl Send for DeviceHandle {}
+
+    impl fmt::Debug for DeviceHandle {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("DeviceHandle")
+                .field("open", &!self.raw.is_null())
+                .finish()
+        }
+    }
+
+    impl Drop for DeviceHandle {
+        fn drop(&mut self) {
+            if !self.raw.is_null() {
+                // SAFETY: raw was created by opentui_audio_device_start
+                // and destroyed exactly once (the engine mutex
+                // serializes take + drop).
+                unsafe { crate::audio_native::opentui_audio_device_destroy(self.raw) };
+            }
+        }
+    }
+
+    /// The JS-number → native-StartOptions u32/u8 packing
+    /// (zig-structs.ts:488-503: `ToUint32` semantics, then the u8
+    /// truncation native `start` applies, audio.zig:1598).
+    fn pack_u32(value: Option<f64>) -> u32 {
+        value
+            .map(|v| v.trunc().rem_euclid(f64::from(u32::MAX) + 1.0) as u32)
+            .unwrap_or(0)
+    }
+
+    /// `performance_profile` / `share_mode` pack to u8
+    /// (zig-structs.ts "u8" fields).
+    fn pack_u8(value: Option<f64>) -> u8 {
+        pack_u32(value) as u8
+    }
+
+    fn pack_bool(value: Option<bool>) -> i32 {
+        i32::from(value.unwrap_or(false))
+    }
+
+    /// Native `start`'s device half (audio.zig:1605-1682): configure
+    /// f32 / engine channels / engine sample rate + StartOptions,
+    /// open + start the device. `Ok((raw, channels))` on success (the
+    /// device's actual channel count — audio.zig:1660); `Err(())` is
+    /// the `err_device` (−5) case: init/start failure, full rollback
+    /// inside the shim.
+    pub(super) fn open_device(
+        sample_rate: u32,
+        output_channels: u32,
+        user: *mut c_void,
+        options: Option<&super::AudioStartOptions>,
+    ) -> Result<(*mut crate::audio_native::OpaqueAudioDevice, u32), ()> {
+        use crate::audio_native::{
+            opentui_audio_device_start, DeviceDataCallback, OpaqueAudioDevice,
+        };
+        let default = super::AudioStartOptions::default();
+        let options = options.unwrap_or(&default);
+        let mut device: *mut OpaqueAudioDevice = std::ptr::null_mut();
+        let mut channels = 0u32;
+        // SAFETY: `device`/`channels` are valid out-params; `user`
+        // must point at the Arc'd engine mutex (the Arc in
+        // HeadlessAudioLib keeps it alive for at least as long as the
+        // DeviceHandle stored inside it, which is dropped before the
+        // engine).
+        let result = unsafe {
+            opentui_audio_device_start(
+                &mut device,
+                &mut channels,
+                sample_rate,
+                output_channels,
+                pack_u32(options.period_size_in_frames),
+                pack_u32(options.period_size_in_milliseconds),
+                pack_u32(options.periods),
+                pack_u8(options.performance_profile),
+                pack_u8(options.share_mode),
+                pack_bool(options.no_pre_silenced_output_buffer),
+                pack_bool(options.no_clip),
+                pack_bool(options.no_disable_denormals),
+                pack_bool(options.no_fixed_sized_callback),
+                pack_bool(options.wasapi_no_auto_convert_src),
+                pack_bool(options.wasapi_no_default_quality_src),
+                pack_bool(options.alsa_no_mmap),
+                pack_bool(options.alsa_no_auto_format),
+                pack_bool(options.alsa_no_auto_channels),
+                pack_bool(options.alsa_no_auto_resample),
+                user,
+                device_data_callback as DeviceDataCallback,
+            )
+        };
+        if result != 0 || device.is_null() {
+            return Err(());
+        }
+        debug_assert!(channels > 0);
+        Ok((device, channels))
+    }
+
+    /// Native `audioCallback` (audio.zig:2447-2508), narrowed to the
+    /// shim boundary: null user silences (the shim does it); lock-miss
+    /// silences (audio.zig:2466-2470); not-started silences + reaps
+    /// (audio.zig:2473-2478); otherwise mix. A panic inside the mixer
+    /// is swallowed into silence — a C callback must not unwind.
+    unsafe extern "C" fn device_data_callback(
+        user: *mut c_void,
+        out: *mut f32,
+        frame_count: u32,
+        channels: u32,
+    ) {
+        if user.is_null() || out.is_null() || frame_count == 0 || channels == 0 {
+            return;
+        }
+        // SAFETY: user points at a live Arc'd Mutex<HeadlessEngine> —
+        // the device is destroyed (which joins the audio thread)
+        // before that Arc can drop, so the pointer is valid for the
+        // whole callback.
+        let mutex = unsafe { &*(user.cast::<std::sync::Mutex<HeadlessEngine>>()) };
+        let buffer = unsafe {
+            std::slice::from_raw_parts_mut(out, frame_count as usize * channels as usize)
+        };
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut guard = match mutex.try_lock() {
+                Ok(guard) => guard,
+                // poisoned: the state is still consistent enough to
+                // keep serving (same policy as lock_engine)
+                Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+                // native lock-miss (audio.zig:2466-2470)
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    buffer.fill(0.0);
+                    return;
+                }
+            };
+            if !guard.started {
+                // audio.zig:2473-2478: silence while not started
+                buffer.fill(0.0);
+                return;
+            }
+            mix_frames_into(&mut guard, buffer, channels as usize);
+        }));
+        if result.is_err() {
+            buffer.fill(0.0);
+        }
+    }
+}
+
+#[cfg(feature = "device-audio")]
+use device_backend::DeviceHandle;
+
 fn clamp_native_f32(value: f32, lo: f32, hi: f32) -> f32 {
     // native `clamp` (audio.zig:2236-2238)
     value.clamp(lo, hi)
@@ -740,57 +964,131 @@ impl AudioLib for HeadlessAudioLib {
             return None;
         }
         self.engines
-            .push(Some(HeadlessEngine::new(sample_rate, playback_channels)));
+            .push(Some(Arc::new(Mutex::new(HeadlessEngine::new(
+                sample_rate,
+                playback_channels,
+            )))));
         Some(AudioEngineHandle(self.engines.len() as u32))
     }
 
     /// Native `destroy` (audio.zig:2586-2590) — idempotent via handle
     /// table semantics (lib.zig beginDestroy/finishDestroy)
     fn destroy_audio_engine(&mut self, engine: AudioEngineHandle) -> Result<(), AudioError> {
+        #[cfg(feature = "device-audio")]
+        {
+            // drop a live device before the tombstone (native destroy
+            // stops the started device first, audio.zig:2586-2590 /
+            // stop 1692-1704)
+            let device = self
+                .engine_mut(engine)
+                .and_then(|mut guard| guard.device.take());
+            drop(device);
+        }
         let index = engine.0.checked_sub(1).map(|i| i as usize);
         if let Some(engine) = index
             .and_then(|i| self.engines.get_mut(i))
             .and_then(|slot| slot.as_mut())
         {
-            engine.destroyed = true;
-            engine.started = false;
-            engine.has_device = false;
-            engine.sounds.clear();
-            engine.voices.clear();
+            let mut guard = HeadlessAudioLib::lock_engine(engine);
+            guard.destroyed = true;
+            guard.started = false;
+            guard.has_device = false;
+            guard.sounds.clear();
+            guard.voices.clear();
         }
         Ok(())
     }
 
     /// Native `start` (audio.zig:1596-1712): already started+device →
     /// ok; otherwise initialize the context + open the playback
-    /// device. The null device never fails; real backends report
-    /// `err_device` (−5) when no device exists (audio.zig:1612-1616).
+    /// device. On the null sink (default builds) the device open
+    /// always succeeds; with `device-audio` a real miniaudio device
+    /// opens — `err_device` (−5) when init/start fails or no device
+    /// exists, with full rollback and no silent fallback (audio.zig:
+    /// 1653-1657, 1672-1680).
     fn audio_start(
         &mut self,
         engine: AudioEngineHandle,
-        _options: Option<&AudioStartOptions>,
+        options: Option<&AudioStartOptions>,
     ) -> i32 {
-        let Some(engine) = self.engine_mut(engine) else {
+        let Some(engine_arc) = self.engine_arc(engine) else {
             return AUDIO_STATUS_ERR_INVALID;
         };
-        if engine.started && engine.has_device {
+        let already_running = {
+            let guard = Self::lock_engine(&engine_arc);
+            guard.started && guard.has_device
+        };
+        if already_running {
             return AUDIO_STATUS_OK;
         }
-        // null device: context init + device open always succeed
-        engine.started = true;
-        engine.has_device = true;
-        AUDIO_STATUS_OK
+        #[cfg(feature = "device-audio")]
+        {
+            // the create-time config the device opens with
+            // (audio.zig:1631, 1641)
+            let (sample_rate, output_channels) = {
+                let guard = Self::lock_engine(&engine_arc);
+                (guard.sample_rate, guard.output_channels)
+            };
+            // flip `started` before the device open so a callback that
+            // wins the race mixes instead of silencing (audio.zig:1669),
+            // remembering the prior value for the rollback
+            let was_started = {
+                let mut guard = Self::lock_engine(&engine_arc);
+                let was = guard.started;
+                guard.started = true;
+                was
+            };
+            // pUserData is the Arc'd mutex itself — the engine the
+            // callback mixes from (audio.zig:1651)
+            let user = Arc::as_ptr(&engine_arc).cast_mut() as *mut std::ffi::c_void;
+            let result = device_backend::open_device(sample_rate, output_channels, user, options);
+            let mut guard = Self::lock_engine(&engine_arc);
+            match result {
+                Ok((raw, device_channels)) => {
+                    guard.has_device = true;
+                    guard.device = Some(DeviceHandle { raw });
+                    if device_channels > 0 && device_channels <= MA_MAX_CHANNELS {
+                        // audio.zig:1660-1664: the device's channel
+                        // count feeds back into the engine config
+                        guard.output_channels = device_channels;
+                    }
+                    AUDIO_STATUS_OK
+                }
+                Err(()) => {
+                    // audio.zig:1673-1680: start failure rolls the
+                    // started flag back and drops the device
+                    guard.started = was_started;
+                    AUDIO_STATUS_ERR_DEVICE
+                }
+            }
+        }
+        #[cfg(not(feature = "device-audio"))]
+        {
+            let _ = options; // the null device has no configuration
+                             // null device: context init + device open always succeed
+            let mut guard = Self::lock_engine(&engine_arc);
+            guard.started = true;
+            guard.has_device = true;
+            AUDIO_STATUS_OK
+        }
     }
 
     /// Native `stop` (audio.zig:1692-1704): always ok; stops and
     /// drops the device. Voice slots are left as-is (matching native,
     /// which stops the device only).
     fn audio_stop(&mut self, engine: AudioEngineHandle) -> i32 {
-        let Some(engine) = self.engine_mut(engine) else {
+        #[cfg(feature = "device-audio")]
+        {
+            let device = self
+                .engine_mut(engine)
+                .and_then(|mut guard| guard.device.take());
+            drop(device); // ma_device_stop + uninit (audio.zig:1698-1701)
+        }
+        let Some(mut guard) = self.engine_mut(engine) else {
             return AUDIO_STATUS_ERR_INVALID;
         };
-        engine.started = false;
-        engine.has_device = false;
+        guard.started = false;
+        guard.has_device = false;
         AUDIO_STATUS_OK
     }
 
@@ -799,7 +1097,7 @@ impl AudioLib for HeadlessAudioLib {
     /// and returns the 1-based id (ids are never reused — `unload`
     /// tombstones the slot, audio.zig:2130-2147).
     fn audio_load(&mut self, engine: AudioEngineHandle, data: &[u8]) -> AudioLoadResult {
-        let Some(engine) = self.engine_mut(engine) else {
+        let Some(mut engine) = self.engine_mut(engine) else {
             return AudioLoadResult {
                 status: AUDIO_STATUS_ERR_INVALID,
                 sound_id: None,
@@ -843,7 +1141,7 @@ impl AudioLib for HeadlessAudioLib {
         sound_id: u32,
         options: Option<NativeAudioVoiceOptions>,
     ) -> AudioPlayResult {
-        let Some(engine) = self.engine_mut(engine) else {
+        let Some(mut engine) = self.engine_mut(engine) else {
             return AudioPlayResult {
                 status: AUDIO_STATUS_ERR_INVALID,
                 voice_id: None,
@@ -920,9 +1218,16 @@ fn decode_sound(bytes: &[u8]) -> Result<DecodedSound, ()> {
         return decode_wav(bytes);
     }
     if bytes.len() >= 4 && &bytes[0..4] == b"fLaC" {
-        // narrowed: native decodes FLAC (dr_flac); the port reports
-        // the same decode failure every unsupported format gets
-        return Err(());
+        // native decodes FLAC through miniaudio's built-in dr_flac —
+        // the same decoder the vendored header gives this port
+        return match crate::audio_native::decode_flac(bytes) {
+            Some((samples, channels, sample_rate)) => Ok(DecodedSound {
+                samples,
+                channels,
+                sample_rate,
+            }),
+            None => Err(()),
+        };
     }
     decode_mp3(bytes)
 }

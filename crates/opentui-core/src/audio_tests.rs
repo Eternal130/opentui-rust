@@ -271,6 +271,11 @@ fn auto_start_failure_throws_and_destroys_the_native_engine() {
 /// audio.test.ts:342-358 — auto-start success flips both flags
 /// without emitting (events [] during create; the started event is
 /// explicit-start only).
+// null-sink start contract: with `device-audio` the default lib opens a
+// REAL device (err_device with no hardware — no silent fallback), so
+// these success-path tests are pinned to default builds; the feature
+// build covers the device lifecycle in device_audio_start_lifecycle.
+#[cfg(not(feature = "device-audio"))]
 #[test]
 fn auto_start_success_updates_started_state() {
     let audio = Audio::create(&AudioSetupOptions {
@@ -358,6 +363,11 @@ fn start_reports_a_status_failure_through_its_error_contract() {
 }
 
 /// audio.test.ts:360-376 — explicit start emits "started" once.
+// null-sink start contract: with `device-audio` the default lib opens a
+// REAL device (err_device with no hardware — no silent fallback), so
+// these success-path tests are pinned to default builds; the feature
+// build covers the device lifecycle in device_audio_start_lifecycle.
+#[cfg(not(feature = "device-audio"))]
 #[test]
 fn explicit_start_emits_started_after_construction() {
     let mut audio = Audio::create(&AudioSetupOptions::default()).unwrap();
@@ -372,6 +382,11 @@ fn explicit_start_emits_started_after_construction() {
 /// start boolean; "started" fires iff the start succeeded. The false
 /// arm uses the no-device failure a real headless box produces
 /// (native audioStart → err_device, audio.zig:1612-1616).
+// null-sink start contract: with `device-audio` the default lib opens a
+// REAL device (err_device with no hardware — no silent fallback), so
+// these success-path tests are pinned to default builds; the feature
+// build covers the device lifecycle in device_audio_start_lifecycle.
+#[cfg(not(feature = "device-audio"))]
 #[test]
 fn start_reports_playback_availability_only() {
     // success arm (null device)
@@ -409,6 +424,11 @@ fn start_reports_playback_availability_only() {
 
 /// audio.ts:2833-2834 — start is idempotent-true once started
 /// (no second "started" emission; upstream returns early before emit).
+// null-sink start contract: with `device-audio` the default lib opens a
+// REAL device (err_device with no hardware — no silent fallback), so
+// these success-path tests are pinned to default builds; the feature
+// build covers the device lifecycle in device_audio_start_lifecycle.
+#[cfg(not(feature = "device-audio"))]
 #[test]
 fn start_when_already_started_returns_true_without_emitting() {
     let mut audio = Audio::create(&AudioSetupOptions::default()).unwrap();
@@ -488,10 +508,10 @@ fn load_sound_rejects_empty_payloads_with_err_invalid() {
 }
 
 /// Native decode failure (audio.zig:2104): err_decode for garbage and
-/// for FLAC (narrowed — upstream's dr_flac decodes it; the port
-/// reports the same failure every unsupported format gets).
+/// for a *corrupt* FLAC payload (a well-formed one decodes below —
+/// dr_flac is the port's FLAC decoder, same as upstream).
 #[test]
-fn load_sound_reports_err_decode_for_garbage_and_flac() {
+fn load_sound_reports_err_decode_for_garbage_and_corrupt_flac() {
     let mut audio = Audio::create(&AudioSetupOptions::default()).unwrap();
     let captured = Captured::new();
     captured.attach(&mut audio);
@@ -784,6 +804,11 @@ fn null_sink_mixes_voices_applies_volume_and_reaps_finished_voices() {
 /// (emitting "stopped"), then destroys the engine and emits
 /// "disposed"; the destroyed engine surfaces as "engine unavailable"
 /// on every later call (audio.ts:2837, 2898, 2966).
+// null-sink start contract: with `device-audio` the default lib opens a
+// REAL device (err_device with no hardware — no silent fallback), so
+// these success-path tests are pinned to default builds; the feature
+// build covers the device lifecycle in device_audio_start_lifecycle.
+#[cfg(not(feature = "device-audio"))]
 #[test]
 fn dispose_stops_the_mixer_then_destroys_and_emits_disposed() {
     let mut audio = Audio::create(&AudioSetupOptions::default()).unwrap();
@@ -832,6 +857,11 @@ fn dispose_is_idempotent() {
 /// audio.test.ts:2185-2203 — when native destruction fails, dispose
 /// retains the engine (so cleanup can retry) and reports the error;
 /// a later dispose completes and emits "disposed".
+// null-sink start contract: with `device-audio` the default lib opens a
+// REAL device (err_device with no hardware — no silent fallback), so
+// these success-path tests are pinned to default builds; the feature
+// build covers the device lifecycle in device_audio_start_lifecycle.
+#[cfg(not(feature = "device-audio"))]
 #[test]
 fn dispose_retains_the_engine_when_native_destruction_fails() {
     let (lib, destroy_calls, destroy_fails) = ScriptedLib::new();
@@ -908,4 +938,99 @@ fn opencode_tui_consumer_flow() {
     // dispose(): audio?.dispose(); sounds.clear() (tui audio.ts:45-49)
     audio.dispose().unwrap();
     assert_eq!(captured.events(), vec!["started", "stopped", "disposed"]);
+}
+
+// ---------------------------------------------------------------------------
+// FLAC decode — upstream's dr_flac (via the vendored miniaudio), the
+// same decoder native decodeSoundFromMemory reaches
+// ---------------------------------------------------------------------------
+
+/// A minimal valid FLAC payload: 16-bit mono 48 kHz, one 192-frame
+/// fixed-blocksize frame with a VERBATIM subframe carrying a ramp
+/// (`i * 100`, i ∈ 0..192). Generated by a one-shot encoder script
+/// (no ffmpeg in this environment); the bytes are committed as the
+/// fixture so the decode test is hermetic.
+const FLAC_FIXTURE: &[u8] = include_bytes!("audio_flac_fixture.flac");
+
+#[test]
+fn loads_flac_via_dr_flac() {
+    let mut audio = Audio::create(&AudioSetupOptions::default()).unwrap();
+    let sound = audio.load_sound(FLAC_FIXTURE).unwrap();
+    assert_eq!(sound, AudioSound(1));
+    let engine = audio.engine_handle();
+    let shape = audio
+        .lib::<HeadlessAudioLib>()
+        .and_then(|lib| lib.sound_shape(engine, 1));
+    // 192 mono frames at the source rate, dr_flac's native decode
+    assert_eq!(shape, Some((192, 1, 48_000)));
+    // play + render consumes the decoded ramp: frame 0 is silence
+    // (sample 0), frame 1 is 100/32768 (dr_flac's s16→f32 law)
+    audio.play(sound, None).unwrap();
+    let mixed = audio
+        .lib_mut::<HeadlessAudioLib>()
+        .and_then(|lib| lib.render_frames(engine, 2, 1));
+    assert_eq!(mixed, Some(vec![0.0, 100.0 / 32768.0]));
+}
+
+// ---------------------------------------------------------------------------
+// the real playback device — `device-audio` feature (native `start`,
+// audio.zig:1596-1683). In CI/containers there is usually no audio
+// device: that exercises the err_device (−5) failure path, which is
+// itself the upstream-faithful behavior (no silent fallback to the
+// null sink). On a machine with a device, the success lifecycle runs.
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "device-audio")]
+#[test]
+fn device_audio_start_lifecycle() {
+    use crate::audio::{AudioSetupOptions, HeadlessAudioLib};
+
+    let mut lib = HeadlessAudioLib::new();
+    let engine = lib.create_audio_engine(None).unwrap();
+    let status = lib.audio_start(engine, None);
+    match status {
+        0 => {
+            // device opened + started; start is idempotent, stop is
+            // always ok and closes the device (audio.zig:1692-1704)
+            assert_eq!(lib.audio_start(engine, None), 0);
+            assert_eq!(lib.audio_stop(engine), 0);
+            // re-open after stop (the lazy device lifecycle)
+            assert_eq!(lib.audio_start(engine, None), 0);
+            assert_eq!(lib.audio_stop(engine), 0);
+        }
+        -5 => {
+            // err_device: no device / backend init failure — and no
+            // silent fallback: every retry fails the same way
+            assert_eq!(lib.audio_start(engine, None), -5);
+            assert_eq!(lib.audio_start(engine, None), -5);
+        }
+        other => panic!("unexpected audio_start status {other}"),
+    }
+}
+
+#[cfg(feature = "device-audio")]
+#[test]
+fn device_audio_start_failure_surfaces_as_start_false_and_error_event() {
+    let mut audio = Audio::create(&AudioSetupOptions::default()).unwrap();
+    let captured = Captured::new();
+    captured.attach(&mut audio);
+    match audio.start(None) {
+        true => {
+            audio.stop();
+        }
+        false => {
+            // err_device (−5) surfaced through the tier-1 start()
+            // boolean + "error" emission (audio.ts:2833-2850)
+            assert_eq!(
+                captured.errors(),
+                vec![CapturedError {
+                    message: "Audio start failed: -5".to_string(),
+                    context: AudioErrorContext {
+                        action: AudioAction::Start,
+                        status: Some(-5),
+                    },
+                }]
+            );
+        }
+    }
 }

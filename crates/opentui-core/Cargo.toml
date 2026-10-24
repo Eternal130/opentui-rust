@@ -28,3 +28,12 @@ vte = "0.11"
 # commands emit (opentui_keymap::textarea::EDIT_BUFFER_ACTIONS) must be
 # exactly the ids TextareaState::execute_action implements
 opentui-keymap = { workspace = true }
+
+[features]
+# Real miniaudio playback-device output (the native `start` path,
+# audio.zig:1596-1683): compiles the vendored miniaudio with the same
+# backends upstream's miniaudio_shim.c enables, and `audio_start` on
+# HeadlessAudioLib opens a real device — err_device (−5) when none
+# exists, no silent fallback to the null sink. Default builds keep the
+# null sink exactly as before (decoders only, MA_NO_DEVICE_IO).
+device-audio = []
