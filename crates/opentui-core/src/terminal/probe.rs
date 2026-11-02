@@ -11,9 +11,10 @@
 //!
 //! Burst divergences vs terminal.zig:347-399, all GAPS-registered in
 //! `terminal/mod.rs`:
-//! * the kitty graphics query (`_Gi=31337…`, terminal.zig:384) is A3
-//!   (image lanes) — its DA1 sibling stays, so sixel detection still
-//!   works;
+//! * the kitty graphics query (`_Gi=31337…`, terminal.zig:384) IS sent
+//!   (A3) — unconditionally, where upstream additionally gates on
+//!   `!skip_graphics_query && !isInTmux()` (terminal.zig:379); the
+//!   tmux DCS passthrough wrappers stay deferred;
 //! * the explicit-width / scaled-text probe block (terminal.zig:389-398,
 //!   home + `OSC 66` + CPR pairs) is deferred — it moves the cursor
 //!   mid-burst and feeds `caps.explicit_width`/`scaled_text`, which no
@@ -53,9 +54,15 @@ pub const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 /// 7. DECRQM set `\x1b[?1016$p \x1b[?2027$p \x1b[?2031$p \x1b[?1004$p
 ///    \x1b[?2004$p \x1b[?2026$p` (ansi.zig:344-350)
 /// 8. `\x1b[?u`         csiUQuery (ansi.zig:352)
-/// 9. `\x1b[c`          primaryDeviceAttrs / DA1 (terminal.zig:379-381,
+/// 9. `\x1b_Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\`
+///                       kittyGraphicsQuery (terminal.zig:379-382,
+///                       ansi.zig:351) — ahead of DA1 exactly like
+///                       upstream's `!skip_graphics_query &&
+///                       !isInTmux()` branch, but sent unconditionally
+///                       (divergence registered in the module docs)
+/// 10. `\x1b[c`          primaryDeviceAttrs / DA1 (terminal.zig:379-381,
 ///    ansi.zig:339)
-/// 10. `\x1b[u`         restoreCursorState (terminal.zig:399)
+/// 11. `\x1b[u`          restoreCursorState (terminal.zig:399)
 pub fn write_probe_burst(out: &mut dyn io::Write) -> io::Result<()> {
     out.write_all(b"\x1b[?2031h")?; // terminal.zig:357
     out.write_all(b"\x1b]10;?\x07\x1b]11;?\x07")?; // terminal.zig:360
@@ -68,6 +75,9 @@ pub fn write_probe_burst(out: &mut dyn io::Write) -> io::Result<()> {
     out.write_all(b"\x1b[?2004$p")?; // decrqmBracketedPaste ansi.zig:348
     out.write_all(b"\x1b[?2026$p")?; // decrqmSync ansi.zig:349
     out.write_all(b"\x1b[?u")?; // csiUQuery ansi.zig:352
+                                // kitty graphics query (terminal.zig:379-382, ansi.zig:351) —
+                                // upstream's constant, byte for byte, ahead of DA1.
+    out.write_all(b"\x1b_Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\")?;
     out.write_all(b"\x1b[c")?; // DA1 terminal.zig:381
     out.write_all(b"\x1b[u") // restoreCursorState terminal.zig:399
 }
@@ -154,7 +164,10 @@ fn osc_theme_front(buf: &[u8]) -> Front {
 fn front_kind(buf: &[u8]) -> Front {
     if buf.starts_with(b"\x1b[?") {
         csi_question_front(buf)
-    } else if buf.starts_with(b"\x1bP") {
+    } else if buf.starts_with(b"\x1bP") || buf.starts_with(b"\x1b_G") {
+        // DCS replies and the kitty graphics APC reply share the ST
+        // terminator scan (parseKittyGraphicsResponse,
+        // terminal.zig:1106-1109).
         dcs_front(buf)
     } else if buf.starts_with(b"\x1b]10;") || buf.starts_with(b"\x1b]11;") {
         osc_theme_front(buf)
@@ -304,6 +317,24 @@ fn classify(unit: &[u8], caps: &mut TerminalCapabilities) -> bool {
                 && value.bytes().all(|b| b.is_ascii_hexdigit())
             {
                 caps.osc52 = true; // terminal.zig:1405-1411
+            }
+        }
+    }
+
+    // Kitty graphics APC reply (`_Gi=…;…ST`) — the answer to the
+    // `_Gi=31337` query in the burst (parseKittyGraphicsResponse,
+    // terminal.zig:1103-1121): scan every `_G…ST` frame, split the
+    // control options at ';' and by ',', and `i=31337` marks the
+    // capability. Upstream gates on `graphics_enabled` (an
+    // OPENTUI_GRAPHICS env override, terminal.zig:748+); the port has
+    // no env-override layer, so the reply always classifies
+    // (divergence registered in terminal/mod.rs).
+    if let Some(start) = unit_str.find("\x1b_G") {
+        if let Some(end) = unit_str[start + 3..].find("\x1b\\") {
+            let frame = &unit_str[start + 3..start + 3 + end];
+            let control = frame.split(';').next().unwrap_or("");
+            if control.split(',').any(|f| f == "i=31337") {
+                caps.kitty_graphics = true; // terminal.zig:1112-1116
             }
         }
     }
@@ -522,6 +553,11 @@ mod tests {
                 .chain(b"\x1b[?2004$p".iter().cloned()) // ansi.zig:348
                 .chain(b"\x1b[?2026$p".iter().cloned()) // ansi.zig:349
                 .chain(b"\x1b[?u".iter().cloned()) // ansi.zig:352
+                .chain(
+                    b"\x1b_Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\"
+                        .iter()
+                        .cloned()
+                ) // kitty gfx terminal.zig:384, ansi.zig:351
                 .chain(b"\x1b[c".iter().cloned()) // DA1   terminal.zig:381
                 .chain(b"\x1b[u".iter().cloned()) // restore terminal.zig:399
                 .collect::<Vec<u8>>()[..]
@@ -662,5 +698,39 @@ mod tests {
             &mut events,
         );
         assert!(probe.capabilities().osc52);
+    }
+
+    /// The kitty graphics APC reply classifies caps.kitty_graphics
+    /// (parseKittyGraphicsResponse, terminal.zig:1103-1121): the
+    /// reply carries the queried id `i=31337` in its control field,
+    /// possibly with siblings (kitty's `i=1` EINVAL shape below is
+    /// terminal.zig:1096's canned kitty stream minus the prefix).
+    #[test]
+    fn kitty_graphics_apc_reply() {
+        let mut probe = CapabilityProbe::new(Duration::from_secs(5));
+        let mut r = renderer();
+        let mut events = Vec::new();
+        probe.feed(
+            &mut r,
+            b"\x1b_Gi=31337;OK\x1b\\\x1b[?0u\x1b[?62;22c",
+            &mut events,
+        );
+        assert!(probe.capabilities().kitty_graphics);
+    }
+
+    /// A non-matching APC frame (kitty's error reply to a different
+    /// query id) must NOT flip the capability — only `i=31337` does
+    /// (terminal.zig:1112-1116, exact field equality).
+    #[test]
+    fn kitty_graphics_apc_wrong_id_ignored() {
+        let mut probe = CapabilityProbe::new(Duration::from_secs(5));
+        let mut r = renderer();
+        let mut events = Vec::new();
+        probe.feed(
+            &mut r,
+            b"\x1b_Gi=1;EINVAL:Zero width/height not allowed\x1b\\\x1b[?0u\x1b[?1;2c",
+            &mut events,
+        );
+        assert!(!probe.capabilities().kitty_graphics);
     }
 }

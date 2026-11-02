@@ -91,6 +91,42 @@ is pinned by the unit tests instead. Capture
 (`openCapture`/`startCapture`/…), icy streaming (`playStream*`), the
 recorder (`recordToFile`), device selection and stats stay **todo**.
 
+Terminal backend lane note (A1-A3, feature-gated — NOT part of the
+frozen 339): upstream owns terminal I/O in the Node host + zig native
+lib (`terminal.zig`, `renderer.zig`, `renderer.ts`), none of which is
+an exportable runtime symbol in the frozen table. The lane's
+deliverables live behind the cargo feature `terminal-backend` as the
+additive module `opentui-core::terminal` — `TtyDevice`/`UnixTty`
+(termios raw/restore, TIOCGWINSZ), the upstream-cited mode byte
+sequences, the RAII `Terminal` lifecycle (setup burst
+renderer.zig:558-576, teardown epilogue renderer.zig:600-654 /
+terminal.zig:282-335, panic-hook registry) + `teardown_scrollback`
+(the alt-screen tail jump), the capability probe burst
+(terminal.zig:347-399 incl. the kitty graphics `_Gi=31337` query)
+with its streaming response classifier (terminal.zig:1247-1446), the
+input/output pumps (`?2026` envelope) and resize watch, and the
+`Resize`/`Capabilities` `CliRenderEvent` variants; A3 additionally
+adds the OSC 8 hyperlink emission in `emit_frame_sgr`
+(renderer.zig:2750-2765/2920-2925) over a renderer-side interned
+link-id→URL pool. Relationship to the frozen 339 surface: purely
+additive feature-gated symbols — no frozen row is replaced or
+narrowed, and default (feature-off) builds are byte-identical to
+pre-lane (the differential suite runs feature-off and stayed
+IDENTICAL across all scenarios; OSC 8 emits only when a cell carries
+a link id, which no existing scenario does). Narrowing points, all
+GAPS-registered in `terminal/mod.rs`: alt-screen only (inline
+viewport / split-footer / `ExternalOutputCommit` family → B4); the
+kitty graphics query is sent unconditionally where upstream gates on
+tmux/env overrides, and the `graphics_enabled` env override has no
+port; the explicit-width/scaled-text probe block (and its CPR seed)
+is deferred; notification queries (`OSC 99`/`1337`), the foot branch,
+and the tmux DCS passthrough wrappers are deferred; the LinkPool's
+generation/refcount slot recycling (link.zig:7-10) is simplified to
+monotonic interned ids; the panic-hook epilogue writes to process
+stdout (a non-stdout `W` keeps its own hook). Pinned by byte-exact
+unit tests citing the upstream lines plus PTY integration tests over
+a private `posix_openpt` pair.
+
 Embedded-terminal lane note (the `partial`): upstream's class wraps a
 native FFI handle backed by Ghostty's `libghostty-vt`
 (`packages/native/src/embedded-terminal/`), so "done" would mean

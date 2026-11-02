@@ -23,13 +23,24 @@
 //! * [`pumps`] — the input/output pumps and the resize watch on
 //!   `Terminal`.
 //!
-//! A2 gap register (probe burst divergences vs terminal.zig:347-399,
-//! each also cited at the probe site): kitty graphics query (A3,
-//! image lanes), explicit-width/scaled-text probe block
-//! (terminal.zig:389-398, no consumer yet), notification queries
-//! (`OSC 99`/`1337`, caps.notifications), the foot variant branch,
-//! and the tmux DCS passthrough wrappers. The THEME_MODE / PALETTE
-//! events (renderer.ts:761-762) ride the theme-probe consumer lane;
+//! A3 gap register (remaining probe/teardown divergences, each also
+//! cited at the site): the kitty graphics query IS sent (A3 —
+//! unconditionally, where upstream gates `!skip_graphics_query &&
+//! !isInTmux()` at terminal.zig:379 and recognizes the APC reply via
+//! `parseKittyGraphicsResponse` :1103-1121; the `graphics_enabled`
+//! env-override gate has no port — replies always classify). Still
+//! deferred: explicit-width/scaled-text probe block
+//! (terminal.zig:389-398, no consumer yet; the CPR seed upstream needs
+//! from it is NOT captured — B must re-add it if it consumes
+//! `caps.explicit_width`), notification queries (`OSC 99`/`1337`,
+//! caps.notifications), the foot variant branch
+//! (terminal.zig:377), the tmux DCS passthrough wrappers, the
+//! LinkPool generation/refcount slot recycling (link.zig:7-10 — the
+//! port's renderer-side pool interns URLs but never retires ids), and
+//! the split-footer / inline-viewport / `ExternalOutputCommit` family
+//! (renderer.ts:2339+ — `Terminal::teardown_scrollback` is the
+//! alt-screen tail-jump only). The THEME_MODE / PALETTE events
+//! (renderer.ts:761-762) ride the theme-probe consumer lane;
 //! OSC 10/11 replies are captured (`CapabilityProbe::last_osc11_bg`)
 //! but not yet reduced to a theme mode.
 //!

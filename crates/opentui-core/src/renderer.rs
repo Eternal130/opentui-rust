@@ -472,6 +472,20 @@ pub struct CliRenderer {
     /// fixed `performance.now` override — the test seam for upstream's
     /// monkeypatch (TimeToFirstDraw.test.ts:19-20).
     performance_now_override: Option<f64>,
+    // ----- OSC 8 links (A3) -----
+    /// The link-id → URL table — upstream is the GLOBAL `LinkPool`
+    /// (buffer.zig:239 `initGlobalLinkPool`, id space spans the whole
+    /// process lifetime, NOT per-frame; emit reads it via
+    /// `nextRenderBuffer.link_pool`, renderer.zig:2760). The port keeps
+    /// the pool on the renderer: ids are allocated monotonically and
+    /// interned per URL (link.zig `interned_live_ids`); the
+    /// generation/refcount slot recycling (link.zig:7-10 id layout) is
+    /// deferred until a consumer can retire links.
+    link_pool: HashMap<u32, String>,
+    /// live-URL interning table (link.zig `interned_live_ids`) — the
+    /// same URL keeps its id across frames.
+    link_interned: HashMap<String, u32>,
+    next_link_id: u32,
 }
 
 use std::collections::HashMap;
@@ -519,6 +533,9 @@ pub fn create_cli_renderer(config: CliRendererConfig) -> CliRenderer {
         feed_pending: Vec::new(),
         time_origin: std::time::Instant::now(),
         performance_now_override: None,
+        link_pool: HashMap::new(),
+        link_interned: HashMap::new(),
+        next_link_id: 0,
     }
 }
 
@@ -532,6 +549,26 @@ impl CliRenderer {
     #[must_use]
     pub fn height(&self) -> u32 {
         self.config.height
+    }
+
+    /// Allocate (or intern) the OSC 8 link id for `url` — the port of
+    /// the `allocLink` export (lib.zig:1962-1963) over the global
+    /// `LinkPool` (link.zig). Ids live for the renderer's lifetime and
+    /// are stable across frames (same URL → same id); rasterizers pack
+    /// them into cell attributes via [`crate::ansi::set_link_id`], and
+    /// [`Self::emit_frame_sgr`]'s link branch resolves them back to
+    /// `\x1b]8;id=…;URL\x1b\\` opens. Divergence vs link.zig: no
+    /// generation/refcount slot recycling yet (no consumer retires
+    /// links) — registered in terminal/mod.rs.
+    pub fn alloc_link(&mut self, url: &str) -> u32 {
+        if let Some(id) = self.link_interned.get(url) {
+            return *id;
+        }
+        self.next_link_id += 1;
+        let id = self.next_link_id;
+        self.link_pool.insert(id, url.to_string());
+        self.link_interned.insert(url.to_string(), id);
+        id
     }
 
     /// `renderer.root.add(child)` — mount a renderable under the root.
@@ -2172,6 +2209,7 @@ impl CliRenderer {
         let mut current_fg: Option<Rgba> = None;
         let mut current_bg: Option<Rgba> = None;
         let mut current_attrs: Option<u32> = None;
+        let mut current_link_id: u32 = 0;
         let mut run_start: i64 = -1;
         let mut run_length: u32 = 0;
 
@@ -2211,6 +2249,39 @@ impl CliRenderer {
                     continue;
                 }
                 let fg_match = current_fg.is_some_and(|c| c == next.fg);
+                // ----- OSC 8 hyperlink branch (A3; renderer.zig:2750-2765) -----
+                // Upstream computes `linkId` under a `caps.hyperlinks`
+                // gate (`hyperlinksEnabled`, renderer.zig:2751); this
+                // port has no capability store on the renderer, so the
+                // gate collapses to link-id presence — a link id only
+                // exists after a consumer rasterized one, which it only
+                // does once the probe reported `Capabilities.hyperlinks`.
+                // Cells without links (every existing scenario) take
+                // the `0` path and emit nothing — byte-identical.
+                let link_id = crate::ansi::get_link_id(next.attributes);
+                if link_id != current_link_id {
+                    if current_link_id != 0 {
+                        // close the previous link (renderer.zig:2754)
+                        out.push_str("\x1b]8;;\x1b\\");
+                    }
+                    current_link_id = link_id;
+                    if current_link_id != 0 {
+                        // open: `id={id};{url}` (renderer.zig:2760-2762) —
+                        // id→URL via the renderer-side pool (upstream:
+                        // `nextRenderBuffer.link_pool`, the global LinkPool)
+                        if let Some(url) = self.link_pool.get(&current_link_id) {
+                            out.push_str("\x1b]8;id=");
+                            out.push_str(&current_link_id.to_string());
+                            out.push(';');
+                            out.push_str(url);
+                            out.push_str("\x1b\\");
+                        } else {
+                            // link not found — treat as no link
+                            // (renderer.zig:2763-2764)
+                            current_link_id = 0;
+                        }
+                    }
+                }
                 let bg_match = current_bg.is_some_and(|c| c == next.bg);
                 let same_attrs = fg_match && bg_match && current_attrs == Some(next.attributes);
                 if !same_attrs || run_start == -1 {
@@ -2244,9 +2315,17 @@ impl CliRenderer {
         if run_length > 0 {
             out.push_str(crate::ansi::ansi_consts::RESET);
         }
+        // frame-tail link close (renderer.zig:2920-2925): the open link
+        // closes BEFORE the final reset; a link close alone still marks
+        // the frame started upstream (renderer.zig:2921-2924).
+        let mut link_tail = false;
+        if current_link_id != 0 {
+            out.push_str("\x1b]8;;\x1b\\");
+            link_tail = true;
+        }
         // the cursor emission tail (renderer.zig:2932-3016) — `frame_
         // started` mirrors whether any cell bytes were written
-        let frame_started = run_length > 0;
+        let frame_started = run_length > 0 || link_tail;
         self.cursor_state.emit(out, frame_started);
     }
 
@@ -3536,6 +3615,71 @@ mod tests {
         // second frame with no changes emits nothing (no-op suppression)
         renderer.render();
         assert_eq!(renderer.last_frame_sgr(), "");
+    }
+
+    /// OSC 8 emission (A3; renderer.zig:2750-2765, 2920-2925): a cell
+    /// whose attributes carry a link id opens `\x1b]8;id=…;URL\x1b\\`
+    /// before its text, a following unlinked cell closes with
+    /// `\x1b]8;;\x1b\\`, and no-link frames emit no `]8;` at all (the
+    /// zero-diff guarantee — every differential scenario is link-free).
+    #[test]
+    fn osc8_link_open_and_close() {
+        let mut renderer = create_cli_renderer(CliRendererConfig {
+            width: 6,
+            height: 1,
+            ..Default::default()
+        });
+        let id = renderer.alloc_link("https://example.com");
+        assert_eq!(
+            renderer.alloc_link("https://example.com"),
+            id,
+            "URL interning keeps the id (link.zig interned_live_ids)"
+        );
+        let template = renderer.next_render_buffer.get(0, 0).unwrap();
+        let linked = crate::ansi::set_link_id(template.attributes, id);
+        renderer
+            .next_render_buffer
+            .set_cell(0, 0, 'a', template.fg, template.bg, linked);
+        renderer.next_render_buffer.set_cell(
+            1,
+            0,
+            'b',
+            template.fg,
+            template.bg,
+            template.attributes,
+        );
+        // drive the writer directly (render() would re-rasterize the
+        // empty tree over the poked cells) — the doc-hidden bench seam
+        let mut sgr = String::new();
+        renderer.bench_emit_frame_sgr(&mut sgr);
+        let open = "\x1b]8;id=1;https://example.com\x1b\\";
+        assert!(sgr.contains(open), "open with id + URL: {sgr:?}");
+        assert!(sgr.contains("\x1b]8;;\x1b\\"), "close at the link switch");
+        let open_at = sgr.find(open).unwrap();
+        let close_at = sgr.find("\x1b]8;;\x1b\\").unwrap();
+        assert!(open_at < close_at, "open precedes close");
+        assert!(
+            sgr[open_at..close_at].contains('a'),
+            "linked text inside the span"
+        );
+        // unknown link id: treated as no link (renderer.zig:2763-2764)
+        let mut r2 = create_cli_renderer(CliRendererConfig {
+            width: 6,
+            height: 1,
+            ..Default::default()
+        });
+        let t2 = r2.next_render_buffer.get(0, 0).unwrap();
+        r2.next_render_buffer.set_cell(
+            0,
+            0,
+            'x',
+            t2.fg,
+            t2.bg,
+            crate::ansi::set_link_id(t2.attributes, 999),
+        );
+        let mut sgr2 = String::new();
+        r2.bench_emit_frame_sgr(&mut sgr2);
+        assert!(!sgr2.contains("]8;"), "unknown id emits no OSC 8");
     }
 
     #[test]

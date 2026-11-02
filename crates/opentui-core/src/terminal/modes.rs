@@ -83,8 +83,7 @@ pub fn mouse_enable(out: &mut dyn io::Write, movement: bool) -> io::Result<()> {
 /// reverse order (`?1006l ?1003l ?1002l ?1000l`). Upstream zig order
 /// wins here (mode clears are order-independent on real terminals, but
 /// the spec pins the zig bytes); recorded per lane A1 instructions.
-pub const MOUSE_DISABLE_ALL: &[u8] =
-    b"\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1006l";
+pub const MOUSE_DISABLE_ALL: &[u8] = b"\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1006l";
 
 // ---------------------------------------------------------------------------
 // Paste / focus / sync / modifyOtherKeys / kitty keyboard
@@ -178,6 +177,9 @@ mod tests {
     #[cfg(feature = "terminal-backend")]
     #[test]
     fn mouse_disable_all_is_upstream_order() {
-        assert_eq!(MOUSE_DISABLE_ALL, b"\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1006l");
+        assert_eq!(
+            MOUSE_DISABLE_ALL,
+            b"\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1006l"
+        );
     }
 }

@@ -26,7 +26,9 @@ vte = "0.11"
 # open + TIOCGWINSZ — the layer upstream delegates to the Node host
 # (terminal.zig / renderer.zig vendored under third_party/opentui).
 # Safe rust, no non-Rust transitive deps; gated behind terminal-backend.
-rustix = { version = "1", features = ["termios", "system", "fs"], optional = true }
+# "pty" + "event" added by A3: posix_openpt/grantpt/unlockpt/ptsname for
+# the PTY integration tests, poll(2) for the short-deadline master reads.
+rustix = { version = "1", features = ["termios", "system", "fs", "pty", "event"], optional = true }
 
 [dev-dependencies]
 # the executor-side parity test: the edit-buffer action ids the keymap

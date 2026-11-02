@@ -74,9 +74,7 @@ impl UnixTty {
         ) {
             Ok(owned) => owned,
             Err(_) => {
-                let raw = if rustix::termios::isatty(unsafe {
-                    BorrowedFd::borrow_raw(0)
-                }) {
+                let raw = if rustix::termios::isatty(unsafe { BorrowedFd::borrow_raw(0) }) {
                     0
                 } else {
                     1
@@ -86,6 +84,15 @@ impl UnixTty {
             }
         };
         Ok(Self { fd })
+    }
+
+    /// Wrap an already-open terminal fd (A3): the PTY integration tests
+    /// drive a slave fd from a `posix_openpt` pair through the real
+    /// `TtyDevice` impl instead of touching any real terminal. The fd
+    /// is owned (closed on drop).
+    #[must_use]
+    pub fn from_fd(fd: std::os::fd::OwnedFd) -> Self {
+        Self { fd }
     }
 
     fn fd_ref(&self) -> BorrowedFd<'_> {
@@ -115,11 +122,7 @@ impl TtyDevice for UnixTty {
             | rustix::termios::LocalModes::ISIG
             | rustix::termios::LocalModes::IEXTEN);
         raw.control_modes |= rustix::termios::ControlModes::CS8;
-        rustix::termios::tcsetattr(
-            fd,
-            rustix::termios::OptionalActions::Now,
-            &raw,
-        )?;
+        rustix::termios::tcsetattr(fd, rustix::termios::OptionalActions::Now, &raw)?;
         Ok(TermiosSave::new(attrs))
     }
 

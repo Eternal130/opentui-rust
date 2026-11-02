@@ -170,6 +170,55 @@ prove the emitted bytes repaint the same grid.
    + 31 ported upstream tests, all IDENTICAL — marked **partial** in
    PORT-MATRIX (a vte-based engine, not full ghostty-vt emulation).
 
+12. **terminal-backend lane (A1-A3)** — done: the
+    `terminal-backend` feature ships `opentui-core::terminal`
+    (see the section below).
+
+## Terminal backend (`terminal-backend` feature)
+
+Upstream `@opentui` delegates terminal ownership to the Node host
+(termios, fds, SIGWINCH) and its zig native library
+(`terminal.zig`/`renderer.zig`); this port owns that layer itself,
+behind the cargo feature `terminal-backend` (rustix, no non-Rust
+transitive deps):
+
+* **tty** — the `TtyDevice` seam + `UnixTty` (raw mode / restore /
+  TIOCGWINSZ; `UnixTty::from_fd` wraps an existing fd, e.g. a PTY
+  slave for tests);
+* **modes** — the byte-level mode sequences, each citing its
+  `ansi.zig` line;
+* **session** — `SetupOptions` + the RAII `Terminal` lifecycle
+  (setup burst per renderer.zig:558-576, teardown epilogue per
+  renderer.zig:600-654 / terminal.zig:282-335, optional chained
+  panic hook), plus `teardown_scrollback(lines)` — the alt-screen
+  tail jump: leave alt screen, write the lines to the host
+  scrollback, then the mode/cursor epilogue;
+* **probe** — the capability query burst (terminal.zig:347-399,
+  including the kitty graphics query) and the streaming response
+  state machine accumulating `TerminalCapabilities`
+  (terminal.zig:1247-1446);
+* **pumps** — `probe_capabilities` / `pump_input` (FIONREAD,
+  non-blocking) / `pump_output` (`?2026`-wrapped frame drain) /
+  `check_resize` (TIOCGWINSZ reconciliation → `Resize` event).
+
+**Boundaries** (GAPS-registered in `terminal/mod.rs`, not silently
+approximated): alt-screen ONLY (inline viewport / split-footer /
+`ExternalOutputCommit` deferred to Phase B4); the kitty graphics
+query is sent unconditionally (upstream additionally gates on
+tmux/env overrides); the explicit-width/scaled-text probe block,
+notification queries (`OSC 99`/`1337`), the foot branch, and the
+tmux DCS passthrough wrappers are deferred. Default builds are
+headless-pure — the feature adds no behavior unless enabled, and the
+differential harness runs without it.
+
+The layer is pinned by byte-exact unit tests against the upstream
+citations plus PTY integration tests
+(`crates/opentui-core/tests/pty_terminal.rs`) driving a private
+`posix_openpt` pair end-to-end (setup bytes, probe responses →
+Capabilities, key passthrough, `?2026` frame envelope on the wire,
+TIOCSWINSZ → Resize, teardown bytes + idempotency) — CI-safe without
+a controlling TTY, and never touching a real terminal.
+
 ## License attribution
 
 OpenTUI upstream (vendored under `third_party/opentui`) is © its authors,

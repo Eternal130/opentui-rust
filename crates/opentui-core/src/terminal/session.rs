@@ -123,10 +123,7 @@ impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
     /// `modes`.
     /// The teardown byte-stream for the given live state — shared by
     /// [`Terminal::teardown`] and the panic-hook epilogue snapshot.
-    fn write_epilogue(
-        st: &TerminalState,
-        out: &mut dyn io::Write,
-    ) -> io::Result<()> {
+    fn write_epilogue(st: &TerminalState, out: &mut dyn io::Write) -> io::Result<()> {
         out.write_all(modes::SHOW_CURSOR)?; // terminal.zig:283
         out.write_all(b"\x1b[0m")?; // terminal.zig:284 (ansi.ANSI.reset)
         out.write_all(modes::RESET_MOUSE_POINTER)?; // terminal.zig:285
@@ -289,6 +286,60 @@ impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
         result
     }
 
+    /// The scrollback tail-jump teardown (A3): leave the alt screen
+    /// FIRST, write `lines` to the main screen (each followed by
+    /// `\r\n`, flushed once after the last line), then run the regular
+    /// mode/cursor epilogue — so the lines land in the host scrollback
+    /// instead of vanishing with the alt buffer. Idempotent with
+    /// [`Terminal::teardown`] / `Drop` exactly like the plain path.
+    ///
+    /// Upstream alignment (renderer.ts:4520-4609, `finalizeDestroy`):
+    /// the upstream exit commits its shutdown bytes through
+    /// `lib.destroyRenderer` and then drains the feed — there is NO
+    /// alt-screen line dump upstream in 0.5.14 (the scrollback write
+    /// family is split-footer only, renderer.ts:2339+, deferred to
+    /// Phase B4 — GAPS-registered). This API is the Rust-side
+    /// equivalent of that family's tail jump: alt exit → payload →
+    /// epilogue, sharing [`Terminal::write_epilogue`] for the mode
+    /// reset tail (the alt-screen exit inside it is skipped — already
+    /// emitted so the payload could land on the main screen).
+    ///
+    /// CROSS-CHECK vs oc-tui (app.rs:9646-9672): oc-tui runs the FULL
+    /// teardown (leave-alt, mode pops, DECSCUSR reset) first and only
+    /// then writes its exit epilogue text (`store.exit_epilogue()` +
+    /// `\n`); this path writes the payload between the alt exit and
+    /// the mode pops, keeping cursor position semantics of the
+    /// pre-teardown state for the payload. Byte-visible difference,
+    /// deliberate: upstream zig's leave-alt ordering
+    /// (terminal.zig:308-309) stays authoritative for everything
+    /// except the payload insertion point.
+    pub fn teardown_scrollback(&mut self, lines: &[&[u8]]) -> io::Result<()> {
+        if self.torn_down {
+            return Ok(()); // idempotent — teardown/Drop already ran
+        }
+        self.torn_down = true;
+        if let Some(fd) = self.panic_fd.take() {
+            panic_teardown::clear_fd(fd);
+        }
+
+        let mut state = self.state.clone();
+        let result = (|| -> io::Result<()> {
+            self.out.write_all(modes::EXIT_ALT_SCREEN)?; // terminal.zig:309
+            state.alt_screen = false; // write_epilogue must not repeat it
+            for line in lines {
+                self.out.write_all(line)?;
+                self.out.write_all(b"\r\n")?;
+            }
+            self.out.flush()?; // the tail flush — payload visible before resets
+            Self::write_epilogue(&state, &mut self.out)
+        })();
+
+        if let Some(save) = self.termios_save.take() {
+            let _ = self.tty.restore(&save);
+        }
+        result
+    }
+
     /// The output seam (Phase A design ruling #8): the W the renderer's
     /// frame bytes will be pumped through (A2's `pump_output`).
     pub fn output(&mut self) -> &mut W {
@@ -351,13 +402,15 @@ pub(crate) mod panic_teardown {
     }
 
     fn registry() -> &'static Mutex<Vec<Entry>> {
-        static REGISTRY: std::sync::OnceLock<Mutex<Vec<Entry>>> =
-            std::sync::OnceLock::new();
+        static REGISTRY: std::sync::OnceLock<Mutex<Vec<Entry>>> = std::sync::OnceLock::new();
         REGISTRY.get_or_init(|| Mutex::new(Vec::new()))
     }
 
     pub(crate) fn register(entry: Entry) {
-        registry().lock().unwrap_or_else(|e| e.into_inner()).push(entry);
+        registry()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(entry);
     }
 
     pub(crate) fn clear_fd(fd: i32) {
@@ -370,21 +423,15 @@ pub(crate) mod panic_teardown {
     /// Best-effort: flush every live epilogue to stdout, then restore
     /// cooked mode on every live fd. Never panics.
     pub(crate) fn run_all() {
-        let entries = registry()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
+        let entries = registry().lock().unwrap_or_else(|e| e.into_inner()).clone();
         for entry in &entries {
             let _ = std::io::stdout().write_all(&entry.epilogue);
             let _ = std::io::stdout().flush();
             // SAFETY: fd is valid — the owning terminal deregistered on
             // drop BEFORE its fd could close.
             let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(entry.fd) };
-            let _ = rustix::termios::tcsetattr(
-                fd,
-                rustix::termios::OptionalActions::Now,
-                &entry.attrs,
-            );
+            let _ =
+                rustix::termios::tcsetattr(fd, rustix::termios::OptionalActions::Now, &entry.attrs);
         }
     }
 }
@@ -451,16 +498,28 @@ mod tests {
                 .chain(b"\x1b[>4;1m".iter().cloned()) // MOK on     terminal.zig:410
                 .chain(b"\x1b[>4;0m".iter().cloned()) // MOK off    terminal.zig:415
                 .chain(b"\x1b[>5u".iter().cloned()) // kitty push  terminal.zig:1010
-                .chain(b"\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h".iter().cloned()) // terminal.zig:974-979
+                .chain(
+                    b"\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h"
+                        .iter()
+                        .cloned()
+                ) // terminal.zig:974-979
                 .chain(b"\x1b[?2004h".iter().cloned()) // paste     terminal.zig:425
                 .chain(b"\x1b[?1004h".iter().cloned()) // focus     terminal.zig:429
                 // then the Drop-guard epilogue (pinned byte-exactly in
                 // teardown_burst_exact_bytes — same bytes here):
                 .chain(b"\x1b[?25h\x1b[0m\x1b]22;\x1b\\".iter().cloned())
                 .chain(b"\x1b[<u".iter().cloned())
-                .chain(b"\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1006l".iter().cloned())
+                .chain(
+                    b"\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1006l"
+                        .iter()
+                        .cloned()
+                )
                 .chain(b"\x1b[?2004l\x1b[?1004l\x1b[?1049l".iter().cloned())
-                .chain(b"\x1b]0;\x07\x1b]12;default\x07\x1b]112\x07\x1b[0 q\x1b[?25h".iter().cloned())
+                .chain(
+                    b"\x1b]0;\x07\x1b]12;default\x07\x1b]112\x07\x1b[0 q\x1b[?25h"
+                        .iter()
+                        .cloned()
+                )
                 .collect::<Vec<u8>>()[..],
             "setup burst must match upstream byte-for-byte"
         );
@@ -477,13 +536,18 @@ mod tests {
         assert_eq!(
             out.snapshot(),
             b"\x1b[?25h" // showCursor            terminal.zig:283
-                .iter().cloned()
+                .iter()
+                .cloned()
                 .chain(b"\x1b[0m".iter().cloned()) // SGR reset      terminal.zig:284
                 .chain(b"\x1b]22;\x1b\\".iter().cloned()) // mousePtr terminal.zig:285
                 .chain(b"\x1b[<u".iter().cloned()) // kitty pop      terminal.zig:289
                 // no MOK disable here: the kitty path turned MOK off
                 // at setup (terminal.zig:413-418), mirroring zig state.
-                .chain(b"\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1006l".iter().cloned()) // terminal.zig:946-951
+                .chain(
+                    b"\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1006l"
+                        .iter()
+                        .cloned()
+                ) // terminal.zig:946-951
                 .chain(b"\x1b[?2004l".iter().cloned()) // paste off   terminal.zig:301
                 .chain(b"\x1b[?1004l".iter().cloned()) // focus off   terminal.zig:305
                 .chain(b"\x1b[?1049l".iter().cloned()) // exit alt    terminal.zig:309
@@ -547,7 +611,10 @@ mod tests {
         t.teardown().unwrap();
         out.clear();
         t.teardown().unwrap();
-        assert!(out.snapshot().is_empty(), "second teardown must emit nothing");
+        assert!(
+            out.snapshot().is_empty(),
+            "second teardown must emit nothing"
+        );
         let restores = t.tty().restore_calls;
         drop(t); // Drop guard must not double-run
         assert!(out.snapshot().is_empty());
@@ -582,6 +649,51 @@ mod tests {
         assert_eq!(restores, 1);
         drop(t);
         assert_eq!(restores, 1, "Drop must not restore twice");
+    }
+
+    /// teardown_scrollback: alt exit leads, each line lands verbatim
+    /// (+ `\r\n`), then the regular epilogue WITHOUT a second alt exit.
+    /// Escapes and UTF-8 in lines pass through byte-for-byte.
+    #[test]
+    fn teardown_scrollback_byte_order() {
+        let out = SharedBuf::default();
+        let opts = full_options();
+        let mut t = Terminal::new(MockTty::new(), out.clone(), &opts).unwrap();
+        out.clear();
+        t.teardown_scrollback(&[b"line one \xe2\x9c\x93", b"\x1b[31mred tail\x1b[0m"])
+            .unwrap();
+        let bytes = out.snapshot();
+        let expected: Vec<u8> = b"\x1b[?1049l"
+            .iter()
+            .cloned()
+            .chain(b"line one \xe2\x9c\x93\r\n".iter().cloned())
+            .chain(b"\x1b[31mred tail\x1b[0m\r\n".iter().cloned())
+            // then the epilogue — same bytes as teardown_burst_exact_bytes
+            // MINUS the `\x1b[?1049l` (already emitted above)
+            .chain(b"\x1b[?25h".iter().cloned())
+            .chain(b"\x1b[0m".iter().cloned())
+            .chain(b"\x1b]22;\x1b\\".iter().cloned())
+            .chain(b"\x1b[<u".iter().cloned())
+            .chain(
+                b"\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1006l"
+                    .iter()
+                    .cloned(),
+            )
+            .chain(b"\x1b[?2004l".iter().cloned())
+            .chain(b"\x1b[?1004l".iter().cloned())
+            .chain(b"\x1b]0;\x07".iter().cloned())
+            .chain(b"\x1b]12;default\x07".iter().cloned())
+            .chain(b"\x1b]112\x07".iter().cloned())
+            .chain(b"\x1b[0 q".iter().cloned())
+            .chain(b"\x1b[?25h".iter().cloned())
+            .collect();
+        assert_eq!(bytes, expected);
+        // exactly ONE alt-screen exit in the whole stream
+        assert_eq!(bytes.windows(8).filter(|w| *w == b"\x1b[?1049l").count(), 1);
+        // idempotent: a follow-up teardown (or Drop) is silent
+        t.teardown().unwrap();
+        drop(t);
+        assert_eq!(out.snapshot(), expected);
     }
 
     /// The panic hook chains: the previous hook still runs after ours.
