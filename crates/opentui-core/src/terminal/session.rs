@@ -103,10 +103,9 @@ impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
     /// 1. `\x1b[s`          saveCursorState        (renderer.zig:563)
     /// 2. `\x1b[?1049h`     enterAltScreen         (renderer.zig:566)
     /// 3. `\x1b[>4;1m`      modifyOtherKeys on     (terminal.zig:409-411 —
-    ///                                           state is fresh, so upstream
-    ///                                           ALWAYS writes this first)
+    ///    state is fresh, so upstream ALWAYS writes this first)
     /// 4. if kitty flags > 0: `\x1b[>4;0m` then `\x1b[>{flags}u`
-    ///                                           (terminal.zig:413-418)
+    ///    (terminal.zig:413-418)
     /// 5. if use_mouse: the setMouseMode burst  (terminal.zig:962-979)
     /// 6. if bracketed_paste: `\x1b[?2004h`     (terminal.zig:424-426)
     /// 7. if auto_focus: `\x1b[?1004h`          (terminal.zig:428-430)
@@ -244,16 +243,15 @@ impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
     /// 5. if modifyOtherKeys: `\x1b[>4;0m`         (terminal.zig:292-294)
     /// 6. if mouse was ever enabled:
     ///    `\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1006l`
-    ///                                            (terminal.zig:296-298, 946-951)
+    ///    (terminal.zig:296-298, 946-951)
     /// 7. if paste: `\x1b[?2004l`                  (terminal.zig:300-302)
     /// 8. if focus: `\x1b[?1004l`                  (terminal.zig:304-306)
     /// 9. `\x1b[?1049l`      exitAltScreen         (terminal.zig:308-309)
     /// 10. `\x1b]0;\x07`     setTerminalTitle("")  (terminal.zig:328)
     /// 11. `\x1b]12;default\x07` `\x1b]112\x07` `\x1b[0 q`
-    ///                       cursor color + DECSCUSR reset
-    ///                                            (renderer.zig:642-644)
+    ///     cursor color + DECSCUSR reset (renderer.zig:642-644)
     /// 12. `\x1b[?25h`      the Ghostty-cursor showCursor retry
-    ///                                            (renderer.zig:645,652)
+    ///     (renderer.zig:645,652)
     ///
     /// then flush and restore cooked mode (`setRawMode(false)`).
     ///

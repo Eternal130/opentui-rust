@@ -55,13 +55,12 @@ pub const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 ///    \x1b[?2004$p \x1b[?2026$p` (ansi.zig:344-350)
 /// 8. `\x1b[?u`         csiUQuery (ansi.zig:352)
 /// 9. `\x1b_Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\`
-///                       kittyGraphicsQuery (terminal.zig:379-382,
-///                       ansi.zig:351) — ahead of DA1 exactly like
-///                       upstream's `!skip_graphics_query &&
-///                       !isInTmux()` branch, but sent unconditionally
-///                       (divergence registered in the module docs)
+///    kittyGraphicsQuery (terminal.zig:379-382, ansi.zig:351) —
+///    ahead of DA1 exactly like upstream's `!skip_graphics_query &&
+///    !isInTmux()` branch, but sent unconditionally (divergence
+///    registered in the module docs)
 /// 10. `\x1b[c`          primaryDeviceAttrs / DA1 (terminal.zig:379-381,
-///    ansi.zig:339)
+///     ansi.zig:339)
 /// 11. `\x1b[u`          restoreCursorState (terminal.zig:399)
 pub fn write_probe_burst(out: &mut dyn io::Write) -> io::Result<()> {
     out.write_all(b"\x1b[?2031h")?; // terminal.zig:357

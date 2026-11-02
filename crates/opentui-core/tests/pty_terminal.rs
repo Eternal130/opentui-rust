@@ -240,7 +240,7 @@ fn pty_probe_burst_and_capability_classification() {
             CliRenderEvent::Capabilities(c) => Some(c),
             _ => None,
         })
-        .last()
+        .next_back()
         .expect("Capabilities event fired");
     assert!(caps.sync, "2026;2$y classified");
     assert!(caps.kitty_keyboard, "?0u classified");
