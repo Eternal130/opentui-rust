@@ -22,6 +22,11 @@ minimp3 = "0.5"
 # the VT state machine for the embedded terminal engine (already in the
 # lockfile as the vt100 replay dependency — no new transitive deps)
 vte = "0.11"
+# the terminal-backend lane (Phase A1): termios raw/restore + /dev/tty
+# open + TIOCGWINSZ — the layer upstream delegates to the Node host
+# (terminal.zig / renderer.zig vendored under third_party/opentui).
+# Safe rust, no non-Rust transitive deps; gated behind terminal-backend.
+rustix = { version = "1", features = ["termios", "system", "fs"], optional = true }
 
 [dev-dependencies]
 # the executor-side parity test: the edit-buffer action ids the keymap
@@ -37,3 +42,8 @@ opentui-keymap = { workspace = true }
 # exists, no silent fallback to the null sink. Default builds keep the
 # null sink exactly as before (decoders only, MA_NO_DEVICE_IO).
 device-audio = []
+# Phase A1 (PLAN-opentui-render-migration): the real-TTY backend —
+# termios raw/restore, DECSET mode sequences, alt-screen lifecycle,
+# RAII teardown + panic hook. Default builds stay headless-pure (the
+# differential harness must not gain system deps).
+terminal-backend = ["dep:rustix"]

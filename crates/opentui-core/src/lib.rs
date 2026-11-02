@@ -56,6 +56,8 @@ pub mod paste;
 pub mod renderable;
 pub mod renderables;
 pub mod renderer;
+#[cfg(feature = "terminal-backend")]
+pub mod terminal;
 pub mod styled_text;
 #[cfg(test)]
 mod text_buffer_tests;
