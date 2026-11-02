@@ -43,11 +43,7 @@ impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
     /// renderer's listener pipe (`emit_terminal_event`, the
     /// renderer.ts:3415 boundary). The 5s deadline (from probe arm)
     /// finishes the probe with unknown-field defaults.
-    pub fn feed_input(
-        &mut self,
-        renderer: &mut CliRenderer,
-        bytes: &[u8],
-    ) -> Vec<CliRenderEvent> {
+    pub fn feed_input(&mut self, renderer: &mut CliRenderer, bytes: &[u8]) -> Vec<CliRenderEvent> {
         let mut events = Vec::new();
         if let Some(mut probe) = self.probe.take() {
             probe.feed(renderer, bytes, &mut events);
@@ -122,10 +118,7 @@ impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
     /// A design ruled): a size change drives `renderer.resize(w, h)`
     /// (renderer.rs — the `processResize` port) and emits the `Resize`
     /// event (renderer.ts:3198), returning the new `(cols, rows)`.
-    pub fn check_resize(
-        &mut self,
-        renderer: &mut CliRenderer,
-    ) -> io::Result<Option<(u16, u16)>> {
+    pub fn check_resize(&mut self, renderer: &mut CliRenderer) -> io::Result<Option<(u16, u16)>> {
         let (cols, rows) = self.tty.window_size()?;
         if self.size == Some((cols, rows)) {
             return Ok(None);
@@ -205,8 +198,7 @@ mod tests {
     #[test]
     fn probe_burst_via_terminal() {
         let out = SharedBuf::default();
-        let mut term =
-            Terminal::new(MockTty::new(), out.clone(), &Default::default()).unwrap();
+        let mut term = Terminal::new(MockTty::new(), out.clone(), &Default::default()).unwrap();
         out.clear(); // drop the setup burst
         term.probe_capabilities().unwrap();
         let mut expected = Vec::new();
@@ -232,15 +224,20 @@ mod tests {
         }
         // A canned probe response followed by the focus-in sequence.
         let events = term.feed_input(&mut r, b"\x1b[?2026;2$y\x1b[I");
-        // commit 1: classifiers are stubbed, so no Capabilities event
-        // yet — the DECRPM is merely consumed by the state machine.
-        assert!(events.is_empty());
+        // capability event for the DECRPM, nothing else from the probe
+        assert!(matches!(
+            events.as_slice(),
+            [CliRenderEvent::Capabilities(_)]
+        ));
         assert!(term.probe.is_some(), "probe still live (no DA1 yet)");
         assert!(
-            seen.lock().unwrap().iter().any(|e| matches!(e, CliRenderEvent::TerminalFocus)),
+            seen.lock()
+                .unwrap()
+                .iter()
+                .any(|e| matches!(e, CliRenderEvent::TerminalFocus)),
             "focus bytes reached feed_bytes and emitted TerminalFocus"
         );
-        // (classification assertions land with commit 2's classifiers)
+        assert!(term.probe.as_ref().unwrap().capabilities().sync);
     }
 
     /// pump_output pairs the ?2026 envelope around fresh SGR bytes and
@@ -260,8 +257,14 @@ mod tests {
         r.resize(10, 2);
         term.pump_output(&mut r).unwrap();
         let buf = out.0.borrow();
-        assert!(buf.buf.starts_with(b"\x1b[?2026h"), "syncSet leads (renderer.zig:1844)");
-        assert!(buf.buf.ends_with(b"\x1b[?2026l"), "syncReset closes (renderer.zig:3031)");
+        assert!(
+            buf.buf.starts_with(b"\x1b[?2026h"),
+            "syncSet leads (renderer.zig:1844)"
+        );
+        assert!(
+            buf.buf.ends_with(b"\x1b[?2026l"),
+            "syncReset closes (renderer.zig:3031)"
+        );
         assert_eq!(buf.flushes, 2, "explicit flush per pumped frame");
         assert!(
             buf.buf.len() > b"\x1b[?2026h\x1b[?2026l".len(),

@@ -42,19 +42,19 @@ pub const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 /// `queryTerminalSend`'s:
 ///
 /// 1. `\x1b[?2031h`     colorSchemeUpdates(true)  (terminal.zig:357,
-///                      ansi.zig:395)
+///    ansi.zig:395)
 /// 2. `\x1b]10;?\x07\x1b]11;?\x07` queryThemeColors (terminal.zig:360,
-///                      oscThemeQueries ansi.zig:397)
+///    oscThemeQueries ansi.zig:397)
 /// 3. `\x1b[>0q`        xtversion (terminal.zig:367-369, ansi.zig:342)
 /// 4. `\x1b[?25l`       hideCursor  (terminal.zig:368)
 /// 5. `\x1b[s`          saveCursorState (terminal.zig:369)
 /// 6. `\x1bP+q4d73\x1b\\` xtgettcapMs (capabilityQueriesBase,
-///                      ansi.zig:354-361)
+///    ansi.zig:354-361)
 /// 7. DECRQM set `\x1b[?1016$p \x1b[?2027$p \x1b[?2031$p \x1b[?1004$p
 ///    \x1b[?2004$p \x1b[?2026$p` (ansi.zig:344-350)
 /// 8. `\x1b[?u`         csiUQuery (ansi.zig:352)
 /// 9. `\x1b[c`          primaryDeviceAttrs / DA1 (terminal.zig:379-381,
-///                      ansi.zig:339)
+///    ansi.zig:339)
 /// 10. `\x1b[u`         restoreCursorState (terminal.zig:399)
 pub fn write_probe_burst(out: &mut dyn io::Write) -> io::Result<()> {
     out.write_all(b"\x1b[?2031h")?; // terminal.zig:357
@@ -131,9 +131,7 @@ fn csi_question_front(buf: &[u8]) -> Front {
 /// xtgettcap (`DCS 1+r…ST`, terminal.zig:1389-1412).
 fn dcs_front(buf: &[u8]) -> Front {
     match buf.windows(2).position(|w| w == b"\x1b\\") {
-        Some(end) => Front::Complete {
-            unit_len: end + 2,
-        },
+        Some(end) => Front::Complete { unit_len: end + 2 },
         None => Front::Partial,
     }
 }
@@ -172,17 +170,23 @@ fn front_kind(buf: &[u8]) -> Front {
 /// `isOsc52Term` (terminal.zig:1404-1415).
 fn is_osc52_term(value: &str) -> bool {
     const NAMES: [&str; 10] = [
-        "iterm", "kitty", "alacritty", "wezterm", "contour", "foot", "rio",
-        "ghostty", "tmux", "screen",
+        "iterm",
+        "kitty",
+        "alacritty",
+        "wezterm",
+        "contour",
+        "foot",
+        "rio",
+        "ghostty",
+        "tmux",
+        "screen",
     ];
     NAMES.iter().any(|n| value.to_ascii_lowercase().contains(n))
 }
 
 /// `isHyperlinkTerm` (terminal.zig:1417-1425).
 fn is_hyperlink_term(value: &str) -> bool {
-    const NAMES: [&str; 6] = [
-        "ghostty", "kitty", "wezterm", "alacritty", "foot", "iterm",
-    ];
+    const NAMES: [&str; 6] = ["ghostty", "kitty", "wezterm", "alacritty", "foot", "iterm"];
     NAMES.iter().any(|n| value.to_ascii_lowercase().contains(n))
 }
 
@@ -191,10 +195,130 @@ fn is_hyperlink_term(value: &str) -> bool {
 /// upstream re-emits CAPABILITIES after every response,
 /// renderer.ts:3415; we dedup identical snapshots).
 fn classify(unit: &[u8], caps: &mut TerminalCapabilities) -> bool {
-    // Lane A2 commit 1: recognition + plumbing only — the response
-    // classifiers (terminal.zig:1247-1446) land in commit 2.
-    let _ = (unit, caps);
-    false
+    let before = caps.clone();
+    let unit_str = String::from_utf8_lossy(unit);
+
+    // DECRPM substring branches (terminal.zig:1255-1271)
+    if unit_str.contains("1016;2$y") {
+        caps.sgr_pixels = true; // terminal.zig:1255-1256
+    }
+    if unit_str.contains("2027;2$y") {
+        caps.unicode = crate::renderer::WidthMethod::Unicode; // :1257-1259
+    }
+    if unit_str.contains("2031;1$y") || unit_str.contains("2031;2$y") {
+        caps.color_scheme_updates = true; // :1259-1261
+    }
+    if unit_str.contains("1004;1$y") || unit_str.contains("1004;2$y") {
+        caps.focus_tracking = true; // :1262-1264
+    }
+    if unit_str.contains("2026;1$y") || unit_str.contains("2026;2$y") {
+        caps.sync = true; // :1265-1267
+    }
+    if unit_str.contains("2004;1$y") || unit_str.contains("2004;2$y") {
+        caps.bracketed_paste = true; // :1268-1270
+    }
+
+    // DA1: attribute `4` means sixel (parseSixelDeviceAttributes,
+    // terminal.zig:1122-1140)
+    if unit.starts_with(b"\x1b[?") && unit.ends_with(b"c") {
+        for param in unit_str
+            .trim_end_matches('c')
+            .trim_start_matches("\x1b[?")
+            .split(';')
+        {
+            if param == "4" {
+                caps.sixel = true; // terminal.zig:1134-1136
+            }
+        }
+    }
+
+    // xtversion: `DCS >|name version ST` (terminal.zig:1313-1321);
+    // `parseXtversion` splits the name at '(' or ' ' — "kitty(0.40.1)",
+    // "ghostty 1.1.3", "tmux 3.5a" (terminal.zig:1739-1770).
+    if let Some(pos) = unit_str.find("\x1bP>|") {
+        let start = pos + 4;
+        if let Some(end) = unit_str[start..].find("\x1b\\") {
+            let term_str = unit_str[start..start + end].trim();
+            let (name, version) = match term_str.find(['(', ' ']) {
+                Some(split) => {
+                    let name = &term_str[..split];
+                    let version = term_str[split..]
+                        .trim_start_matches(['(', ' '])
+                        .trim_end_matches(')');
+                    (name, version)
+                }
+                None => (term_str, ""),
+            };
+            if !name.is_empty() {
+                caps.terminal_name = Some(name.to_string());
+                if !version.is_empty() {
+                    caps.terminal_version = Some(version.to_string());
+                }
+            }
+        }
+    }
+
+    // Exact kitty identity from a complete xtversion reply
+    // (terminal.zig:1353-1360)
+    if caps
+        .terminal_name
+        .as_deref()
+        .is_some_and(|n| n.eq_ignore_ascii_case("kitty"))
+    {
+        caps.kitty_keyboard = true;
+        caps.unicode = crate::renderer::WidthMethod::Unicode;
+        caps.rgb = true;
+        caps.ansi256 = true;
+        caps.bracketed_paste = true;
+        caps.hyperlinks = true;
+    }
+
+    // Kitty protocol via `CSI ?Nu` query reply (terminal.zig:1363-1377)
+    if unit.starts_with(b"\x1b[?")
+        && unit.ends_with(b"u")
+        && unit[3..unit.len() - 1].iter().all(|b| b.is_ascii_digit())
+        && unit.len() > 4
+    {
+        caps.kitty_keyboard = true; // terminal.zig:1374-1376
+    }
+
+    // Terminal-name heuristics (terminal.zig:1380-1387)
+    if unit_str.contains("tmux") {
+        caps.unicode = crate::renderer::WidthMethod::Wcwidth; // :1380-1382
+        caps.explicit_cursor_positioning = true; // :1382
+    }
+    if unit_str.contains("alacritty") {
+        caps.explicit_cursor_positioning = true; // :1385-1387
+    }
+
+    // xtgettcap OSC52 reply: `DCS 1+r 4d73 = <hex> ST`
+    // (parseXtgettcapMs, terminal.zig:1389-1412)
+    if unit_str.starts_with("\x1bP1+r") {
+        let body = unit_str
+            .trim_start_matches("\x1bP1+r")
+            .trim_end_matches("\x1b\\");
+        if let Some((key, value)) = body.split_once('=') {
+            if key.eq_ignore_ascii_case("4d73")
+                && !value.is_empty()
+                && value.len() % 2 == 0
+                && value.bytes().all(|b| b.is_ascii_hexdigit())
+            {
+                caps.osc52 = true; // terminal.zig:1405-1411
+            }
+        }
+    }
+
+    // Name-based OSC52/hyperlink enablement (terminal.zig:1398-1425) —
+    // scanned against the full unit (upstream scans the whole
+    // capability-response buffer).
+    if !caps.osc52 && is_osc52_term(&unit_str) {
+        caps.osc52 = true;
+    }
+    if !caps.hyperlinks && is_hyperlink_term(&unit_str) {
+        caps.hyperlinks = true;
+    }
+
+    *caps != before
 }
 
 /// Extract the rgb payload of an OSC 10/11 theme reply
@@ -204,8 +328,8 @@ fn osc_rgb(unit: &[u8]) -> Option<[u8; 3]> {
     let payload = s
         .trim_end_matches("\x1b\\")
         .trim_end_matches('\u{7}')
-        .splitn(2, ';')
-        .nth(1)?;
+        .split_once(';')?
+        .1;
     let payload = payload.strip_prefix("rgb:")?;
     let mut out = [0u8; 3];
     for (i, chan) in payload.split('/').enumerate() {
@@ -291,11 +415,7 @@ impl CapabilityProbe {
     /// feed (they were never ours), emit the final snapshot if nothing
     /// was emitted yet (timeout = unknown fields default), and mark
     /// done. Idempotent.
-    pub fn finish(
-        &mut self,
-        renderer: &mut CliRenderer,
-        events: &mut Vec<CliRenderEvent>,
-    ) {
+    pub fn finish(&mut self, renderer: &mut CliRenderer, events: &mut Vec<CliRenderEvent>) {
         if self.finished {
             return;
         }
@@ -390,7 +510,8 @@ mod tests {
         assert_eq!(
             buf,
             b"\x1b[?2031h" // colorSchemeUpdates(true)   terminal.zig:357
-                .iter().cloned()
+                .iter()
+                .cloned()
                 .chain(b"\x1b]10;?\x07\x1b]11;?\x07".iter().cloned()) // :360
                 .chain(b"\x1b[>0q\x1b[?25l\x1b[s".iter().cloned()) // :367-369
                 .chain(b"\x1bP+q4d73\x1b\\".iter().cloned()) // ansi.zig:354
@@ -405,6 +526,96 @@ mod tests {
                 .chain(b"\x1b[u".iter().cloned()) // restore terminal.zig:399
                 .collect::<Vec<u8>>()[..]
         );
+    }
+
+    /// A canned ghostty-shaped reply set classifies field-by-field
+    /// (every branch cites its zig line inside `classify`).
+    #[test]
+    fn canned_responses_classify_per_field() {
+        let mut probe = CapabilityProbe::new(Duration::from_secs(5));
+        let mut r = renderer();
+        let mut events = Vec::new();
+        // DECRPM acks: sync + focus + paste + colorScheme + sgr pixels,
+        // plus the OSC 11 dark background reply.
+        probe.feed(
+            &mut r,
+            b"\x1b[?2026;2$y\x1b[?1004;1$y\x1b[?2004;1$y\x1b[?2031;1$y\x1b[?1016;2$y\x1b]11;rgb:1010/1010/1010\x07",
+            &mut events,
+        );
+        // kitty query reply + xtversion + DA1 with sixel attr 4
+        probe.feed(
+            &mut r,
+            b"\x1b[?1u\x1bP>|ghostty 1.1.3\x1b\\\x1b[?62;4;6;9;15;22c",
+            &mut events,
+        );
+
+        assert!(probe.is_finished(), "DA1 + kitty reply completes the probe");
+        let caps = probe.capabilities();
+        assert!(caps.sync, "2026;2$y -> sync (terminal.zig:1265-1267)");
+        assert!(caps.focus_tracking, "1004;1$y (terminal.zig:1262-1264)");
+        assert!(caps.bracketed_paste, "2004;1$y (terminal.zig:1268-1270)");
+        assert!(
+            caps.color_scheme_updates,
+            "2031;1$y (terminal.zig:1259-1261)"
+        );
+        assert!(caps.sgr_pixels, "1016;2$y (terminal.zig:1255-1256)");
+        assert!(caps.kitty_keyboard, "CSI ?1u (terminal.zig:1365-1377)");
+        assert_eq!(
+            caps.terminal_name.as_deref(),
+            Some("ghostty"),
+            "xtversion name token (terminal.zig:1755-1766)"
+        );
+        assert_eq!(
+            caps.terminal_version.as_deref(),
+            Some("1.1.3"),
+            "xtversion version token (terminal.zig:1757-1766)"
+        );
+        assert!(caps.sixel, "DA1 attr 4 (terminal.zig:1122-1140)");
+        assert!(caps.osc52, "ghostty isOsc52Term (terminal.zig:1404-1415)");
+        assert!(
+            caps.hyperlinks,
+            "ghostty isHyperlinkTerm (terminal.zig:1417-1425)"
+        );
+        assert_eq!(probe.last_osc11_bg, Some([0x10, 0x10, 0x10]));
+        // at least one Capabilities event fired
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, CliRenderEvent::Capabilities(_))));
+    }
+
+    /// kitty xtversion identity flips the exact-feature set
+    /// (terminal.zig:1353-1360).
+    #[test]
+    fn kitty_xtversion_identity() {
+        let mut probe = CapabilityProbe::new(Duration::from_secs(5));
+        let mut r = renderer();
+        let mut events = Vec::new();
+        probe.feed(
+            &mut r,
+            b"\x1bP>|kitty(0.40.1)\x1b\\\x1b[?1u\x1b[?62;1;2;6;9;15;22c",
+            &mut events,
+        );
+        let caps = probe.capabilities();
+        assert!(caps.kitty_keyboard && caps.rgb && caps.ansi256);
+        assert!(caps.bracketed_paste && caps.hyperlinks);
+        assert_eq!(caps.unicode, crate::renderer::WidthMethod::Unicode);
+    }
+
+    /// tmux xtversion pins wcwidth + explicit cursor positioning
+    /// (terminal.zig:1380-1383).
+    #[test]
+    fn tmux_xtversion() {
+        let mut probe = CapabilityProbe::new(Duration::from_secs(5));
+        let mut r = renderer();
+        let mut events = Vec::new();
+        probe.feed(
+            &mut r,
+            b"\x1bP>|tmux 3.5a\x1b\\\x1b[?0u\x1b[?1;2c",
+            &mut events,
+        );
+        let caps = probe.capabilities();
+        assert_eq!(caps.unicode, crate::renderer::WidthMethod::Wcwidth);
+        assert!(caps.explicit_cursor_positioning);
     }
 
     /// Timeout with zero responses: the snapshot is the all-unknown
@@ -423,5 +634,33 @@ mod tests {
             events[0],
             CliRenderEvent::Capabilities(TerminalCapabilities::default())
         );
+    }
+
+    /// A response split across feeds (half a DA1) stays pending until
+    /// its terminator arrives — the streaming seam.
+    #[test]
+    fn split_response_across_feeds() {
+        let mut probe = CapabilityProbe::new(Duration::from_secs(5));
+        let mut r = renderer();
+        let mut events = Vec::new();
+        probe.feed(&mut r, b"\x1b[?62;4", &mut events);
+        assert!(!probe.is_finished());
+        assert!(!probe.capabilities().sixel);
+        probe.feed(&mut r, b";22c", &mut events);
+        assert!(probe.capabilities().sixel, "completed DA1 attr 4");
+    }
+
+    /// xtgettcap OSC52 reply (terminal.zig:1389-1412).
+    #[test]
+    fn xtgettcap_osc52_reply() {
+        let mut probe = CapabilityProbe::new(Duration::from_secs(5));
+        let mut r = renderer();
+        let mut events = Vec::new();
+        probe.feed(
+            &mut r,
+            b"\x1bP1+r4d73=41\x1b\\\x1b[?0u\x1b[?1;2c",
+            &mut events,
+        );
+        assert!(probe.capabilities().osc52);
     }
 }
