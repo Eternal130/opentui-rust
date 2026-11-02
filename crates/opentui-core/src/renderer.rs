@@ -270,8 +270,86 @@ pub fn build_kitty_keyboard_flags(config: Option<&KittyKeyboardOptions>) -> u32 
     flags
 }
 
+/// `WidthMethod` (native utf8.zig:5-9) — the `caps.unicode` field of
+/// [`TerminalCapabilities`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WidthMethod {
+    Wcwidth,
+    /// zig default (terminal.zig:18).
+    #[default]
+    Unicode,
+    NoZwj,
+    UnicodeWide,
+}
+
+/// `Terminal.Capabilities` (terminal.zig:13-32) — what the terminal
+/// backend's probe state machine accumulates. Defaults are the zig
+/// defaults, which double as the "unknown / timed out" snapshot: a
+/// 5s probe timeout yields exactly this all-false struct with
+/// `unicode = Unicode` (the unknown-fields-default contract of lane
+/// A2's `feed_input`).
+///
+/// `terminal_name` is the one field beyond zig's struct: upstream
+/// carries it in `term_info` (terminal.zig:1313-1321 xtversion
+/// parse) and the kitty-identity branch reads it back
+/// (terminal.zig:1353-1360), so the capability consumer needs it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TerminalCapabilities {
+    /// terminal.zig:14
+    pub kitty_keyboard: bool,
+    /// terminal.zig:15 (kitty graphics query — probe byte owned by A3)
+    pub kitty_graphics: bool,
+    /// terminal.zig:16
+    pub rgb: bool,
+    /// terminal.zig:17
+    pub ansi256: bool,
+    /// terminal.zig:18
+    pub unicode: WidthMethod,
+    /// terminal.zig:19 (DECRPM `1016;2$y`, terminal.zig:1255-1256)
+    pub sgr_pixels: bool,
+    /// terminal.zig:20 (DECRPM `2031;*$y`, terminal.zig:1259-1261)
+    pub color_scheme_updates: bool,
+    /// terminal.zig:21 (explicit-width probe family — deferred, see
+    /// terminal/mod.rs gap register)
+    pub explicit_width: bool,
+    /// terminal.zig:22 (same probe family)
+    pub scaled_text: bool,
+    /// terminal.zig:23 (DA1 attribute `4`, terminal.zig:1122-1140)
+    pub sixel: bool,
+    /// terminal.zig:24 (DECRPM `1004;*$y`, terminal.zig:1262-1264)
+    pub focus_tracking: bool,
+    /// terminal.zig:25 (DECRPM `2026;*$y`, terminal.zig:1265-1267)
+    pub sync: bool,
+    /// terminal.zig:26 (DECRPM `2004;*$y`, terminal.zig:1268-1270)
+    pub bracketed_paste: bool,
+    /// terminal.zig:27
+    pub hyperlinks: bool,
+    /// terminal.zig:28
+    pub osc52: bool,
+    /// terminal.zig:29 (OSC 99 notification protocol — probe bytes
+    /// deferred with the notification-query family)
+    pub notifications: bool,
+    /// terminal.zig:30
+    pub explicit_cursor_positioning: bool,
+    /// terminal.zig:31
+    pub remote: bool,
+    /// xtversion identity (terminal.zig:1313-1321, name split per
+    /// parseXtversion terminal.zig:1739-1770) — `None` until a
+    /// `DCS >|…ST` reply names the terminal.
+    pub terminal_name: Option<String>,
+    /// The version half of the xtversion reply ("0.40.1" out of
+    /// "kitty(0.40.1)", terminal.zig:1747-1766).
+    pub terminal_version: Option<String>,
+}
+
 /// `CliRenderEvents` (renderer.ts:750-767) — the renderer's own event
 /// stream (the slice the input lane emits).
+///
+/// GAP REGISTER (parity vs the 16-value upstream enum, renderer.ts:750-767):
+/// still unported are `RENDER_ERROR`, `HANDLER_ERROR`, `EXTERNAL_OUTPUT`,
+/// `THEME_MODE`, `PALETTE`, `SELECTION`, `DEBUG_OVERLAY_TOGGLE`, `DESTROY`,
+/// `MEMORY_SNAPSHOT` — ThemeMode/Palette ride the theme-probe consumer
+/// lane, the rest are deferred with their upstream features.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliRenderEvent {
     /// `FRAME` — `{ frameId }` (renderer.ts:4761-4765).
@@ -295,6 +373,16 @@ pub enum CliRenderEvent {
     /// (renderer.ts:3446-3471).
     TerminalFocus,
     TerminalBlur,
+    /// `RESIZE` — `(this.width, this.height)` after `processResize`
+    /// (renderer.ts:3198; enum value renderer.ts:751).
+    Resize {
+        width: u32,
+        height: u32,
+    },
+    /// `CAPABILITIES` — the `TerminalCapabilities` snapshot after a
+    /// capability response was processed (renderer.ts:3415; enum
+    /// value renderer.ts:761).
+    Capabilities(TerminalCapabilities),
 }
 
 /// One hit-grid rect, in paint order (later rects win).
@@ -2916,6 +3004,17 @@ impl CliRenderer {
         for listener in &mut self.event_listeners {
             listener(&event);
         }
+    }
+
+    /// The terminal-backend event seam — the pub counterpart of the
+    /// private `emit_event`, for the `terminal` module's pumps. The
+    /// TS facade emits the same events itself on the native
+    /// callback boundary (RESIZE renderer.ts:3198, CAPABILITIES
+    /// renderer.ts:3415); the Rust backend owns the boundary, so it
+    /// needs the same pipe. Zero behavior change for every other
+    /// caller.
+    pub fn emit_terminal_event(&mut self, event: CliRenderEvent) {
+        self.emit_event(event);
     }
 
     // -----------------------------------------------------------------

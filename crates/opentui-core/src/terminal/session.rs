@@ -76,14 +76,22 @@ struct TerminalState {
 /// A live terminal session: raw mode + alt screen armed on `new`,
 /// fully restored on `teardown`/`Drop` (RAII, idempotent).
 pub struct Terminal<T: TtyDevice, W: io::Write> {
-    tty: T,
-    out: W,
+    pub(super) tty: T,
+    pub(super) out: W,
     state: TerminalState,
     termios_save: Option<TermiosSave>,
     torn_down: bool,
     /// Registered panic-hook fd (deregistered on teardown/drop); None
     /// for mock devices that never join the global registry.
     panic_fd: Option<i32>,
+    /// The live capability probe (A2's `probe_capabilities` arms it;
+    /// `feed_input` consumes it).
+    pub(super) probe: Option<super::probe::CapabilityProbe>,
+    /// How much of `renderer.sgr_stream()` `pump_output` already
+    /// drained (A2's output pump).
+    pub(super) sgr_drained: usize,
+    /// Last-seen TIOCGWINSZ (A2's resize watch).
+    pub(super) size: Option<(u16, u16)>,
 }
 
 impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
@@ -215,6 +223,9 @@ impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
                     termios_save: Some(termios_save),
                     torn_down: false,
                     panic_fd,
+                    probe: None,
+                    sgr_drained: 0,
+                    size: None,
                 })
             }
             Err(e) => {
