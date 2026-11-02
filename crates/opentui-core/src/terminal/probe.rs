@@ -93,9 +93,10 @@ pub fn write_probe_burst(out: &mut dyn io::Write) -> io::Result<()> {
 // seam — a response split across reads stays pending exactly like
 // parse_mouse's partial-prefix handling.
 
-/// What sits at the front of the probe buffer.
+/// What sits at the front of the probe buffer (shared with the A4
+/// theme watch's reuse of `osc_theme_front`).
 #[derive(Debug, PartialEq, Eq)]
-enum Front {
+pub(super) enum Front {
     /// A complete probe response of `unit_len` bytes.
     Complete { unit_len: usize },
     /// A strict prefix of a possible probe response — hold for more
@@ -146,8 +147,9 @@ fn dcs_front(buf: &[u8]) -> Front {
 }
 
 /// OSC 10/11 theme replies (OSC 11 `]11;rgb:…`, terminated by ST/BEL —
-/// is_osc_response's terminator rule, parse_keypress.rs:606).
-fn osc_theme_front(buf: &[u8]) -> Front {
+/// is_osc_response's terminator rule, parse_keypress.rs:606). Shared
+/// with the post-probe theme watch (A4).
+pub(super) fn osc_theme_front(buf: &[u8]) -> Front {
     for (i, b) in buf.iter().enumerate().skip(5) {
         match b {
             b'\x07' => return Front::Complete { unit_len: i + 1 },
@@ -352,8 +354,11 @@ fn classify(unit: &[u8], caps: &mut TerminalCapabilities) -> bool {
 }
 
 /// Extract the rgb payload of an OSC 10/11 theme reply
-/// (`]11;rgb:rrrr/gggg/bbbb`), folded to 8-bit channels.
-fn osc_rgb(unit: &[u8]) -> Option<[u8; 3]> {
+/// (`]11;rgb:rrrr/gggg/bbbb`), folded to 8-bit channels with
+/// upstream's `scaleOscThemeComponent` rule (round(value/max*255),
+/// renderer-theme-mode.ts:8-13) — channel hex length 1..4, exactly
+/// the widths upstream's regex accepts.
+pub(super) fn osc_rgb(unit: &[u8]) -> Option<[u8; 3]> {
     let s = String::from_utf8_lossy(unit);
     let payload = s
         .trim_end_matches("\x1b\\")
@@ -363,12 +368,15 @@ fn osc_rgb(unit: &[u8]) -> Option<[u8; 3]> {
     let payload = payload.strip_prefix("rgb:")?;
     let mut out = [0u8; 3];
     for (i, chan) in payload.split('/').enumerate() {
-        if i > 2 {
+        if i > 2 || chan.is_empty() || chan.len() > 4 {
             return None;
         }
-        let chan = chan.get(..4)?; // 16-bit hex channels
+        if !chan.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
         let v = u16::from_str_radix(chan, 16).ok()?;
-        out[i] = (v >> 8) as u8;
+        let max = (1u32 << (4 * chan.len())) - 1;
+        out[i] = ((u32::from(v) * 255 + max / 2) / max) as u8;
     }
     Some(out)
 }

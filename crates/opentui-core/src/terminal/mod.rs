@@ -21,7 +21,21 @@
 //!   and the response state machine accumulating
 //!   `TerminalCapabilities` (terminal.zig:1247-1446);
 //! * [`pumps`] — the input/output pumps and the resize watch on
-//!   `Terminal`.
+//!   [`Terminal`], including the A4 probe-settle pass
+//!   (`enable_detected_features`, terminal.zig:399-440);
+//! * [`theme`] - the post-probe theme reduction (late OSC 11 -> the
+//!   `ThemeMode` event, renderer-theme-mode.ts / renderer.ts:1204-1216).
+//!
+//! A4 gap register: `enableDetectedFeatures` sends the
+//! ?2027h/?2004h/?1004h gated subset (terminal.zig:420-430) - the
+//! modifyOtherKeys/kitty re-push (:409-418) stays with A1's
+//! `SetupOptions` state machine and the 2031/theme re-query tail
+//! (:432-439) is a no-op after the burst; auto-settle write errors
+//! are best-effort (the pub seam surfaces them). The theme watch's
+//! 250ms refresh-completion timer (renderer-theme-mode.ts:18) is not
+//! ported (timer-less slice). The `PALETTE` event variant exists for
+//! enum parity but its `TerminalPaletteDetector` family
+//! (terminal-palette.ts) stays deferred.
 //!
 //! A3 gap register (remaining probe/teardown divergences, each also
 //! cited at the site): the kitty graphics query IS sent (A3 —
@@ -52,6 +66,7 @@ pub mod modes;
 pub mod probe;
 pub mod pumps;
 pub mod session;
+pub mod theme;
 pub mod tty;
 
 pub use probe::CapabilityProbe;

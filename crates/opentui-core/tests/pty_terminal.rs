@@ -430,3 +430,46 @@ fn pty_raw_mode_and_restore() {
     );
     let _ = AsRawFd::as_raw_fd(&pty.master); // ownership lint silence
 }
+
+/// pump_input's timeout_ms is REAL poll(2) semantics (Gate A #4): with
+/// no input queued, a 50ms-timeout call blocks ~50ms and returns an
+/// empty event vec — bounded wall-clock, neither instant (dead
+/// parameter) nor unbounded.
+#[test]
+fn pty_pump_input_timeout_is_bounded() {
+    let pty = open_pty();
+    let mut term = Terminal::new(
+        UnixTty::from_fd(pty.slave.try_clone().unwrap()),
+        SlaveWriter {
+            fd: pty.slave.try_clone().unwrap(),
+        },
+        &SetupOptions::default(),
+    )
+    .unwrap();
+    let master_fd = pty.master.as_fd();
+    let _ = read_available(master_fd, Instant::now() + Duration::from_millis(200));
+
+    let mut r = renderer();
+    // timeout_ms = 0 stays non-blocking: returns immediately.
+    let t0 = Instant::now();
+    let events = term.pump_input(&mut r, 0).unwrap();
+    assert!(events.is_empty());
+    assert!(
+        t0.elapsed() < Duration::from_millis(200),
+        "zero timeout must not wait"
+    );
+
+    // 50ms timeout with no input: waits ~50ms, returns empty.
+    let t1 = Instant::now();
+    let events = term.pump_input(&mut r, 50).unwrap();
+    let elapsed = t1.elapsed();
+    assert!(events.is_empty(), "timeout yields no events");
+    assert!(
+        elapsed >= Duration::from_millis(45),
+        "must actually wait the timeout, waited {elapsed:?}"
+    );
+    assert!(
+        elapsed < Duration::from_millis(2000),
+        "wait must be bounded at the timeout, waited {elapsed:?}"
+    );
+}

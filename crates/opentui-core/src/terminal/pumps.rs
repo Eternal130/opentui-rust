@@ -17,7 +17,7 @@ use std::io;
 use super::probe::CapabilityProbe;
 use super::session::Terminal;
 use super::tty::TtyDevice;
-use crate::renderer::{CliRenderEvent, CliRenderer};
+use crate::renderer::{CliRenderEvent, CliRenderer, WidthMethod};
 
 impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
     /// Arm the capability probe and write the query burst
@@ -34,6 +34,75 @@ impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
         Ok(())
     }
 
+    /// `enableDetectedFeatures` (terminal.zig:399-440) — the
+    /// probe-settle feature burst. Runs AUTOMATICALLY when
+    /// [`Terminal::feed_input`] finishes the probe (both the
+    /// capability-complete and the timeout paths); this pub seam
+    /// exists for consumers that want to re-run it manually
+    /// (upstream's caller-owned `use_kitty_keyboard` decision
+    /// surface).
+    ///
+    /// The gated subset (the three spans the Gate A oracle mandated;
+    /// the rest is registered in `terminal/mod.rs`):
+    ///
+    /// * `\x1b[?2027h` when `caps.unicode` is `Unicode`/`UnicodeWide`
+    ///   and `caps.explicit_width` is false (terminal.zig:420-422 —
+    ///   the gate is copied verbatim, including the "unknown default
+    ///   arms it" consequence: `WidthMethod::Unicode` is the zig
+    ///   fresh-state default, terminal.zig:18);
+    /// * `\x1b[?2004h` when `caps.bracketed_paste`
+    ///   (terminal.zig:424-426 — `setBracketedPaste(true)` writes
+    ///   unconditionally under the caps gate, and updates the state
+    ///   flag the teardown epilogue reads);
+    /// * `\x1b[?1004h` when `caps.focus_tracking`
+    ///   (terminal.zig:428-430, same `setFocusTracking` shape).
+    ///
+    /// Skipped, gap-registered: the modifyOtherKeys/kitty re-push
+    /// (terminal.zig:409-418 — A1's setup burst already owns that
+    /// state machine via `SetupOptions`, and upstream's re-check is
+    /// state-gated no-op for it) and the 2031/theme re-query tail
+    /// (terminal.zig:432-439 — the probe burst already sent both, and
+    /// this port tracks no state for them).
+    ///
+    /// Ordering divergence (A1 setup runs BEFORE the probe, upstream
+    /// after): `SetupOptions` may already have enabled ?2004/?1004;
+    /// this pass re-affirms per caps exactly like upstream and never
+    /// disables — disable-on-unsupported is not an upstream behavior.
+    pub fn enable_detected_features(&mut self) -> io::Result<()> {
+        if (self.caps.unicode == WidthMethod::Unicode
+            || self.caps.unicode == WidthMethod::UnicodeWide)
+            && !self.caps.explicit_width
+        {
+            self.out.write_all(super::modes::UNICODE_SET)?; // terminal.zig:420-422
+        }
+        if self.caps.bracketed_paste {
+            self.out.write_all(super::modes::BRACKETED_PASTE_ENABLE)?; // terminal.zig:424-426
+            self.state.bracketed_paste = true;
+        }
+        if self.caps.focus_tracking {
+            self.out.write_all(super::modes::FOCUS_ENABLE)?; // terminal.zig:428-430
+            self.state.focus_tracking = true;
+        }
+        self.out.flush()
+    }
+
+    /// Probe settle: adopt the final snapshot, arm the theme watch
+    /// from the probe's captured OSC 10/11 answers, and run
+    /// [`Terminal::enable_detected_features`]. Write errors on the
+    /// auto path are best-effort (the Vec-returning feed cannot
+    /// propagate them); the pub seam surfaces them for manual calls.
+    fn settle_probe(
+        &mut self,
+        probe: &CapabilityProbe,
+        renderer: &mut CliRenderer,
+        events: &mut Vec<CliRenderEvent>,
+    ) {
+        self.caps = probe.capabilities().clone();
+        self.theme
+            .arm(probe.last_osc10_fg, probe.last_osc11_bg, renderer, events);
+        let _ = self.enable_detected_features();
+    }
+
     /// Route raw stdin bytes: probe responses (DA1 `CSI ?..c`, DECRPM
     /// `CSI ?..$y`, kitty `CSI ?..u`, OSC 10/11, DCS xtversion /
     /// xtgettcap) feed the capability state machine; everything else
@@ -42,49 +111,89 @@ impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
     /// `Capabilities` events are returned AND emitted through the
     /// renderer's listener pipe (`emit_terminal_event`, the
     /// renderer.ts:3415 boundary). The 5s deadline (from probe arm)
-    /// finishes the probe with unknown-field defaults.
+    /// finishes the probe with unknown-field defaults; settling also
+    /// runs `enable_detected_features` (terminal.zig:399) and arms
+    /// the A4 theme watch. After settle, OSC 10/11 answers and ?997
+    /// notifications route through the theme watch instead of the key
+    /// stream (upstream: `themeModeHandler`, renderer.ts:1204-1216).
     pub fn feed_input(&mut self, renderer: &mut CliRenderer, bytes: &[u8]) -> Vec<CliRenderEvent> {
         let mut events = Vec::new();
         if let Some(mut probe) = self.probe.take() {
             probe.feed(renderer, bytes, &mut events);
-            if !probe.is_finished() {
+            if probe.is_finished() {
+                self.settle_probe(&probe, renderer, &mut events);
+            } else {
                 self.probe = Some(probe);
             }
         } else {
-            renderer.feed_bytes(bytes);
+            // Best-effort write on the ?997 re-query path (same
+            // reasoning as settle_probe).
+            let _ = self
+                .theme
+                .route(&mut self.out, renderer, bytes, &mut events);
         }
         events
     }
 
-    /// One non-blocking input tick: FIONREAD the tty's input fd, read
-    /// whatever is buffered, and [`Terminal::feed_input`] it. Timeout
-    /// (ms) is accepted for API-shape parity with the consumer's poll
-    /// loop — this implementation never blocks (FIONREAD-then-read), so
-    /// the value is only consulted for the probe deadline, which is
-    /// wall-clock.
+    /// One input tick with REAL poll(2) semantics (the Gate A #4
+    /// honesty fix; upstream has no direct counterpart — the Node
+    /// host's reads are evented — so this is a library-side API
+    /// correction, not a port): wait up to `timeout_ms` for input to
+    /// arrive on the tty's input fd, then read and
+    /// [`Terminal::feed_input`] whatever landed.
+    ///
+    /// * `timeout_ms == 0` — non-blocking (poll(2) with a zero
+    ///   timeout: FIONREAD-then-read, the A2/A3 behavior);
+    /// * `timeout_ms > 0` — blocks at most `timeout_ms`; a timeout
+    ///   with no input returns an EMPTY event vec (the probe
+    ///   deadline still gets its feed tick first).
+    ///
+    /// `POLLERR`/`POLLHUP` readiness with an empty queue takes the
+    /// same no-input path.
     pub fn pump_input(
         &mut self,
         renderer: &mut CliRenderer,
-        _timeout_ms: u64,
+        timeout_ms: u64,
     ) -> io::Result<Vec<CliRenderEvent>> {
         let fd = self.tty.input_fd();
+        if timeout_ms > 0 {
+            let mut fds = [rustix::event::PollFd::new(
+                &fd,
+                rustix::event::PollFlags::IN,
+            )];
+            let timeout = rustix::event::Timespec {
+                tv_sec: (timeout_ms / 1000) as i64,
+                tv_nsec: ((timeout_ms % 1000) * 1_000_000) as i64,
+            };
+            let ready = rustix::event::poll(&mut fds, Some(&timeout))?;
+            if ready == 0 {
+                return Ok(self.probe_deadline_tick(renderer));
+            }
+        }
         let available = rustix::io::ioctl_fionread(fd)? as usize;
         if available == 0 {
-            // Deadline check still needs a feed tick.
-            if let Some(mut probe) = self.probe.take() {
-                let mut events = Vec::new();
-                probe.feed(renderer, &[], &mut events);
-                if !probe.is_finished() {
-                    self.probe = Some(probe);
-                }
-                return Ok(events);
-            }
-            return Ok(Vec::new());
+            return Ok(self.probe_deadline_tick(renderer));
         }
         let mut buf = vec![0u8; available];
         let n = rustix::io::read(fd, &mut buf)?;
         buf.truncate(n);
         Ok(self.feed_input(renderer, &buf))
+    }
+
+    /// The no-input feed tick: only the probe's wall-clock deadline
+    /// can produce events here (its timeout-finish path).
+    fn probe_deadline_tick(&mut self, renderer: &mut CliRenderer) -> Vec<CliRenderEvent> {
+        if let Some(mut probe) = self.probe.take() {
+            let mut events = Vec::new();
+            probe.feed(renderer, &[], &mut events);
+            if probe.is_finished() {
+                self.settle_probe(&probe, renderer, &mut events);
+            } else {
+                self.probe = Some(probe);
+            }
+            return events;
+        }
+        Vec::new()
     }
 
     /// Drain the renderer's SGR stream into `W`: the bytes accumulated
@@ -238,6 +347,125 @@ mod tests {
             "focus bytes reached feed_bytes and emitted TerminalFocus"
         );
         assert!(term.probe.as_ref().unwrap().capabilities().sync);
+    }
+
+    /// A canned reply stream that finishes the probe AND arms every
+    /// enable_detected_features gate (unicode DECRPM + 2004 + 1004).
+    const FEATUREFUL_REPLIES: &[u8] =
+        b"\x1b[?2027;2$y\x1b[?2004;1$y\x1b[?1004;1$y\x1b[?0u\x1b[?62;22c";
+    /// Replies that keep every gate closed: tmux xtversion pins
+    /// `unicode = Wcwidth` (terminal.zig:1380-1382) and no 2004/1004
+    /// DECRPMs arrive.
+    const FEATURELESS_REPLIES: &[u8] = b"\x1bP>|tmux 3.5a\x1b\\\x1b[?0u\x1b[?1;2c";
+
+    /// Probe settle runs enable_detected_features: the ?2027h gate
+    /// (terminal.zig:420-422) plus ?2004h/?1004h (terminal.zig:424-430)
+    /// land on the wire in upstream order.
+    #[test]
+    fn enable_detected_features_gates_bytes() {
+        let out = SharedBuf::default();
+        let mut term = Terminal::new(MockTty::new(), out.clone(), &Default::default()).unwrap();
+        let mut r = renderer();
+        term.probe_capabilities().unwrap();
+        out.clear(); // drop the probe burst
+        let events = term.feed_input(&mut r, FEATUREFUL_REPLIES);
+        assert_eq!(
+            out.snapshot(),
+            b"\x1b[?2027h\x1b[?2004h\x1b[?1004h",
+            "gated enable burst in enableDetectedFeatures order"
+        );
+        // state updates drive the teardown epilogue's ?2004l/?1004l
+        drop(term); // Drop writes the epilogue into the same SharedBuf
+        let tail = out.snapshot();
+        assert!(tail.windows(8).any(|w| w == b"\x1b[?2004l"));
+        assert!(tail.windows(8).any(|w| w == b"\x1b[?1004l"));
+        // the settle's Capabilities event still fires
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, CliRenderEvent::Capabilities(_))));
+    }
+
+    /// Caps that fail every gate emit nothing: Wcwidth unicode skips
+    /// ?2027h, missing 2004/1004 DECRPMs skip the rest
+    /// (terminal.zig:420-430 — all three gates are caps-conditional).
+    #[test]
+    fn enable_detected_features_silent_when_unsupported() {
+        let out = SharedBuf::default();
+        let mut term = Terminal::new(MockTty::new(), out.clone(), &Default::default()).unwrap();
+        let mut r = renderer();
+        term.probe_capabilities().unwrap();
+        out.clear();
+        term.feed_input(&mut r, FEATURELESS_REPLIES);
+        assert!(
+            out.snapshot().is_empty(),
+            "no detected features to enable — zero bytes"
+        );
+    }
+
+    /// Probe answers carrying both OSC 10/11 halves reduce the first
+    /// theme mode AT settle (upstream's themeModeHandler sees the
+    /// probe's own answers too, renderer.ts:1204-1216).
+    #[test]
+    fn theme_mode_from_probe_answers() {
+        let mut term = Terminal::new(MockTty::new(), Vec::new(), &Default::default()).unwrap();
+        let mut r = renderer();
+        term.probe_capabilities().unwrap();
+        let events = term.feed_input(
+            &mut r,
+            b"\x1b]10;rgb:ffff/ffff/ffff\x07\x1b]11;rgb:1010/1010/1010\x07\x1b[?0u\x1b[?1;2c",
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e, CliRenderEvent::ThemeMode { .. }))
+                .count(),
+            1,
+            "exactly one ThemeMode event at settle"
+        );
+        assert!(matches!(
+            events.last(),
+            Some(CliRenderEvent::ThemeMode {
+                mode: crate::renderer::ThemeMode::Dark
+            })
+        ));
+    }
+
+    /// A late OSC 11 (the ?2031 change-notification cycle) never
+    /// reaches the renderer's key stream, and the ?997 restart writes
+    /// the OSC 10/11 re-query (renderer-theme-mode.ts:202-216). Key
+    /// purity is observed via the renderer's key dispatch: only the
+    /// real key byte arrives, no garbage from the theme units.
+    #[test]
+    fn late_osc11_rerouted_and_key_stream_clean() {
+        use std::sync::{Arc, Mutex};
+        let keys: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let mut term =
+            Terminal::new(MockTty::new(), SharedBuf::default(), &Default::default()).unwrap();
+        let mut r = renderer();
+        let _sub = {
+            let sink = keys.clone();
+            r.key_input.on_key(
+                crate::events::KeyHandlerEvent::Keypress,
+                move |k: &mut crate::events::KeyEvent| sink.lock().unwrap().push(k.key.raw.clone()),
+            )
+        };
+        term.probe_capabilities().unwrap();
+        // settle without theme answers
+        term.feed_input(&mut r, b"\x1b[?0u\x1b[?1;2c");
+        // late pair + a real key in ONE stream: theme units consumed,
+        // 'a' delivered, nothing else
+        let events = term.feed_input(
+            &mut r,
+            b"\x1b]11;rgb:1010/1010/1010\x07\x1b]10;rgb:0000/0000/0000\x07a",
+        );
+        assert_eq!(*keys.lock().unwrap(), vec!["a".to_string()]);
+        assert_eq!(
+            events,
+            vec![CliRenderEvent::ThemeMode {
+                mode: crate::renderer::ThemeMode::Dark
+            }],
+            "the completed pair reduced to Dark"
+        );
     }
 
     /// pump_output pairs the ?2026 envelope around fresh SGR bytes and

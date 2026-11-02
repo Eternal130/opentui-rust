@@ -64,13 +64,13 @@ impl Default for SetupOptions {
 /// lane tracks, driving teardown conditionals exactly like
 /// `resetState` reads them.
 #[derive(Clone, Debug, Default)]
-struct TerminalState {
+pub(super) struct TerminalState {
     alt_screen: bool,
     kitty_keyboard: bool,
     modify_other_keys: bool,
     mouse_was_enabled: bool,
-    bracketed_paste: bool,
-    focus_tracking: bool,
+    pub(super) bracketed_paste: bool,
+    pub(super) focus_tracking: bool,
 }
 
 /// A live terminal session: raw mode + alt screen armed on `new`,
@@ -78,7 +78,7 @@ struct TerminalState {
 pub struct Terminal<T: TtyDevice, W: io::Write> {
     pub(super) tty: T,
     pub(super) out: W,
-    state: TerminalState,
+    pub(super) state: TerminalState,
     termios_save: Option<TermiosSave>,
     torn_down: bool,
     /// Registered panic-hook fd (deregistered on teardown/drop); None
@@ -87,6 +87,13 @@ pub struct Terminal<T: TtyDevice, W: io::Write> {
     /// The live capability probe (A2's `probe_capabilities` arms it;
     /// `feed_input` consumes it).
     pub(super) probe: Option<super::probe::CapabilityProbe>,
+    /// Last-known capability snapshot — the probe's final state once
+    /// settled (A4's `enable_detected_features` reads it; the
+    /// all-unknown default before any probe, like upstream's fresh
+    /// `caps` at terminal.zig:13).
+    pub(super) caps: crate::renderer::TerminalCapabilities,
+    /// The post-probe theme watch (A4 — late-OSC11 reduction).
+    pub(super) theme: super::theme::ThemeWatch,
     /// How much of `renderer.sgr_stream()` `pump_output` already
     /// drained (A2's output pump).
     pub(super) sgr_drained: usize,
@@ -220,6 +227,8 @@ impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
                     torn_down: false,
                     panic_fd,
                     probe: None,
+                    caps: crate::renderer::TerminalCapabilities::default(),
+                    theme: super::theme::ThemeWatch::default(),
                     sgr_drained: 0,
                     size: None,
                 })

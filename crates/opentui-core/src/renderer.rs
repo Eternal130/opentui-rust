@@ -342,14 +342,44 @@ pub struct TerminalCapabilities {
     pub terminal_version: Option<String>,
 }
 
+/// `ThemeMode` (renderer.ts / types.ts:32) — the light/dark reduction
+/// of the terminal's OSC 10/11 theme answers. The Rust spelling of
+/// upstream's `"dark" | "light"` string union.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThemeMode {
+    Dark,
+    Light,
+}
+
+/// `TerminalColors` (terminal-palette.ts:24-36) — the payload shape of
+/// the upstream `PALETTE` event (renderer.ts:5187 emits the whole
+/// struct). Hex strings, `None` = upstream's `Hex = string | null`
+/// null slot. The detector that fills it (TerminalPaletteDetector,
+/// terminal-palette.ts:47-52) stays deferred — the variant exists so
+/// the event enum reaches upstream shape, but nothing emits it yet.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TerminalPalette {
+    pub palette: Vec<Option<String>>,
+    pub default_foreground: Option<String>,
+    pub default_background: Option<String>,
+    pub cursor_color: Option<String>,
+    pub mouse_foreground: Option<String>,
+    pub mouse_background: Option<String>,
+    pub tek_foreground: Option<String>,
+    pub tek_background: Option<String>,
+    pub highlight_background: Option<String>,
+    pub highlight_foreground: Option<String>,
+}
+
 /// `CliRenderEvents` (renderer.ts:750-767) — the renderer's own event
 /// stream (the slice the input lane emits).
 ///
 /// GAP REGISTER (parity vs the 16-value upstream enum, renderer.ts:750-767):
 /// still unported are `RENDER_ERROR`, `HANDLER_ERROR`, `EXTERNAL_OUTPUT`,
-/// `THEME_MODE`, `PALETTE`, `SELECTION`, `DEBUG_OVERLAY_TOGGLE`, `DESTROY`,
-/// `MEMORY_SNAPSHOT` — ThemeMode/Palette ride the theme-probe consumer
-/// lane, the rest are deferred with their upstream features.
+/// `SELECTION`, `DEBUG_OVERLAY_TOGGLE`, `DESTROY`, `MEMORY_SNAPSHOT` —
+/// deferred with their upstream features. `THEME_MODE`/`PALETTE` have
+/// A4 variants; the `PALETTE` emitter (TerminalPaletteDetector) rides
+/// the palette consumer lane.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliRenderEvent {
     /// `FRAME` — `{ frameId }` (renderer.ts:4761-4765).
@@ -383,6 +413,19 @@ pub enum CliRenderEvent {
     /// capability response was processed (renderer.ts:3415; enum
     /// value renderer.ts:761).
     Capabilities(TerminalCapabilities),
+    /// `THEME_MODE` — the light/dark mode after a theme-color
+    /// reduction changed it (upstream payload is the bare mode
+    /// string: `this.emit(CliRenderEvents.THEME_MODE,
+    /// result.changedMode)`, renderer.ts:1214; enum value
+    /// renderer.ts:760).
+    ThemeMode {
+        mode: ThemeMode,
+    },
+    /// `PALETTE` — the detected `TerminalColors` (renderer.ts:5187;
+    /// enum value renderer.ts:761). Variant only for enum parity: the
+    /// TerminalPaletteDetector family stays deferred, so nothing emits
+    /// it yet (see `TerminalPalette` docs).
+    Palette(TerminalPalette),
 }
 
 /// One hit-grid rect, in paint order (later rects win).

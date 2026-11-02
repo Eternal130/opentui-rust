@@ -100,6 +100,12 @@ pub const FOCUS_ENABLE: &[u8] = b"\x1b[?1004h";
 /// `focusReset` (ansi.zig:380).
 pub const FOCUS_DISABLE: &[u8] = b"\x1b[?1004l";
 
+/// `unicodeSet` (ansi.zig:387) — `?2027h`, the Unicode-overlap
+/// mode `enableDetectedFeatures` arms when the probe settled on a
+/// Unicode width method without explicit-width override
+/// (terminal.zig:420-422).
+pub const UNICODE_SET: &[u8] = b"\x1b[?2027h";
+
 /// Synchronized-update begin. Upstream ansi.zig names it
 /// `syncUpdateSet` (`\x1b[?2026h`) — see the zig sync wrapper the
 /// output pump pairs with `?2026l` at frame end; A2's pump owns the
