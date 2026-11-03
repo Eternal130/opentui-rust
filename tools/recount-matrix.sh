@@ -40,18 +40,26 @@ cat /tmp/opencode/matrix-recount.$$.txt
 
 # --- compare against the Current header table -------------------------------
 fail=0
-chk(){ # chk <label> <expected-from-header> <actual>
-  if [ "$2" != "$3" ]; then echo "DRIFT $label: header=$2 recount=$3"; fail=1; fi
-}
-hdr_core=$(awk '/^### Current/{f=1;next} f&&/core \|/{print;exit}' PORT-MATRIX.md)
-hdr_solid=$(awk '/^### Current/{f=1;next} f&&/solid \|/{print;exit}' PORT-MATRIX.md)
-hdr_km=$(awk '/^### Current/{f=1;next} f&&/keymap/{print;exit}' PORT-MATRIX.md)
-hdr_tot=$(awk '/^### Current/{f=1;next} f&&/total/{print;exit}' PORT-MATRIX.md)
-g(){ echo "$1" | grep -o "$2" | head -1; }
 act=$(cat /tmp/opencode/matrix-recount.$$.txt)
-for st in done partial deferred todo; do
-  chk "core.$st"   "$(g "$hdr_core" "| $st")"   "$(echo "$act"|awk -v s=$st '$1=="core"{print $2"="$3}'|cut -d= -f1 >/dev/null; echo "| $st")" 2>/dev/null || true
-done
+hdrtot=$(awk '/^### Current/{f=1;next} f&&/total/{print;exit}' PORT-MATRIX.md)
+hdrcore=$(awk '/^### Current/{f=1;next} f&&/@opentui\/core/{print;exit}' PORT-MATRIX.md)
+hdrsolid=$(awk '/^### Current/{f=1;next} f&&/@opentui\/solid/{print;exit}' PORT-MATRIX.md)
+hdrkm=$(awk '/^### Current/{f=1;next} f&&/keymap/{print;exit}' PORT-MATRIX.md)
+hdr1=$(awk '/^### Current/{f=1;next} f&&/tier-1/{print;exit}' PORT-MATRIX.md)
+# header cells: | name | exports | done | partial | deferred | todo |
+cmprow(){ # cmprow <label> <header-line> <recount-line "pkg k=v ...">
+  IFS='|' read -r _ _ hexph hdone hpart hdef htodo _ <<<"$2"
+  for kv in $3; do case "$kv" in *=*) k=${kv%%=*}; v=${kv##*=};; *) continue;; esac
+    case "$k" in exports) hv=${hexp:-};; done) hv=${hdone:-};; partial) hv=${hpart:-};; deferred) hv=${hdef:-};; todo) hv=${htodo:-};; *) continue;; esac
+    hv=${hv//[*]/}; hv=$(echo "$hv"|cut -d'(' -f1|tr -d ' %')
+    if [ "$hv" != "$v" ]; then echo "DRIFT $1.$k: header=$hv recount=$v"; fail=1; fi
+  done
+}
+cmprow core   "$hdrcore"  "$(echo "$act"|awk '$1=="core"{print $2" "$3" "$4" "$5" " $6}')"
+cmprow solid  "$hdrsolid" "$(echo "$act"|awk '$1=="solid"{print $2" "$3" "$4" "$5" "$6}')"
+cmprow keymap "$hdrkm"    "$(echo "$act"|awk '$1=="keymap"{print $2" "$3" "$4" "$5" "$6}')"
+cmprow total  "$hdrtot"   "$(echo "$act"|awk '$1=="TOTAL"{print $2" "$3" "$4" "$5}')"
+cmprow tier1  "$hdr1"     "$(echo "$act"|awk '$1=="TIER1"{print $2" "$3" "$4" "$5}')"
 rm -f /tmp/opencode/matrix-recount.$$.txt
-# (numeric diff left to the eye/CI: header rows echoed above; nonzero exit only on AMBIGUOUS rows)
+[ $fail -eq 0 ] && echo "matrix header matches the per-symbol rows"
 exit $fail
