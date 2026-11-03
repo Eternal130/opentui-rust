@@ -263,6 +263,10 @@ pub struct TextareaState {
     submit_listener: Option<Box<dyn FnMut(SubmitEvent)>>,
     /// cursor id — the renderer's hit/selection identity for this node
     pub renderable_id: String,
+    /// `EditorTraits` (EditBufferRenderable.ts:30-34) — the host-app
+    /// contract (capture/suspend/status). `suspended` below is the
+    /// keymap-suspension projection of `traits.suspend`.
+    pub traits: crate::editor::EditorTraits,
     /// the draw snapshot stashed by `prepare_render` (the port's
     /// two-phase render; upstream reads the view live inside render())
     draw_cache: Option<(TextDocument, crate::editor::EditorVlines, Viewport)>,
@@ -327,6 +331,7 @@ impl TextareaState {
             cursor_style: opts.cursor_style.unwrap_or((CursorStyle::Block, true)),
             selectable: true,
             suspended: false,
+            traits: crate::editor::EditorTraits::default(),
             focused: false,
             custom_bindings,
             key_alias_map,
@@ -607,6 +612,28 @@ impl TextareaState {
 
     pub fn selection_occupancy(&self) -> SelectionOccupancy {
         self.view.selection_occupancy()
+    }
+
+    /// `traits` setter (EditBufferRenderable.ts:283-291): no-op
+    /// suppressed when `sameTraits` holds, otherwise the change
+    /// propagates — the port's observable of `TRAITS_CHANGED`
+    /// (:36-37) is the returned `true` (upstream additionally emits
+    /// `(value, prev)`; the Rust state port has no event bus).
+    /// Returns whether the traits CHANGED.
+    pub fn set_traits(&mut self, value: crate::editor::EditorTraits) -> bool {
+        if crate::editor::same_traits(&self.traits, &value) {
+            return false;
+        }
+        self.traits = value.clone();
+        // keep the keymap-suspension projection in sync
+        self.suspended = value.suspend.unwrap_or(false);
+        true
+    }
+
+    /// `traits` getter (EditBufferRenderable.ts:283-285).
+    #[must_use]
+    pub fn traits(&self) -> &crate::editor::EditorTraits {
+        &self.traits
     }
 
     /// `onSelectionChanged` (519-580) — the keyboard-selection re-entry

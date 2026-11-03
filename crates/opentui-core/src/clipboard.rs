@@ -766,6 +766,299 @@ pub fn create_host_clipboard_with_backend(
 }
 
 // ---------------------------------------------------------------------------
+// Host backend family — lane D1c item c
+// ---------------------------------------------------------------------------
+
+/// The platform command family the default host backend selects
+/// between. Upstream's default backend is the **native Zig clipboard
+/// service** (`createNativeHostClipboardBackend`,
+/// host-clipboard.native.ts:342 — `clipboardServiceCreate` via the
+/// render lib); the Rust port has no native service, so the default
+/// backend speaks the platform clipboard commands directly.
+/// mechanism ≠ upstream, output == upstream (the same
+/// `HostClipboardBackend` result statuses).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostCommandBackend {
+    /// `wl-copy` / `wl-paste` (Wayland; clipboard + primary).
+    Wayland,
+    /// `xclip` (X11; clipboard + primary via `-selection`).
+    X11,
+    /// `pbcopy` / `pbpaste` (macOS; clipboard only — primary is
+    /// `Unsupported`).
+    MacOs,
+    /// `clip.exe` / PowerShell `Get-Clipboard` (Windows; clipboard
+    /// only).
+    Windows,
+}
+
+/// Pure backend selection — `selectHostBackend`: Wayland before X11
+/// (a Wayland session usually still exports DISPLAY), platform
+/// defaults last. `which` is injectable for tests.
+fn select_host_command_backend(
+    has_wayland: bool,
+    has_x11: bool,
+    which: &dyn Fn(&str) -> bool,
+    is_macos: bool,
+    is_windows: bool,
+) -> Option<HostCommandBackend> {
+    if is_windows {
+        return Some(HostCommandBackend::Windows);
+    }
+    if is_macos {
+        return Some(HostCommandBackend::MacOs);
+    }
+    if has_wayland && which("wl-copy") && which("wl-paste") {
+        return Some(HostCommandBackend::Wayland);
+    }
+    if has_x11 && which("xclip") {
+        return Some(HostCommandBackend::X11);
+    }
+    if is_macos || which("pbcopy") {
+        return Some(HostCommandBackend::MacOs);
+    }
+    None
+}
+
+/// Environment probe → [`select_host_command_backend`].
+fn detect_host_command_backend() -> Option<HostCommandBackend> {
+    let which = |program: &str| {
+        std::env::var_os("PATH")
+            .map(|paths| {
+                std::env::split_paths(&paths).any(|dir| {
+                    let direct = dir.join(program);
+                    let exe = std::env::consts::EXE_SUFFIX;
+                    direct.is_file()
+                        || (!exe.is_empty() && dir.join(format!("{program}{exe}")).is_file())
+                })
+            })
+            .unwrap_or(false)
+    };
+    let has_wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
+    let has_x11 = std::env::var_os("DISPLAY").is_some();
+    select_host_command_backend(
+        has_wayland,
+        has_x11,
+        &which,
+        cfg!(target_os = "macos"),
+        cfg!(target_os = "windows"),
+    )
+}
+
+/// One platform command invocation: program + argv.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostCommandSpec {
+    pub program: String,
+    pub args: Vec<String>,
+}
+
+/// The argv family per backend + operation — pure, so tests pin the
+/// exact platform commands without spawning anything.
+impl HostCommandBackend {
+    /// Write argv; `None` = the backend cannot target this selection
+    /// (`Unsupported`).
+    #[must_use]
+    pub fn write_argv(
+        self,
+        text_hint_len: usize,
+        selection: ClipboardSelection,
+    ) -> Option<HostCommandSpec> {
+        let _ = text_hint_len;
+        match (self, selection) {
+            (HostCommandBackend::Wayland, ClipboardSelection::Clipboard) => {
+                Some(spec("wl-copy", &[]))
+            }
+            (HostCommandBackend::Wayland, ClipboardSelection::Primary) => {
+                Some(spec("wl-copy", &["--primary"]))
+            }
+            (HostCommandBackend::X11, ClipboardSelection::Clipboard) => {
+                Some(spec("xclip", &["-selection", "clipboard", "-i"]))
+            }
+            (HostCommandBackend::X11, ClipboardSelection::Primary) => {
+                Some(spec("xclip", &["-selection", "primary", "-i"]))
+            }
+            (HostCommandBackend::MacOs, ClipboardSelection::Clipboard) => Some(spec("pbcopy", &[])),
+            (HostCommandBackend::MacOs, ClipboardSelection::Primary) => None,
+            (HostCommandBackend::Windows, ClipboardSelection::Clipboard) => {
+                Some(spec("clip.exe", &[]))
+            }
+            (HostCommandBackend::Windows, ClipboardSelection::Primary) => None,
+        }
+    }
+
+    /// Read argv (stdout is the clipboard payload).
+    #[must_use]
+    pub fn read_argv(self, selection: ClipboardSelection) -> Option<HostCommandSpec> {
+        match (self, selection) {
+            (HostCommandBackend::Wayland, ClipboardSelection::Clipboard) => {
+                Some(spec("wl-paste", &["--no-newline"]))
+            }
+            (HostCommandBackend::Wayland, ClipboardSelection::Primary) => {
+                Some(spec("wl-paste", &["--no-newline", "--primary"]))
+            }
+            (HostCommandBackend::X11, ClipboardSelection::Clipboard) => {
+                Some(spec("xclip", &["-selection", "clipboard", "-o"]))
+            }
+            (HostCommandBackend::X11, ClipboardSelection::Primary) => {
+                Some(spec("xclip", &["-selection", "primary", "-o"]))
+            }
+            (HostCommandBackend::MacOs, ClipboardSelection::Clipboard) => {
+                Some(spec("pbpaste", &[]))
+            }
+            (HostCommandBackend::MacOs, ClipboardSelection::Primary) => None,
+            (HostCommandBackend::Windows, ClipboardSelection::Clipboard) => Some(spec(
+                "powershell",
+                &["-NoProfile", "-Command", "Get-Clipboard", "-Raw"],
+            )),
+            (HostCommandBackend::Windows, ClipboardSelection::Primary) => None,
+        }
+    }
+
+    /// Clear argv; upstream clears with the platform's clear
+    /// operation (not an empty write) — the port writes an empty
+    /// payload where the platform has no dedicated clear.
+    #[must_use]
+    pub fn clear_argv(self, selection: ClipboardSelection) -> Option<HostCommandSpec> {
+        self.write_argv(0, selection)
+    }
+}
+
+fn spec(program: &str, args: &[&str]) -> HostCommandSpec {
+    HostCommandSpec {
+        program: program.to_string(),
+        args: args.iter().map(|s| s.to_string()).collect(),
+    }
+}
+
+/// How a [`CommandHostClipboardBackend`] runs one command — injectable
+/// so tests pin the backend contract without spawning processes.
+pub type HostCommandRunner = Box<dyn FnMut(&HostCommandSpec, &[u8]) -> Result<Vec<u8>, String>>;
+
+/// The default host backend: the platform command family
+/// ([`HostCommandBackend`]).
+pub struct CommandHostClipboardBackend {
+    backend: HostCommandBackend,
+    runner: HostCommandRunner,
+}
+
+impl CommandHostClipboardBackend {
+    #[must_use]
+    pub fn new(backend: HostCommandBackend, runner: HostCommandRunner) -> Self {
+        CommandHostClipboardBackend { backend, runner }
+    }
+
+    /// The real runner — `std::process::Command` with stdin payload
+    /// for writes, captured stdout for reads.
+    fn spawn_runner(spec: &HostCommandSpec, stdin: &[u8]) -> Result<Vec<u8>, String> {
+        use std::io::Write as _;
+        use std::process::{Command, Stdio};
+        let mut child = Command::new(&spec.program)
+            .args(&spec.args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        if !stdin.is_empty() {
+            if let Some(mut handle) = child.stdin.take() {
+                let _ = handle.write_all(stdin);
+            }
+        }
+        let output = child.wait_with_output().map_err(|e| e.to_string())?;
+        if output.status.success() {
+            Ok(output.stdout)
+        } else {
+            Err(format!("exit status {}", output.status))
+        }
+    }
+}
+
+impl HostClipboardBackend for CommandHostClipboardBackend {
+    fn read(&mut self, options: &HostClipboardReadOptions) -> ClipboardReadResult {
+        match self.backend.read_argv(options.selection) {
+            None => ClipboardReadResult::Unsupported,
+            Some(argv) => match (self.runner)(&argv, &[]) {
+                Ok(stdout) if stdout.is_empty() => ClipboardReadResult::Empty,
+                Ok(stdout) => ClipboardReadResult::Read(ClipboardRepresentation {
+                    mime_type: "text/plain".to_string(),
+                    bytes: stdout,
+                }),
+                Err(error) => ClipboardReadResult::Failed { error },
+            },
+        }
+    }
+
+    fn write_text(
+        &mut self,
+        text: &str,
+        options: &HostClipboardWriteOptions,
+    ) -> HostClipboardWriteResult {
+        match self.backend.write_argv(text.len(), options.selection) {
+            None => HostClipboardWriteResult::Unsupported,
+            Some(argv) => match (self.runner)(&argv, text.as_bytes()) {
+                Ok(_) => HostClipboardWriteResult::Written,
+                Err(error) => HostClipboardWriteResult::Failed { error },
+            },
+        }
+    }
+
+    fn clear(&mut self, options: &HostClipboardWriteOptions) -> HostClipboardClearResult {
+        match self.backend.clear_argv(options.selection) {
+            None => HostClipboardClearResult::Unsupported,
+            Some(argv) => match (self.runner)(&argv, &[]) {
+                Ok(_) => HostClipboardClearResult::Cleared,
+                Err(error) => HostClipboardClearResult::Failed { error },
+            },
+        }
+    }
+
+    fn dispose(&mut self) {
+        // the command family holds no persistent handles
+    }
+}
+
+/// `createHostClipboard(options = {})` (clipboard.ts:165-166): the
+/// host service over the **default** backend. Upstream's default is
+/// the native Zig service; the port's default is
+/// [`CommandHostClipboardBackend`] over the detected platform
+/// commands — when none is present the service reports `Unsupported`
+/// (a [`HostClipboardService`] over an unsatisfied backend, keeping
+/// the `createClipboard` composition contract intact).
+pub fn create_host_clipboard(
+    options: HostClipboardOptions,
+) -> Result<HostClipboardService, ClipboardError> {
+    let backend: Box<dyn HostClipboardBackend> = match detect_host_command_backend() {
+        Some(detected) => Box::new(CommandHostClipboardBackend::new(
+            detected,
+            Box::new(CommandHostClipboardBackend::spawn_runner),
+        )),
+        None => Box::new(UnsupportedHostBackend),
+    };
+    create_host_clipboard_with_backend(options, backend)
+}
+
+/// The no-platform backend: every operation is `Unsupported`
+/// (keeps `createClipboard`'s remote-gating observable when no
+/// host clipboard exists).
+struct UnsupportedHostBackend;
+
+impl HostClipboardBackend for UnsupportedHostBackend {
+    fn read(&mut self, _options: &HostClipboardReadOptions) -> ClipboardReadResult {
+        ClipboardReadResult::Unsupported
+    }
+    fn write_text(
+        &mut self,
+        _text: &str,
+        _options: &HostClipboardWriteOptions,
+    ) -> HostClipboardWriteResult {
+        HostClipboardWriteResult::Unsupported
+    }
+    fn clear(&mut self, _options: &HostClipboardWriteOptions) -> HostClipboardClearResult {
+        HostClipboardClearResult::Unsupported
+    }
+    fn dispose(&mut self) {}
+}
+
+// ---------------------------------------------------------------------------
 // createClipboard — clipboard.ts:179-290
 // ---------------------------------------------------------------------------
 
@@ -2112,5 +2405,134 @@ mod tests {
             })
             .unwrap();
         assert_eq!(result.status_str(), "limit-exceeded");
+    }
+}
+
+#[cfg(test)]
+mod host_backend_tests {
+    use super::*;
+
+    #[test]
+    fn backend_selection_precedence() {
+        let yes = |_: &str| true;
+        let no = |_: &str| false;
+        // Wayland + xclip present → Wayland wins
+        assert_eq!(
+            select_host_command_backend(true, true, &yes, false, false),
+            Some(HostCommandBackend::Wayland)
+        );
+        // X11 only
+        assert_eq!(
+            select_host_command_backend(false, true, &yes, false, false),
+            Some(HostCommandBackend::X11)
+        );
+        // Wayland session without wl tools falls through to X11
+        assert_eq!(
+            select_host_command_backend(true, true, &no, false, false),
+            None
+        );
+        // platform defaults
+        assert_eq!(
+            select_host_command_backend(false, false, &no, true, false),
+            Some(HostCommandBackend::MacOs)
+        );
+        assert_eq!(
+            select_host_command_backend(false, false, &no, false, true),
+            Some(HostCommandBackend::Windows)
+        );
+    }
+
+    #[test]
+    fn argv_family_pins_platform_commands() {
+        let w = HostCommandBackend::Wayland;
+        assert_eq!(
+            w.write_argv(3, ClipboardSelection::Clipboard)
+                .unwrap()
+                .program,
+            "wl-copy"
+        );
+        assert_eq!(
+            w.write_argv(3, ClipboardSelection::Primary).unwrap().args,
+            vec!["--primary".to_string()]
+        );
+        let x = HostCommandBackend::X11;
+        assert_eq!(
+            x.write_argv(3, ClipboardSelection::Primary).unwrap().args,
+            vec![
+                "-selection".to_string(),
+                "primary".to_string(),
+                "-i".to_string()
+            ]
+        );
+        assert_eq!(
+            x.read_argv(ClipboardSelection::Clipboard).unwrap().args,
+            vec![
+                "-selection".to_string(),
+                "clipboard".to_string(),
+                "-o".to_string()
+            ]
+        );
+        // macOS/Windows have no primary selection
+        assert!(HostCommandBackend::MacOs
+            .write_argv(1, ClipboardSelection::Primary)
+            .is_none());
+        assert!(HostCommandBackend::Windows
+            .read_argv(ClipboardSelection::Primary)
+            .is_none());
+        assert_eq!(
+            HostCommandBackend::MacOs
+                .read_argv(ClipboardSelection::Clipboard)
+                .unwrap()
+                .program,
+            "pbpaste"
+        );
+    }
+
+    #[test]
+    fn command_backend_contract_via_injected_runner() {
+        let mut backend = CommandHostClipboardBackend::new(
+            HostCommandBackend::X11,
+            Box::new(|spec: &HostCommandSpec, stdin: &[u8]| {
+                assert_eq!(spec.program, "xclip");
+                if stdin.is_empty() {
+                    Err("no display".to_string())
+                } else {
+                    Ok(Vec::new())
+                }
+            }),
+        );
+        // write succeeds
+        let write = backend.write_text(
+            "hi",
+            &HostClipboardWriteOptions {
+                selection: ClipboardSelection::Clipboard,
+                timeout_ms: 1000,
+                signal: AbortSignal::default(),
+            },
+        );
+        assert!(matches!(write, HostClipboardWriteResult::Written));
+        // read of an empty clipboard via failing command → Failed
+        let read = backend.read(&HostClipboardReadOptions {
+            preferred_types: vec!["text/plain".to_string()],
+            selection: ClipboardSelection::Clipboard,
+            max_bytes: 1024,
+            timeout_ms: 1000,
+            signal: AbortSignal::default(),
+        });
+        assert!(matches!(read, ClipboardReadResult::Failed { .. }));
+    }
+
+    #[test]
+    fn create_host_clipboard_yields_usable_service() {
+        // whatever the environment, the factory must compose a service
+        // with the option normalization pinned by host-clipboard.test.ts
+        let mut service = create_host_clipboard(HostClipboardOptions::default()).unwrap();
+        assert_eq!(
+            service.max_write_bytes(),
+            DEFAULT_CLIPBOARD_MAX_BYTES as u32
+        );
+        // a read either works or reports a status — never panics
+        let _ = service.read(&ClipboardReadOptions::default());
+        service.dispose();
     }
 }

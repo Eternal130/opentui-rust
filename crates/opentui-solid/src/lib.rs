@@ -65,6 +65,7 @@ pub mod hooks;
 pub mod props;
 pub mod reactive;
 pub mod reconcile;
+pub mod runtime_plugin_support;
 pub mod scrollback;
 pub mod time_to_first_draw;
 
@@ -83,6 +84,10 @@ pub use element::{
 pub use hooks::{EventData, EventHub, KeyEvent, KeyEventType, PasteEvent};
 pub use reactive::{Mapped, Reactive, Signal};
 pub use reconcile::{ShadowNode, SolidRenderer};
+pub use runtime_plugin_support::{
+    ensure_runtime_plugin_support, RuntimePluginRewriteOptions, SolidRuntimePluginSupportOptions,
+    DEFAULT_RUNTIME_MODULES,
+};
 pub use scrollback::{
     create_scrollback_writer, write_solid_to_scrollback, ScrollbackRenderContext,
     ScrollbackSnapshot, ScrollbackWriter, SolidScrollbackWriterOptions,

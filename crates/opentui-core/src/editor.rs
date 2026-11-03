@@ -137,6 +137,55 @@ impl CursorMeta {
     }
 }
 
+/// `EditorCapture` (EditBufferRenderable.ts:28).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EditorCapture {
+    Escape,
+    Navigate,
+    Submit,
+    Tab,
+}
+
+impl EditorCapture {
+    /// The string form the keymap layer matches on.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EditorCapture::Escape => "escape",
+            EditorCapture::Navigate => "navigate",
+            EditorCapture::Submit => "submit",
+            EditorCapture::Tab => "tab",
+        }
+    }
+}
+
+/// `EditorTraits` (EditBufferRenderable.ts:30-34): the declarative
+/// contract a host app sets on an editor renderable — which keys the
+/// embedding captures, whether the editor's own handling is suspended
+/// (e.g. a `$EDITOR` round-trip), and a status tag. Consumed by ref
+/// `prompt/traits.ts` (`PromptTraits = EditorTraits & {...}`) and the
+/// textarea's keymap-suspension contract (`EditorTraits.suspend`,
+/// `registerTextareaMappingSuspension`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EditorTraits {
+    pub capture: Option<Vec<EditorCapture>>,
+    pub suspend: Option<bool>,
+    pub status: Option<String>,
+}
+
+/// `sameTraits` (EditBufferRenderable.ts:47-49) — the `traits` setter
+/// suppresses no-op writes (and the TRAITS_CHANGED emit with them).
+#[must_use]
+pub fn same_traits(a: &EditorTraits, b: &EditorTraits) -> bool {
+    a.suspend == b.suspend
+        && a.status == b.status
+        && match (&a.capture, &b.capture) {
+            (None, None) => true,
+            (Some(x), Some(y)) => x == y,
+            _ => false,
+        }
+}
+
 /// `EditBuffer` — edit-buffer.zig:143. One primary cursor (index 0 of
 /// upstream's `cursors` list; the TS facade only exposes the primary).
 #[derive(Debug, Clone)]
