@@ -57,11 +57,11 @@ recomputed state.
 
 | package | exports | done | partial | deferred | todo |
 |---|---|---|---|---|---|
-| @opentui/core | 279 | 123 | 12 | 0 | 144 |
+| @opentui/core | 279 | 121 | 14 | 0 | 144 |
 | @opentui/solid | 48 | 35 | 3 | 7 | 3 |
 | @opentui/keymap (+subpaths) | 12 | 12 | 0 | 0 | 0 |
-| **total** | **339** | **170 (50.1%)** | **15** | **7** | **147** |
-| tier-1 rows only (bold `**1**`) | 52 | 47 | 5 | 0 | 0 |
+| **total** | **339** | **168 (49.6%)** | **17** | **7** | **147** |
+| tier-1 rows only (bold `**1**`) | 52 | 45 | 7 | 0 | 0 |
 
 Audio lane note (the tier-1 `partial` — last tier-1 row landed): the
 `Audio` row is the *consumer contract* opencode v2's TUI uses
@@ -218,8 +218,8 @@ tree-sitter styling, testing helpers.
 | `Box` | 2 | core/src/renderables/composition/constructs.ts:32 | opentui-core | done |
 | `BoxRenderable` | **1** | core/src/renderables/Box.ts:46 | opentui-core::renderables | done |
 | `CRTRollingBarEffect` | 2 | core/src/post/effects.ts:727 | opentui-core | todo |
-| `CliRenderEvents` | **1** | core/src/renderer.ts:750 | opentui-core::renderer | done |
-| `CliRenderer` | **1** | core/src/renderer.ts:780 | opentui-core::renderer | done |
+| `CliRenderEvents` | **1** | core/src/renderer.ts:750 | opentui-core::renderer | partial (FRAME/FOCUS family/RESIZE/CAPABILITIES/THEME_MODE emitted; DESTROY — renderer.ts:4408's destroy ladder — and EXTERNAL_OUTPUT (renderer.ts:2339+, D1b-core) still unported with RENDER_ERROR/HANDLER_ERROR/SELECTION/DEBUG_OVERLAY_TOGGLE/MEMORY_SNAPSHOT) |
+| `CliRenderer` | **1** | core/src/renderer.ts:780 | opentui-core::renderer | partial (headless render target + events/focus/mouse/input + D1a lifecycle: requestRender/settle coalescing, destroy/isDestroyed no-op semantics, setBackgroundColor, setTerminalTitle, waitForThemeMode, useMouse runtime toggle, consoleMode "disabled", session ownership (terminal-backend); screenMode/footerHeight/externalOutputMode ride D1b-core; debug overlay + kitty transport stats todo) |
 | `Clipboard` | 2 | core/src/lib/clipboard.ts:337 | opentui-core | todo |
 | `ClipboardTarget` | 2 | core/src/lib/clipboard.ts:292 | opentui-core | done (ABI enum; clipboard.test.ts:19-24 pinned) |
 | `CloudsEffect` | 2 | core/src/post/effects.ts:494 | opentui-core | todo |
@@ -596,3 +596,22 @@ consume. Not counted in the 339.
 | `registerLeader` | keymap/src/addons/universal/leader.ts:37 | opentui-keymap::addons | done |
 | `defaultBindingParser` | keymap/src/addons/universal/default-parser.ts:400 | opentui-keymap::parser | done |
 | `registerDefaultKeys` | keymap/src/addons/universal/default-parser.ts:529 | opentui-keymap::addons | done |
+
+### lane D1a additions (beyond the frozen 339; renderer lifecycle config surface)
+
+Ported by lane `lane/d1a` (tui-full-convergence D1a — CliRenderer
+runtime lifecycle + config face). Not runtime exports upstream
+(type-only / interface members of `CliRendererConfig`), so they ride
+this supplementary table like the O2g/O2c additions above.
+
+| symbol | upstream file:line | Rust target | status |
+|---|---|---|---|
+| `CliRendererConfig.stdin` | core/src/renderer.ts:126 | opentui-core::renderer::StdinSource | done (intent enum — the live stream is the Phase A `Terminal` session's TtyDevice; upstream duck-types a `Readable`) |
+| `CliRendererConfig.exitOnCtrlC` | core/src/renderer.ts:152 | opentui-core::renderer::CliRendererConfig | done (dispatch_key arm, renderer.ts:1252-1257; sync destroy — no microtask queue) |
+| `CliRendererConfig.clearOnShutdown` | core/src/renderer.ts:158 | opentui-core::renderer::CliRendererConfig | partial (recorded; teardown is RAII-unconditional in the port — restoring the host terminal is not optional) |
+| `CliRendererConfig.gatherStats` | core/src/renderer.ts:183 | opentui-core::renderer::CliRendererConfig | done (flag + setGatherStats, renderer.ts:4924; the stats/overlay consumer is deferred) |
+| `CliRendererConfig.consoleMode` | core/src/renderer.ts:222 | opentui-core::renderer::ConsoleMode | partial ("disabled" semantics implemented, renderer.ts:1625-1632; "console-overlay" arm records intent — overlay renderable deferred) |
+| `CliRendererConfig.consoleOptions` | core/src/renderer.ts:203 | opentui-core::renderer::ConsoleOptions | partial (the `keyBindings` slice only, console.ts:277; styling knobs ride the overlay family) |
+| `ConsoleAction` | core/src/console.ts:231 | opentui-core::renderer::ConsoleAction | done (enum parity) |
+| `ConsoleKeyBinding` | core/src/console.ts:243 | opentui_core::renderer::ConsoleKeyBinding | done (flattened `BaseKeyBinding<ConsoleAction>`) |
+| `EventEmitter.setMaxListeners` (renderer face) | node:events (inherited, renderer.ts:57) | opentui-core::renderer::CliRenderer::set_max_listeners | partial (cap stored + getter; Node's warning channel needs a logger seam — deferred) |

@@ -47,6 +47,97 @@ use std::sync::Arc;
 use taffy::prelude as tp;
 use taffy::tree::TaffyTree;
 
+/// `stdin?: NodeJS.ReadStream` (renderer.ts:126-128) reduced to the
+/// port's choice. Upstream duck-types any `Readable` (default
+/// `process.stdin`); the live runtime reads through the Phase A
+/// [`crate::terminal::Terminal`] session's `TtyDevice` instead
+/// (`UnixTty` opens `/dev/tty`, falling back to a dup of stdin —
+/// tty.rs `UnixTty::new`), so only the intent is configurable here.
+/// `Disabled` = no live input feed (the embedder drives
+/// [`CliRenderer::feed_bytes`] itself, like the headless harness).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum StdinSource {
+    /// `process.stdin` — the session's tty device (the default).
+    #[default]
+    Process,
+    /// No live input stream.
+    Disabled,
+}
+
+/// `ConsoleMode` (renderer.ts:265; the config field at
+/// renderer.ts:222-225, default `"console-overlay"` set at
+/// renderer.ts:1285).
+///
+/// This lane implements the **"disabled"** semantics only: the
+/// built-in console overlay stays hidden (renderer.ts:1625-1632's
+/// `console.deactivate()` arm). `"console-overlay"` is config-parity
+/// — the overlay renderable family (console.ts) is still deferred, so
+/// activating it records intent without painting anything.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ConsoleMode {
+    /// Capture `console.*` and show the overlay (deferred — the
+    /// overlay renderable is unported).
+    #[default]
+    ConsoleOverlay,
+    /// Hide the overlay (implemented: nothing captures or paints).
+    Disabled,
+}
+
+/// `ConsoleAction` (console.ts:231-242) — the overlay's action ids.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConsoleAction {
+    ScrollUp,
+    ScrollDown,
+    ScrollToTop,
+    ScrollToBottom,
+    PositionPrevious,
+    PositionNext,
+    SizeIncrease,
+    SizeDecrease,
+    SaveLogs,
+    CopySelection,
+}
+
+/// `ConsoleKeyBinding = BaseKeyBinding<ConsoleAction>`
+/// (console.ts:243) — a keypress plus its overlay action, the
+/// flattened `BaseKeyBinding` field set
+/// (`{ name, ctrl?, shift?, meta?, super?, action }`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsoleKeyBinding {
+    pub name: String,
+    pub ctrl: bool,
+    pub shift: bool,
+    pub meta: bool,
+    pub super_key: bool,
+    pub action: ConsoleAction,
+}
+
+impl ConsoleKeyBinding {
+    /// `{ name, action }` — the unmodified-key shape most of
+    /// `defaultConsoleKeybindings` uses (console.ts:245-256).
+    #[must_use]
+    pub fn new(name: &str, action: ConsoleAction) -> Self {
+        Self {
+            name: name.to_owned(),
+            ctrl: false,
+            shift: false,
+            meta: false,
+            super_key: false,
+            action,
+        }
+    }
+}
+
+/// `ConsoleOptions` (console.ts:259-286) — the `consoleOptions` config
+/// field (renderer.ts:203-204) reduced to the `keyBindings` slice;
+/// every styling/layout knob rides the overlay family (deferred).
+/// An empty `key_bindings` = upstream's `undefined`, i.e. the
+/// `defaultConsoleKeybindings` table applies (console.ts:245-256).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConsoleOptions {
+    pub key_bindings: Vec<ConsoleKeyBinding>,
+}
+
 /// `CliRendererConfig` (renderer.ts:122-243) — the slice subset.
 #[derive(Debug, Clone)]
 pub struct CliRendererConfig {
@@ -67,6 +158,28 @@ pub struct CliRendererConfig {
     /// kitty protocol; `Some(options)` enables it (the parser's
     /// `useKittyForParsing = kittyConfig !== null`, renderer.ts:1247).
     pub kitty_keyboard: Option<KittyKeyboardOptions>,
+    /// `stdin` (renderer.ts:126-128) — see [`StdinSource`].
+    pub stdin: StdinSource,
+    /// `exitOnCtrlC` (renderer.ts:152-153) — destroy the renderer on
+    /// Ctrl+C (armed at renderer.ts:1252-1257, default true).
+    pub exit_on_ctrl_c: bool,
+    /// `clearOnShutdown` (renderer.ts:158-159) — clear owned screen
+    /// regions on destroy (default true).
+    pub clear_on_shutdown: bool,
+    /// `gatherStats` (renderer.ts:183) — collect frame timing stats
+    /// for the debug overlay (default false; `setGatherStats` at
+    /// renderer.ts:4924).
+    pub gather_stats: bool,
+    /// `consoleMode` (renderer.ts:222-225, default at :1285) — see
+    /// [`ConsoleMode`].
+    pub console_mode: ConsoleMode,
+    /// `consoleOptions` (renderer.ts:203-204 → ConsoleOptions,
+    /// console.ts:259-286) — the `keyBindings` slice.
+    pub console_options: ConsoleOptions,
+    /// The `EventEmitter.setMaxListeners` counterpart's threshold
+    /// (node:events): the listener-warning cap, default 10 (Node's
+    /// `defaultMaxListeners`).
+    pub max_listeners: u32,
 }
 
 impl Default for CliRendererConfig {
@@ -80,6 +193,13 @@ impl Default for CliRendererConfig {
             auto_focus: true,
             use_mouse: true,
             kitty_keyboard: None,
+            stdin: StdinSource::Process,
+            exit_on_ctrl_c: true,
+            clear_on_shutdown: true,
+            gather_stats: false,
+            console_mode: ConsoleMode::default(),
+            console_options: ConsoleOptions::default(),
+            max_listeners: 10,
         }
     }
 }
@@ -448,6 +568,29 @@ pub enum CliRenderEvent {
     Palette(TerminalPalette),
 }
 
+/// The `waitForThemeMode` result (renderer-theme-mode.ts:62-83):
+/// resolved now, or a registered waiter pending its mode/timeout/
+/// destroy resolution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThemeModeWait {
+    /// Resolved at registration (mode known, renderer destroyed, or
+    /// timeout 0 — renderer-theme-mode.ts:62-66). `None` = "not
+    /// known" (upstream's `null`).
+    Resolved(Option<ThemeMode>),
+    /// Registered — poll with [`CliRenderer::poll_theme_mode_wait`].
+    Pending { id: u64 },
+}
+
+/// A theme wait's poll outcome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThemeWaitPoll {
+    /// `waiter.resolve(mode)` fired (renderer-theme-mode.ts:76-83,
+    /// 89-100, 223-235).
+    Resolved(Option<ThemeMode>),
+    /// Still waiting.
+    Pending,
+}
+
 /// One hit-grid rect, in paint order (later rects win).
 #[derive(Debug, Clone)]
 struct HitRect {
@@ -463,6 +606,48 @@ struct HitRect {
 pub type MouseEventHandler = Box<dyn FnMut(&mut MouseEvent) + Send>;
 
 type RendererEventListener = Box<dyn FnMut(&CliRenderEvent) + Send>;
+
+/// The renderer-owned terminal session handle (`terminal-backend`
+/// feature) — the object-safe slice of
+/// [`crate::terminal::Terminal`] the lifecycle methods need. The
+/// renderer "holds the Phase A Terminal session" through this trait so
+/// mock ttys and PTY slaves substitute exactly like the pump tests.
+#[cfg(feature = "terminal-backend")]
+pub trait RendererTerminalSession {
+    /// Write raw escape bytes to the session's output and flush
+    /// (`Terminal::output()`) — the title/mouse-toggle writes.
+    fn write_bytes(&mut self, bytes: &[u8]) -> std::io::Result<()>;
+    /// `Terminal::pump_output` (pumps.rs — the `?2026` frame drain).
+    fn pump_output(&mut self, renderer: &mut CliRenderer) -> std::io::Result<()>;
+    /// `Terminal::teardown` — `performShutdownSequence`
+    /// (renderer.zig:600-654).
+    fn teardown(&mut self) -> std::io::Result<()>;
+    /// `Terminal::is_torn_down`.
+    fn is_torn_down(&self) -> bool;
+}
+
+#[cfg(feature = "terminal-backend")]
+impl<T: crate::terminal::TtyDevice, W: std::io::Write> RendererTerminalSession
+    for crate::terminal::Terminal<T, W>
+{
+    fn write_bytes(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        let out = self.output();
+        out.write_all(bytes)?;
+        out.flush()
+    }
+
+    fn pump_output(&mut self, renderer: &mut CliRenderer) -> std::io::Result<()> {
+        crate::terminal::Terminal::pump_output(self, renderer)
+    }
+
+    fn teardown(&mut self) -> std::io::Result<()> {
+        crate::terminal::Terminal::teardown(self)
+    }
+
+    fn is_torn_down(&self) -> bool {
+        crate::terminal::Terminal::is_torn_down(self)
+    }
+}
 
 /// `CliRenderer` — the render loop owner.
 /// A live mouse cell-selection (anchor + focus in screen coordinates).
@@ -549,6 +734,44 @@ pub struct CliRenderer {
     /// same URL keeps its id across frames.
     link_interned: HashMap<String, u32>,
     next_link_id: u32,
+    // ----- lifecycle (D1a) -----
+    /// `_isDestroyed` (renderer.ts:789; getter `isDestroyed`,
+    /// renderer.ts:1365-1366). After it flips, every lifecycle call
+    /// is a no-op (upstream's `if (this._isDestroyed) return` guards).
+    destroyed: bool,
+    /// The dirty bit — the port's requestRender coalescing marker.
+    /// Upstream has no explicit flag: the scheduled timer IS the
+    /// marker (`updateScheduled`/`renderTimeout`,
+    /// renderer.ts:1591-1604); the flag mirrors it for
+    /// [`CliRenderer::is_render_pending`].
+    render_pending: bool,
+    /// The scheduler half of the renderer (crate::scheduler — the
+    /// exact port of requestRender/scheduleRenderTimer/loop,
+    /// renderer.ts:1543-1619, 4660-4838). The virtual clock makes the
+    /// render loop deterministic: a settle pumps at most the timers
+    /// the invalidations armed.
+    scheduler: crate::scheduler::RenderScheduler,
+    /// The renderer's theme mode — upstream keeps it inside
+    /// `RendererThemeMode._themeMode` (renderer-theme-mode.ts:44);
+    /// the port mirrors the reduced mode, fed by THEME_MODE events
+    /// (theme.rs emits, renderer.ts:1214).
+    theme_mode: Option<ThemeMode>,
+    /// `RendererThemeMode.waiters` (renderer-theme-mode.ts:54-56) —
+    /// the pending `waitForThemeMode` registrations.
+    theme_waiters: Vec<(u64, Option<f64>)>,
+    theme_waiter_seq: u64,
+    /// Resolved waiter results (`waiter.resolve(mode)`,
+    /// renderer-theme-mode.ts:76-83, 89-100, 223-235) — polled by id.
+    theme_wait_resolved: HashMap<u64, Option<ThemeMode>>,
+    /// `_useConsole` (renderer.ts:1625-1632) — the consoleMode arm.
+    use_console: bool,
+    /// The last `setTerminalTitle` value (renderer.ts:4112-4114);
+    /// teardown resets the title to "" (terminal.zig:328).
+    terminal_title: String,
+    /// The live terminal session (`terminal-backend` feature) —
+    /// attached by the embedder; `destroy()` tears it down.
+    #[cfg(feature = "terminal-backend")]
+    pub session: Option<Box<dyn RendererTerminalSession>>,
 }
 
 use std::collections::HashMap;
@@ -599,6 +822,17 @@ pub fn create_cli_renderer(config: CliRendererConfig) -> CliRenderer {
         link_pool: HashMap::new(),
         link_interned: HashMap::new(),
         next_link_id: 0,
+        destroyed: false,
+        render_pending: false,
+        scheduler: crate::scheduler::RenderScheduler::new(config.target_fps, config.max_fps),
+        theme_mode: None,
+        theme_waiters: Vec::new(),
+        theme_waiter_seq: 0,
+        theme_wait_resolved: HashMap::new(),
+        use_console: config.console_mode == ConsoleMode::ConsoleOverlay,
+        terminal_title: String::new(),
+        #[cfg(feature = "terminal-backend")]
+        session: None,
     }
 }
 
@@ -612,6 +846,288 @@ impl CliRenderer {
     #[must_use]
     pub fn height(&self) -> u32 {
         self.config.height
+    }
+
+    // -----------------------------------------------------------------
+    // Lifecycle + render scheduling (D1a) — renderer.ts:1365-1366,
+    // 1543-1619, 1707-1740, 1963-1971, 4078-4114, 4408-4470;
+    // renderer-theme-mode.ts:54-100, 223-235
+    // -----------------------------------------------------------------
+
+    /// `renderer.isDestroyed` (renderer.ts:1365-1366).
+    #[must_use]
+    pub fn is_destroyed(&self) -> bool {
+        self.destroyed
+    }
+
+    /// `requestRender()` (renderer.ts:1565-1605) — coalesces
+    /// invalidations: one scheduled attempt at a time, repeated calls
+    /// while a frame is pending are dropped (the scheduler's
+    /// `updateScheduled` guard, renderer.ts:1591-1604). A destroyed
+    /// renderer drops the request (the scheduling guards,
+    /// renderer.ts:1544).
+    pub fn request_render(&mut self) {
+        if self.destroyed {
+            return;
+        }
+        self.render_pending = true;
+        // The scheduler is taken out so the render closure can borrow
+        // the renderer (the scheduler's contract: the render body is a
+        // callback so the renderer stays the single owner of
+        // painting — scheduler.rs).
+        let mut scheduler = std::mem::replace(
+            &mut self.scheduler,
+            crate::scheduler::RenderScheduler::new(self.config.target_fps, self.config.max_fps),
+        );
+        scheduler.request_render(&mut || self.run_frame());
+        self.scheduler = scheduler;
+    }
+
+    /// Whether an invalidation is pending (the dirty bit behind
+    /// `requestRender` — the observable form of upstream's
+    /// `hasScheduledRender`, renderer.ts:1671).
+    #[must_use]
+    pub fn is_render_pending(&self) -> bool {
+        self.render_pending
+    }
+
+    /// One frame body — `loop()`'s render tail (renderer.ts:4761+).
+    /// The dirty bit clears first (the batch this frame serves);
+    /// a destroyed renderer renders nothing.
+    fn run_frame(&mut self) {
+        if self.destroyed {
+            return;
+        }
+        self.render_pending = false;
+        let _ = self.render();
+    }
+
+    /// The deterministic `await renderer.idle()` (renderer.ts:1646-1664)
+    /// — pump the scheduler's virtual timers until nothing is
+    /// scheduled. Returns the number of frames painted; the settle
+    /// contract is exactly one frame per invalidation batch (N
+    /// `requestRender` calls between settles → 1 frame, never 0
+    /// (starvation) and never >1 (over-merging)).
+    pub fn settle(&mut self, max_frames: u64) -> u64 {
+        let before = self.scheduler.frame_count();
+        let mut scheduler = std::mem::replace(
+            &mut self.scheduler,
+            crate::scheduler::RenderScheduler::new(self.config.target_fps, self.config.max_fps),
+        );
+        scheduler.run_until_idle(max_frames, &mut || self.run_frame());
+        self.scheduler = scheduler;
+        self.scheduler.frame_count() - before
+    }
+
+    /// `destroy()` (renderer.ts:4408-4423) — idempotent; flips
+    /// `_isDestroyed`, stops the scheduler, resolves the theme
+    /// waiters with the current mode (the `dispose` ladder,
+    /// renderer-theme-mode.ts:89-100), and tears the live terminal
+    /// session down when one is attached. Every later lifecycle call
+    /// is a no-op, never a panic.
+    pub fn destroy(&mut self) {
+        if self.destroyed {
+            return; // renderer.ts:4410-4411
+        }
+        self.destroyed = true; // renderer.ts:4412
+        self.scheduler.stop(); // `_isRunning = false` (cleanupBeforeDestroy, renderer.ts:4486)
+        self.render_pending = false;
+        // theme waiters resolve with the current mode
+        // (renderer-theme-mode.ts:89-100 `dispose`)
+        let mode = self.theme_mode;
+        for (id, _) in std::mem::take(&mut self.theme_waiters) {
+            self.theme_wait_resolved.insert(id, mode);
+        }
+        // Live session teardown. `clearOnShutdown` (renderer.ts:158-159)
+        // gates upstream's region-clearing; the RAII port always runs
+        // the full `performShutdownSequence` teardown — restoring the
+        // host terminal (raw mode off, alt-screen exit) is not optional
+        // — so the flag is recorded, not branched on (bounded
+        // divergence, registered in the lane report).
+        #[cfg(feature = "terminal-backend")]
+        if let Some(mut session) = self.session.take() {
+            let _ = session.teardown();
+        }
+    }
+
+    /// `setBackgroundColor(color)` (renderer.ts:4078-4083) — set the
+    /// fill color, clear `nextRenderBuffer` with it, and invalidate.
+    /// No-op after destroy.
+    pub fn set_background_color(&mut self, color: Rgba) {
+        if self.destroyed {
+            return;
+        }
+        self.config.background_color = color;
+        self.next_render_buffer.clear(color);
+        self.request_render();
+    }
+
+    /// `setTerminalTitle(title)` (renderer.ts:4112-4114) — OSC 0
+    /// (`\x1b]0;…\x07`, the same title channel teardown resets,
+    /// terminal.zig:328) written to the live session; the last value
+    /// is kept for observability. No-op after destroy.
+    pub fn set_terminal_title(&mut self, title: &str) {
+        if self.destroyed {
+            return;
+        }
+        self.terminal_title = title.to_owned();
+        #[cfg(feature = "terminal-backend")]
+        if let Some(session) = self.session.as_mut() {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(b"\x1b]0;");
+            bytes.extend_from_slice(title.as_bytes());
+            bytes.push(0x07);
+            let _ = session.write_bytes(&bytes);
+        }
+    }
+
+    /// The last `setTerminalTitle` value ("" until set).
+    #[must_use]
+    pub fn terminal_title(&self) -> &str {
+        &self.terminal_title
+    }
+
+    /// `waitForThemeMode(timeoutMs)` (renderer.ts:1963-1971 →
+    /// RendererThemeMode.waitForThemeMode, renderer-theme-mode.ts:62-83):
+    /// resolves immediately when the mode is known, the renderer is
+    /// destroyed, or the timeout is 0; otherwise registers a waiter
+    /// that the next THEME_MODE event, the deadline, or `destroy()`
+    /// resolves (`ThemeMode | null` — None = "not known"). The sync
+    /// port hands back the wait state; poll with
+    /// [`CliRenderer::poll_theme_mode_wait`].
+    pub fn wait_for_theme_mode(&mut self, timeout_ms: u64) -> ThemeModeWait {
+        if self.theme_mode.is_some() || self.destroyed || timeout_ms == 0 {
+            return ThemeModeWait::Resolved(self.theme_mode);
+        }
+        self.theme_waiter_seq += 1;
+        let id = self.theme_waiter_seq;
+        let deadline = self.performance_now() + timeout_ms as f64;
+        self.theme_waiters.push((id, Some(deadline)));
+        ThemeModeWait::Pending { id }
+    }
+
+    /// Poll a registered theme wait — `waiter.resolve(mode)`'s call
+    /// site (renderer-theme-mode.ts:76-83 timeout arm, :89-100
+    /// dispose arm, :223-235 mode-change arm). `None` = unknown id
+    /// (already resolved and taken, or never registered).
+    pub fn poll_theme_mode_wait(&mut self, id: u64) -> Option<ThemeWaitPoll> {
+        if let Some(mode) = self.theme_wait_resolved.remove(&id) {
+            return Some(ThemeWaitPoll::Resolved(mode));
+        }
+        // Unknown id (already consumed, or never registered)?
+        if !self.theme_waiters.iter().any(|(wid, _)| *wid == id) {
+            return None;
+        }
+        let mut resolve_with = None;
+        if self.theme_mode.is_some() || self.destroyed {
+            resolve_with = Some(self.theme_mode);
+        } else {
+            let now = self.performance_now();
+            if let Some((_, deadline)) = self.theme_waiters.iter().find(|(wid, _)| *wid == id) {
+                if let Some(deadline) = *deadline {
+                    if now >= deadline {
+                        resolve_with = Some(self.theme_mode); // timeout → current (possibly null)
+                    }
+                }
+            }
+        }
+        if let Some(mode) = resolve_with {
+            self.theme_waiters.retain(|(wid, _)| *wid != id);
+            return Some(ThemeWaitPoll::Resolved(mode));
+        }
+        Some(ThemeWaitPoll::Pending)
+    }
+
+    /// Resolve every waiter whose id is pending — the
+    /// `applyThemeMode` arm (renderer-theme-mode.ts:223-235).
+    fn resolve_theme_waiters(&mut self) {
+        let mode = self.theme_mode;
+        for (id, _) in std::mem::take(&mut self.theme_waiters) {
+            self.theme_wait_resolved.insert(id, mode);
+        }
+    }
+
+    /// `set useMouse` (renderer.ts:1725-1737) — runtime toggle: no-op
+    /// when unchanged; enabling arms the `?1000/?1002/?1003/?1006`
+    /// family and invalidates; disabling pops it (`MOUSE_DISABLE_ALL`,
+    /// terminal.zig:946-951). No-op after destroy.
+    pub fn set_use_mouse(&mut self, use_mouse: bool) {
+        if self.destroyed || self.config.use_mouse == use_mouse {
+            return; // renderer.ts:1727 — no change needed
+        }
+        self.config.use_mouse = use_mouse;
+        #[cfg(feature = "terminal-backend")]
+        if let Some(session) = self.session.as_mut() {
+            let mut bytes = Vec::new();
+            if use_mouse {
+                // enableMouse with movement (terminal.zig:227 state
+                // default true)
+                let _ = crate::terminal::modes::mouse_enable(&mut bytes, true);
+            } else {
+                bytes.extend_from_slice(crate::terminal::modes::MOUSE_DISABLE_ALL);
+            }
+            let _ = session.write_bytes(&bytes);
+        }
+        if use_mouse {
+            self.request_render(); // renderer.ts:1733
+        }
+    }
+
+    /// `set consoleMode` (renderer.ts:1625-1632) — the "disabled" arm
+    /// is fully implemented (nothing captures or paints); the
+    /// "console-overlay" arm records intent (the overlay renderable
+    /// family is deferred).
+    pub fn set_console_mode(&mut self, mode: ConsoleMode) {
+        self.use_console = mode == ConsoleMode::ConsoleOverlay;
+        self.config.console_mode = mode;
+    }
+
+    /// `get consoleMode` (renderer.ts:1625).
+    #[must_use]
+    pub fn console_mode(&self) -> ConsoleMode {
+        self.config.console_mode
+    }
+
+    /// `setGatherStats(enabled)` (renderer.ts:4924).
+    pub fn set_gather_stats(&mut self, enabled: bool) {
+        self.config.gather_stats = enabled;
+    }
+
+    /// `EventEmitter.setMaxListeners(n)` (node:events) counterpart —
+    /// the listener-warning threshold. Node never rejects listeners
+    /// past the cap (it only silences `MaxListenersExceededWarning`
+    /// once raised); the port stores the cap the same way — the
+    /// warning channel needs a logger seam and stays deferred.
+    pub fn set_max_listeners(&mut self, max_listeners: u32) {
+        self.config.max_listeners = max_listeners;
+    }
+
+    /// `EventEmitter.getMaxListeners()` (node:events) counterpart.
+    #[must_use]
+    pub fn max_listeners(&self) -> u32 {
+        self.config.max_listeners
+    }
+
+    /// The renderer's current theme mode — `_themeMode`
+    /// (renderer-theme-mode.ts:44), updated by THEME_MODE events.
+    #[must_use]
+    pub fn theme_mode(&self) -> Option<ThemeMode> {
+        self.theme_mode
+    }
+
+    /// Attach the live terminal session (`terminal-backend`
+    /// feature) — the renderer "holds" the Phase A session; `destroy`
+    /// tears it down, the toggle/title writes flow through it.
+    #[cfg(feature = "terminal-backend")]
+    pub fn attach_terminal_session(&mut self, session: Box<dyn RendererTerminalSession>) {
+        self.session = Some(session);
+    }
+
+    /// The attached live session, when one exists.
+    #[cfg(feature = "terminal-backend")]
+    #[must_use]
+    pub fn terminal_session(&self) -> Option<&dyn RendererTerminalSession> {
+        self.session.as_deref()
     }
 
     /// Allocate (or intern) the OSC 8 link id for `url` — the port of
@@ -1829,7 +2345,12 @@ impl CliRenderer {
     }
 
     /// `requestRender` → `loop()` tick: one deterministic frame.
+    /// A destroyed renderer renders nothing (the `loop()` destroyed
+    /// guard, renderer.ts:4674+).
     pub fn render(&mut self) -> u64 {
+        if self.destroyed {
+            return self.frame_id;
+        }
         // 1. clear next with the background color
         self.next_render_buffer.clear(self.config.background_color);
 
@@ -3211,6 +3732,13 @@ impl CliRenderer {
     }
 
     fn emit_event(&mut self, event: CliRenderEvent) {
+        // THEME_MODE also feeds the renderer's theme mirror + resolves
+        // the waitForThemeMode waiters (applyThemeMode,
+        // renderer-theme-mode.ts:223-235; emission renderer.ts:1214).
+        if let CliRenderEvent::ThemeMode { mode } = event {
+            self.theme_mode = Some(mode);
+            self.resolve_theme_waiters();
+        }
         for listener in &mut self.event_listeners {
             listener(&event);
         }
@@ -3421,6 +3949,22 @@ impl CliRenderer {
     /// renderable's `handleKeyPress` (the internal-handler
     /// registration of Renderable.focus, Renderable.ts:406-427).
     fn dispatch_key(&mut self, key: crate::parse_keypress::ParsedKey) {
+        // exitOnCtrlC (renderer.ts:1252-1257): Ctrl+C destroys the
+        // renderer. Upstream defers through `process.nextTick` and the
+        // key still propagates to the other listeners; the sync port
+        // destroys immediately and likewise continues dispatch —
+        // bounded divergence (no microtask queue in the sync port).
+        if self.config.exit_on_ctrl_c {
+            let event_like =
+                crate::keybinding::KeyBindingLookup {
+                    binding: crate::keybinding::KeyBindingLike::from(&key),
+                    base_code: None,
+                };
+            let ctrl_c = crate::keybinding::KeyBindingLike::with_mods("c", true, false, false, false);
+            if crate::keybinding::matches_key_binding(&event_like, &ctrl_c) {
+                self.destroy();
+            }
+        }
         let mut event = KeyEvent::new(key);
         // globals (KeyHandler global listeners)
         self.key_input.process_parsed_key(event.key.clone());
