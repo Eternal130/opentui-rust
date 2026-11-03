@@ -480,9 +480,9 @@ fn md_get_style<'a>(
     style: &'a SyntaxStyle,
     group: &str,
 ) -> Option<&'a crate::syntax_style::StyleDefinition> {
-    style.get_style(group).or_else(|| {
-        style.get_style(group.split('.').next().unwrap_or(group))
-    })
+    style
+        .get_style(group)
+        .or_else(|| style.get_style(group.split('.').next().unwrap_or(group)))
 }
 
 /// `createChunk` (Markdown.ts:547-563) with the base-segment fallback.
@@ -590,7 +590,12 @@ fn render_inline_tokens(
             }
             Token::Del { tokens, .. } => {
                 if !conceal {
-                    chunks.push(md_create_chunk("~~", "markup.strikethrough", style, link.clone()));
+                    chunks.push(md_create_chunk(
+                        "~~",
+                        "markup.strikethrough",
+                        style,
+                        link.clone(),
+                    ));
                 }
                 render_inline_with_style(
                     tokens,
@@ -602,7 +607,12 @@ fn render_inline_tokens(
                     link.clone(),
                 );
                 if !conceal {
-                    chunks.push(md_create_chunk("~~", "markup.strikethrough", style, link.clone()));
+                    chunks.push(md_create_chunk(
+                        "~~",
+                        "markup.strikethrough",
+                        style,
+                        link.clone(),
+                    ));
                 }
             }
             Token::Link {
@@ -628,7 +638,12 @@ fn render_inline_tokens(
                         && raw != text
                         && *raw != format!("<{text}>")
                     {
-                        chunks.push(md_create_chunk(" (", "markup.link", style, link_href.clone()));
+                        chunks.push(md_create_chunk(
+                            " (",
+                            "markup.link",
+                            style,
+                            link_href.clone(),
+                        ));
                         chunks.push(md_create_chunk(
                             href,
                             "markup.link.url",
@@ -639,7 +654,12 @@ fn render_inline_tokens(
                     }
                 } else if raw == text || *raw == format!("<{text}>") {
                     if raw.starts_with('<') {
-                        chunks.push(md_create_chunk("<", "markup.link", style, link_href.clone()));
+                        chunks.push(md_create_chunk(
+                            "<",
+                            "markup.link",
+                            style,
+                            link_href.clone(),
+                        ));
                     }
                     render_inline_with_style(
                         tokens,
@@ -654,7 +674,12 @@ fn render_inline_tokens(
                         chunks.push(md_create_chunk(">", "markup.link", style, link_href));
                     }
                 } else {
-                    chunks.push(md_create_chunk("[", "markup.link", style, link_href.clone()));
+                    chunks.push(md_create_chunk(
+                        "[",
+                        "markup.link",
+                        style,
+                        link_href.clone(),
+                    ));
                     render_inline_with_style(
                         tokens,
                         chunks,
@@ -664,7 +689,12 @@ fn render_inline_tokens(
                         hyperlinks_supported,
                         link_href.clone(),
                     );
-                    chunks.push(md_create_chunk("](", "markup.link", style, link_href.clone()));
+                    chunks.push(md_create_chunk(
+                        "](",
+                        "markup.link",
+                        style,
+                        link_href.clone(),
+                    ));
                     chunks.push(md_create_chunk(
                         href,
                         "markup.link.url",
@@ -685,10 +715,30 @@ fn render_inline_tokens(
                         image_href,
                     ));
                 } else {
-                    chunks.push(md_create_chunk("![", "markup.link", style, image_href.clone()));
-                    chunks.push(md_create_chunk(text, "markup.link.label", style, image_href.clone()));
-                    chunks.push(md_create_chunk("](", "markup.link", style, image_href.clone()));
-                    chunks.push(md_create_chunk(href, "markup.link.url", style, image_href.clone()));
+                    chunks.push(md_create_chunk(
+                        "![",
+                        "markup.link",
+                        style,
+                        image_href.clone(),
+                    ));
+                    chunks.push(md_create_chunk(
+                        text,
+                        "markup.link.label",
+                        style,
+                        image_href.clone(),
+                    ));
+                    chunks.push(md_create_chunk(
+                        "](",
+                        "markup.link",
+                        style,
+                        image_href.clone(),
+                    ));
+                    chunks.push(md_create_chunk(
+                        href,
+                        "markup.link.url",
+                        style,
+                        image_href.clone(),
+                    ));
                     chunks.push(md_create_chunk(")", "markup.link", style, image_href));
                 }
             }
@@ -845,7 +895,9 @@ fn resolve_table_config(
         // coalesced default (Markdown.ts:1484-1489)
         _ => "grid",
     };
-    let borders = table_options.and_then(|o| o.borders).unwrap_or(table_style == "grid");
+    let borders = table_options
+        .and_then(|o| o.borders)
+        .unwrap_or(table_style == "grid");
     let borderless_columns = table_style == "columns" && !borders;
     let wrap_mode = crate::renderables::text::WrapMode::parse(
         table_options
@@ -853,13 +905,13 @@ fn resolve_table_config(
             .unwrap_or("word"),
     );
     let column_width_mode = match table_options.and_then(|o| o.width_mode.as_deref()) {
-        Some(s) if s == "content" => ColumnWidthMode::Content,
-        Some(s) if s == "full" => ColumnWidthMode::Full,
+        Some("content") => ColumnWidthMode::Content,
+        Some("full") => ColumnWidthMode::Full,
         _ if table_style == "columns" => ColumnWidthMode::Content,
         _ => ColumnWidthMode::Full,
     };
     let column_fitter = match table_options.and_then(|o| o.column_fitter.as_deref()) {
-        Some(s) if s == "balanced" => ColumnFitter::Balanced,
+        Some("balanced") => ColumnFitter::Balanced,
         _ => ColumnFitter::Proportional,
     };
     let cell_padding = table_options.and_then(|o| o.cell_padding).unwrap_or(0);
@@ -883,7 +935,9 @@ fn resolve_table_config(
         column_gap: if borderless_columns { 2 } else { 0 },
         show_borders: borders,
         border: borders,
-        outer_border: table_options.and_then(|o| o.outer_border).unwrap_or(borders),
+        outer_border: table_options
+            .and_then(|o| o.outer_border)
+            .unwrap_or(borders),
         border_style: table_options
             .and_then(|o| o.border_style.clone())
             .unwrap_or_else(|| "single".into()),
@@ -902,7 +956,10 @@ fn build_table_spec(
     options: &MarkdownOptions,
     margin_bottom: usize,
 ) -> BlockSpec {
-    let Token::Table { raw, header, rows, .. } = token else {
+    let Token::Table {
+        raw, header, rows, ..
+    } = token
+    else {
         unreachable!("checked by caller");
     };
     let conceal = options.conceal.unwrap_or(true);
@@ -967,7 +1024,6 @@ fn build_table_spec(
         margin_bottom,
     }
 }
-
 
 /// `updateBlocks` → `createDefaultRenderable` for each block token
 /// (Markdown.ts:1724-1764) — the coalesced mode the port pins.

@@ -894,12 +894,8 @@ pub fn replay(scenario: &Scenario) -> Result<CliRenderer> {
                 }
                 if let Some(t) = o.get("tableOptions").and_then(|v| v.as_object()) {
                     let get_bool = |k: &str| t.get(k).and_then(|v| v.as_bool());
-                    let get_u32 = |k: &str| {
-                        t.get(k).and_then(|v| v.as_u64()).map(|n| n as u32)
-                    };
-                    let get_str = |k: &str| {
-                        t.get(k).and_then(|v| v.as_str()).map(|s| s.to_owned())
-                    };
+                    let get_u32 = |k: &str| t.get(k).and_then(|v| v.as_u64()).map(|n| n as u32);
+                    let get_str = |k: &str| t.get(k).and_then(|v| v.as_str()).map(|s| s.to_owned());
                     opts.table_options = Some(Box::new(
                         opentui_core::renderables::markdown::MarkdownTableOptions {
                             style: get_str("style"),

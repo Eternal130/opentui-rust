@@ -1269,13 +1269,8 @@ impl OptimizedBuffer {
                     let has_down = row_idx < row_count;
                     let has_left = col_border_idx > 0;
                     let has_right = col_border_idx < column_count;
-                    let intersection = grid_intersection(
-                        chars,
-                        has_up,
-                        has_down,
-                        has_left,
-                        has_right,
-                    );
+                    let intersection =
+                        grid_intersection(chars, has_up, has_down, has_left, has_right);
                     write_cell(self, bx, border_y, intersection);
                 }
 
@@ -1287,8 +1282,7 @@ impl OptimizedBuffer {
                     };
                     let boundary_padding: i32 = if has_boundary_after { 0 } else { 1 };
                     let start_x = opts.column_offsets[col_idx] + opts.x + 1;
-                    let end_x =
-                        opts.column_offsets[col_idx + 1] + opts.x + boundary_padding;
+                    let end_x = opts.column_offsets[col_idx + 1] + opts.x + boundary_padding;
                     if start_x >= self.width as i32 {
                         break;
                     }

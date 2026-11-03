@@ -24,7 +24,9 @@ use crate::color::{parse_color, Rgba};
 use crate::renderables::text::WrapMode;
 use crate::styled_text::TextChunk;
 use crate::text_buffer::TextDefaults;
-use crate::text_buffer::{compute_virtual_lines, draw_text_view, TextDocument, TextViewState, Viewport};
+use crate::text_buffer::{
+    compute_virtual_lines, draw_text_view, TextDocument, TextViewState, Viewport,
+};
 
 // `MEASURE_HEIGHT` (TextTable.ts:17) is 10_000 upstream — the text
 // measure path ignores height, and the port's `TextDocument::measure`
@@ -304,7 +306,7 @@ impl TableCore {
     }
 
     fn total_inter_column_gap(&self, b: &BorderLayout) -> u32 {
-        self.column_count().saturating_sub(1).max(0) as u32 * self.inter_column_gap(b)
+        self.column_count().saturating_sub(1) as u32 * self.inter_column_gap(b)
     }
 
     /// `getVerticalBorderCount` (TextTable.ts:978-984).
@@ -483,13 +485,7 @@ impl TableCore {
         }
         let weights: Vec<f64> = shrinkable
             .iter()
-            .map(|&v| {
-                if v <= 0 {
-                    0.0
-                } else {
-                    (v as f64).sqrt()
-                }
-            })
+            .map(|&v| if v <= 0 { 0.0 } else { (v as f64).sqrt() })
             .collect();
         let total_weight: f64 = weights.iter().sum();
         if total_weight <= 0.0 {
@@ -519,7 +515,8 @@ impl TableCore {
                 }
                 if best_idx == -1
                     || fractions[idx] > best_fraction
-                    || (fractions[idx] == best_fraction && shrinkable[idx] > shrinkable[best_idx as usize])
+                    || (fractions[idx] == best_fraction
+                        && shrinkable[idx] > shrinkable[best_idx as usize])
                 {
                     best_idx = idx as i32;
                     best_fraction = fractions[idx];
@@ -569,7 +566,11 @@ impl TableCore {
         for (idx, &size) in parts.iter().enumerate() {
             let size = size.max(1) as i32;
             let separator_after = if idx < parts.len() - 1 {
-                if include_inner_boundaries { 1 } else { inner_gap as i32 }
+                if include_inner_boundaries {
+                    1
+                } else {
+                    inner_gap as i32
+                }
             } else if end_boundary {
                 1
             } else {
@@ -628,11 +629,7 @@ impl TableCore {
     /// layout, clamp ≥ 1; under AtMost (a definite available width with
     /// no fixed width of our own) the reported width clamps to it.
     /// Intrinsic height is always kept.
-    pub fn measure(
-        &self,
-        known_width: Option<f32>,
-        available_width: Option<f32>,
-    ) -> (f32, f32) {
+    pub fn measure(&self, known_width: Option<f32>, available_width: Option<f32>) -> (f32, f32) {
         // hasWidthConstraint = widthMode !== Undefined && finite
         let raw: Option<u32> = known_width
             .filter(|w| w.is_finite())
@@ -689,7 +686,11 @@ impl TableCore {
 /// Integer widths fit i64 throughout, so the BigInt fallback is exact
 /// arithmetic by construction.
 #[must_use]
-pub fn allocate_proportional_column_widths(widths: &[u32], target_width: i64, min_width: i64) -> Vec<u32> {
+pub fn allocate_proportional_column_widths(
+    widths: &[u32],
+    target_width: i64,
+    min_width: i64,
+) -> Vec<u32> {
     // comparePriority (text-table-width.ts:1-9)
     fn compare_priority(
         left_growth: i64,
@@ -704,10 +705,7 @@ pub fn allocate_proportional_column_widths(widths: &[u32], target_width: i64, mi
         left.cmp(&right)
     }
 
-    let base: Vec<i64> = widths
-        .iter()
-        .map(|&w| (w as i64).max(min_width))
-        .collect();
+    let base: Vec<i64> = widths.iter().map(|&w| (w as i64).max(min_width)).collect();
     let total_base: i64 = base.iter().sum();
     let capacity: Vec<i64> = base.iter().map(|&w| w - min_width).collect();
     let capacity_total: i64 = capacity.iter().sum();
@@ -759,7 +757,9 @@ pub fn allocate_proportional_column_widths(widths: &[u32], target_width: i64, mi
         if growth[idx] == capacity[idx] {
             continue;
         }
-        growth[idx] = growth[idx].min((level * weight).floor() as i64).min(capacity[idx]);
+        growth[idx] = growth[idx]
+            .min((level * weight).floor() as i64)
+            .min(capacity[idx]);
     }
 
     let mut allocated: i64 = growth.iter().sum();
@@ -780,7 +780,9 @@ pub fn allocate_proportional_column_widths(widths: &[u32], target_width: i64, mi
                     capacity[worst_idx as usize],
                 )
             };
-            if cmp == std::cmp::Ordering::Greater || (cmp == std::cmp::Ordering::Equal && idx > worst_idx as usize) {
+            if cmp == std::cmp::Ordering::Greater
+                || (cmp == std::cmp::Ordering::Equal && idx > worst_idx as usize)
+            {
                 worst_idx = idx as i32;
             }
         }
@@ -841,8 +843,12 @@ impl TextTableState {
     #[must_use]
     pub fn from_options(opts: &TextTableOptions) -> Self {
         let defaults = TableConfig::default();
-        let cell_padding_x = opts.cell_padding_x.unwrap_or(opts.cell_padding.unwrap_or(0));
-        let cell_padding_y = opts.cell_padding_y.unwrap_or(opts.cell_padding.unwrap_or(0));
+        let cell_padding_x = opts
+            .cell_padding_x
+            .unwrap_or(opts.cell_padding.unwrap_or(0));
+        let cell_padding_y = opts
+            .cell_padding_y
+            .unwrap_or(opts.cell_padding.unwrap_or(0));
         let border = opts.border.unwrap_or(true);
         let config = TableConfig {
             wrap_mode: opts.wrap_mode.unwrap_or(defaults.wrap_mode),
@@ -854,10 +860,7 @@ impl TextTableState {
             show_borders: opts.show_borders.unwrap_or(true),
             border,
             outer_border: opts.outer_border.unwrap_or(border),
-            border_style: opts
-                .border_style
-                .clone()
-                .unwrap_or_else(|| "single".into()),
+            border_style: opts.border_style.clone().unwrap_or_else(|| "single".into()),
             border_color: opts.border_color.unwrap_or(defaults.border_color),
             border_background_color: opts
                 .border_background_color
@@ -999,8 +1002,14 @@ impl TextTableState {
         for (row_idx, row) in self.core.cells.iter().enumerate() {
             let cell_y = self.layout.row_offsets.get(row_idx).copied().unwrap_or(0) + 1 + pad_y;
             for col_idx in 0..row.len() {
-                let cell_x =
-                    self.layout.column_offsets.get(col_idx).copied().unwrap_or(0) + 1 + pad_x;
+                let cell_x = self
+                    .layout
+                    .column_offsets
+                    .get(col_idx)
+                    .copied()
+                    .unwrap_or(0)
+                    + 1
+                    + pad_x;
                 let Some((_, viewport)) = self.cell_views.get(cell_idx) else {
                     cell_idx += 1;
                     continue;
@@ -1013,7 +1022,10 @@ impl TextTableState {
                 };
                 let empty;
                 let vlines: &[crate::text_buffer::VirtualLine] = if self.cell_vlines_valid {
-                    self.cell_vlines.get(cell_idx).map(|v| v.as_slice()).unwrap_or(&[])
+                    self.cell_vlines
+                        .get(cell_idx)
+                        .map(|v| v.as_slice())
+                        .unwrap_or(&[])
                 } else {
                     empty = Vec::new();
                     &empty
@@ -1147,10 +1159,10 @@ mod tests {
         );
     }
 
-    /// TextTable.test.ts:209-227 "renders unequal-capacity priority ties
-    /// in lower column index order" — width 8, cells ABCDEFGHIJKLMNOPQRS
-    /// + XYZ → vertical borders at columns 0/5/7 (computeLayout column
-    /// offsets :682-694).
+    /// TextTable.test.ts:209-227 "renders unequal-capacity priority
+    /// ties in lower column index order" — width 8, cells
+    /// ABCDEFGHIJKLMNOPQRS + XYZ give vertical borders at columns
+    /// 0/5/7 (computeLayout column offsets, TextTable.ts:682-694).
     #[test]
     fn layout_priority_tie_offsets() {
         let content = vec![vec![cell("ABCDEFGHIJKLMNOPQRS"), cell("XYZ")]];
@@ -1165,7 +1177,7 @@ mod tests {
     }
 
     /// TextTable.test.ts:229-247 "renders padded unequal-capacity
-    /// priority ties…" — cellPaddingX 1, width 12.
+    /// priority ties in lower column index order" — cellPaddingX 1, width 12.
     #[test]
     fn layout_padded_priority_tie_offsets() {
         let content = vec![vec![cell("ABCDEFGHIJKLMNOPQRS"), cell("XYZ")]];

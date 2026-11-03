@@ -104,10 +104,6 @@ pub use renderables::code::{
     CodeOptions,
 };
 pub use renderables::markdown::{BlockSpec, ListItemSpec, MarkdownOptions, MarkdownTableOptions};
-pub use renderables::text_table::{
-    allocate_proportional_column_widths, ColumnFitter, ColumnWidthMode, GridBorderChars,
-    MeasuredTable, TableConfig, TableCore, TextTableLayout, TextTableOptions, TextTableState,
-};
 pub use renderables::scrollbar::{
     ArrowDirection, ArrowState, Orientation, ScrollBarState, ScrollUnit, SliderState,
 };
@@ -116,6 +112,10 @@ pub use renderables::scrollbox::{
     set_scroll_top, ScrollBoxOptions, ScrollBoxState, StickyStart, ViewportCulling,
 };
 pub use renderables::text::{TextOptions, TextRenderableState, WrapMode};
+pub use renderables::text_table::{
+    allocate_proportional_column_widths, ColumnFitter, ColumnWidthMode, GridBorderChars,
+    MeasuredTable, TableConfig, TableCore, TextTableLayout, TextTableOptions, TextTableState,
+};
 pub use renderables::textarea::{TextareaOptions, TextareaState, TEXTAREA_ACTIONS};
 pub use renderer::{create_cli_renderer, CliRenderer, CliRendererConfig, RenderTarget};
 pub use scheduler::RenderScheduler;
