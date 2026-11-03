@@ -53,14 +53,14 @@ recomputed state.
 | @opentui/keymap (+subpaths) | 12 | 14* | 4 | 2 | 6 |
 | **total** | **339** | **79** | **35** | **18** | **286** |
 
-### Current (recounted 2026-11-03 from the per-symbol rows below; text-table lane merged)
+### Current (recounted 2026-11-03 via `tools/recount-matrix.sh` — run it after every lane that edits rows)
 
 | package | exports | done | partial | deferred | todo |
 |---|---|---|---|---|---|
-| @opentui/core | 279 | 122 | 13 | 0 | 148 |
+| @opentui/core | 279 | 123 | 12 | 0 | 144 |
 | @opentui/solid | 48 | 35 | 3 | 7 | 3 |
 | @opentui/keymap (+subpaths) | 12 | 12 | 0 | 0 | 0 |
-| **total** | **339** | **168 (49.6%)** | **16** | **7** | **148** |
+| **total** | **339** | **170 (50.1%)** | **15** | **7** | **147** |
 | tier-1 rows only (bold `**1**`) | 52 | 47 | 5 | 0 | 0 |
 
 Audio lane note (the tier-1 `partial` — last tier-1 row landed): the
