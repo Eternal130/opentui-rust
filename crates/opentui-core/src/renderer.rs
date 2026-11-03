@@ -781,6 +781,10 @@ impl CliRenderer {
                     Some(ctx),
                 )
             }
+            BlockSpec::Table {
+                options,
+                margin_bottom,
+            } => self.make_text_table(&format!("{id}-block-{index}"), &options, margin_bottom),
             BlockSpec::Blockquote {
                 content,
                 border_color,
@@ -941,6 +945,33 @@ impl CliRenderer {
         }
         row.add(&mut self.tree, content);
         row
+    }
+
+    /// Construct a `TextTableRenderable` leaf (TextTable.ts:99) —
+    /// `width: "100%"`, `flexShrink: 0` (the markdown table block shape,
+    /// Markdown.ts:1564-1585).
+    #[must_use]
+    pub fn make_text_table(
+        &mut self,
+        id: &str,
+        opts: &crate::renderables::text_table::TextTableOptions,
+        margin_bottom: usize,
+    ) -> Renderable {
+        let state = crate::renderables::text_table::TextTableState::from_options(opts);
+        let ctx = crate::renderable::MeasureCtx::table(state.core.clone());
+        Renderable::new(
+            &mut self.tree,
+            id,
+            crate::layout::LayoutOptions {
+                flex_shrink: Some(0.0),
+                margin_bottom: Some(Dimension::Points(margin_bottom as f32)),
+                ..Default::default()
+            },
+            Dimension::Percent(1.0),
+            Dimension::Auto,
+            Content::TextTable(state),
+            Some(ctx),
+        )
     }
 
     /// Construct a box renderable without mounting.
@@ -2222,6 +2253,26 @@ impl CliRenderer {
                 avail_w,
                 avail_h,
             );
+            return tp::Size {
+                width: w,
+                height: h,
+            };
+        }
+        if ctx.kind == MeasureKind::Table {
+            // TextTableRenderable.setupMeasureFunc (TextTable.ts:469-499)
+            let default_table;
+            let table = match &ctx.table {
+                Some(t) => t,
+                None => {
+                    default_table = crate::renderables::text_table::MeasuredTable::default();
+                    &default_table
+                }
+            };
+            let avail_w = match available_space.width {
+                tp::AvailableSpace::Definite(w) => Some(w),
+                tp::AvailableSpace::MaxContent | tp::AvailableSpace::MinContent => None,
+            };
+            let (w, h) = table.core.measure(known_dimensions.width, avail_w);
             return tp::Size {
                 width: w,
                 height: h,

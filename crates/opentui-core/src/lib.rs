@@ -103,7 +103,11 @@ pub use renderables::code::{
     add_markdown_link_highlights, detect_links, normalize_markdown_link_target, CodeDocument,
     CodeOptions,
 };
-pub use renderables::markdown::{BlockSpec, ListItemSpec, MarkdownOptions};
+pub use renderables::markdown::{BlockSpec, ListItemSpec, MarkdownOptions, MarkdownTableOptions};
+pub use renderables::text_table::{
+    allocate_proportional_column_widths, ColumnFitter, ColumnWidthMode, GridBorderChars,
+    MeasuredTable, TableConfig, TableCore, TextTableLayout, TextTableOptions, TextTableState,
+};
 pub use renderables::scrollbar::{
     ArrowDirection, ArrowState, Orientation, ScrollBarState, ScrollUnit, SliderState,
 };

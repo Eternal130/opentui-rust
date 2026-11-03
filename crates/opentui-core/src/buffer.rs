@@ -1187,6 +1187,207 @@ impl OptimizedBuffer {
         }
     }
 
+    /// `drawGrid` (buffer.zig:2104-2213) — row-by-row: the horizontal
+    /// border lines (intersections by connection, then fills between
+    /// column boundaries), then the vertical borders down each row's
+    /// content span. Upstream draws into the table's own buffered
+    /// frame via raw writes; the port paints into the shared buffer, so
+    /// each cell goes through the compose-aware writer (transparent
+    /// border bg keeps the destination bg; the scissor gate is the
+    /// compose clip).
+    pub fn draw_grid(&mut self, opts: DrawGridOptions) {
+        let column_count = opts.column_offsets.len().saturating_sub(1);
+        let row_count = opts.row_offsets.len().saturating_sub(1);
+        if row_count == 0 || column_count == 0 {
+            return;
+        }
+        if !opts.draw_inner && !opts.draw_outer {
+            return;
+        }
+        // isFullyTransparent (buffer.zig:2135) — opacity 1 slice; the
+        // port keeps destination cells when nothing is visible
+        if opts.border_fg.alpha() == 0 && opts.border_bg.alpha() == 0 {
+            return;
+        }
+        let chars = opts.border_chars;
+        let h_char = chars.horizontal;
+        let v_char = chars.vertical;
+        let keep_bg = opts.border_bg.alpha() == 0;
+        let write_cell = |buf: &mut Self, x: i32, y: i32, ch: char| {
+            if x < 0 || y < 0 || x >= buf.width as i32 || y >= buf.height as i32 {
+                return;
+            }
+            if !buf.is_point_in_scissor(x, y) {
+                return;
+            }
+            let (x, y) = (x as u32, y as u32);
+            if keep_bg {
+                // transparent bg composes as char/fg/attrs only
+                if let Some(cell) = buf.get(x, y) {
+                    buf.set_cell(x, y, ch, opts.border_fg, cell.bg, 0);
+                } else {
+                    buf.set_cell(x, y, ch, opts.border_fg, opts.border_bg, 0);
+                }
+            } else {
+                buf.set_cell(x, y, ch, opts.border_fg, opts.border_bg, 0);
+            }
+        };
+
+        // buffer.zig:2139-2213
+        for row_idx in 0..=row_count {
+            let is_outer_row = row_idx == 0 || row_idx == row_count;
+            let should_draw_horizontal = if is_outer_row {
+                opts.draw_outer
+            } else {
+                opts.draw_inner
+            };
+            let border_y = opts.row_offsets[row_idx] + opts.y;
+            if border_y >= self.height as i32 {
+                break;
+            }
+
+            // horizontal border line: intersections + fills
+            if should_draw_horizontal && border_y >= 0 {
+                for col_border_idx in 0..=column_count {
+                    let is_outer_col = col_border_idx == 0 || col_border_idx == column_count;
+                    let should_draw_vertical = if is_outer_col {
+                        opts.draw_outer
+                    } else {
+                        opts.draw_inner
+                    };
+                    if !should_draw_vertical {
+                        continue;
+                    }
+                    let bx = opts.column_offsets[col_border_idx] + opts.x;
+                    if bx >= self.width as i32 {
+                        break;
+                    }
+                    if bx < 0 {
+                        continue;
+                    }
+                    let has_up = row_idx > 0;
+                    let has_down = row_idx < row_count;
+                    let has_left = col_border_idx > 0;
+                    let has_right = col_border_idx < column_count;
+                    let intersection = grid_intersection(
+                        chars,
+                        has_up,
+                        has_down,
+                        has_left,
+                        has_right,
+                    );
+                    write_cell(self, bx, border_y, intersection);
+                }
+
+                for col_idx in 0..column_count {
+                    let has_boundary_after = if col_idx < column_count - 1 {
+                        opts.draw_inner
+                    } else {
+                        opts.draw_outer
+                    };
+                    let boundary_padding: i32 = if has_boundary_after { 0 } else { 1 };
+                    let start_x = opts.column_offsets[col_idx] + opts.x + 1;
+                    let end_x =
+                        opts.column_offsets[col_idx + 1] + opts.x + boundary_padding;
+                    if start_x >= self.width as i32 {
+                        break;
+                    }
+                    if end_x <= 0 {
+                        continue;
+                    }
+                    let clamped_start = start_x.max(0);
+                    let clamped_end = (end_x.min(self.width as i32)).max(clamped_start);
+                    for cx in clamped_start..clamped_end {
+                        write_cell(self, cx, border_y, h_char);
+                    }
+                }
+            }
+
+            if row_idx >= row_count {
+                break;
+            }
+
+            // vertical borders down this row's content span
+            let has_row_boundary_after = if row_idx < row_count - 1 {
+                opts.draw_inner
+            } else {
+                opts.draw_outer
+            };
+            let row_boundary_padding: i32 = if has_row_boundary_after { 0 } else { 1 };
+            let content_start_y = border_y + 1;
+            let content_end_y = opts.row_offsets[row_idx + 1] + opts.y + row_boundary_padding;
+            let mut cy = content_start_y;
+            while cy < content_end_y && cy < self.height as i32 {
+                if cy >= 0 {
+                    for col_border_idx in 0..=column_count {
+                        let is_outer_col = col_border_idx == 0 || col_border_idx == column_count;
+                        let should_draw_vertical = if is_outer_col {
+                            opts.draw_outer
+                        } else {
+                            opts.draw_inner
+                        };
+                        if !should_draw_vertical {
+                            continue;
+                        }
+                        let bx = opts.column_offsets[col_border_idx] + opts.x;
+                        if bx >= self.width as i32 {
+                            break;
+                        }
+                        if bx < 0 {
+                            continue;
+                        }
+                        write_cell(self, bx, cy, v_char);
+                    }
+                }
+                cy += 1;
+            }
+        }
+
+        /// `tableBorderIntersectionByConnections` (buffer.zig:2215-2233).
+        fn grid_intersection(
+            chars: &crate::renderables::text_table::GridBorderChars,
+            has_up: bool,
+            has_down: bool,
+            has_left: bool,
+            has_right: bool,
+        ) -> char {
+            if has_up && has_down && has_left && has_right {
+                return chars.cross;
+            }
+            if !has_up && has_down && !has_left && has_right {
+                return chars.top_left;
+            }
+            if !has_up && has_down && has_left && !has_right {
+                return chars.top_right;
+            }
+            if has_up && !has_down && !has_left && has_right {
+                return chars.bottom_left;
+            }
+            if has_up && !has_down && has_left && !has_right {
+                return chars.bottom_right;
+            }
+            if has_up && has_down && !has_left && has_right {
+                return chars.left_t;
+            }
+            if has_up && has_down && has_left && !has_right {
+                return chars.right_t;
+            }
+            if !has_up && has_down && has_left && has_right {
+                return chars.top_t;
+            }
+            if has_up && !has_down && has_left && has_right {
+                return chars.bottom_t;
+            }
+            if (has_left || has_right) && !has_up && !has_down {
+                return chars.horizontal;
+            }
+            if (has_up || has_down) && !has_left && !has_right {
+                return chars.vertical;
+            }
+            chars.cross
+        }
+    }
+
     /// `getSpanLines` — buffer.ts:172-234: per row, coalesce runs of equal
     /// (fg, bg, attributes); continuation cells contribute width with no
     /// text.
@@ -1311,6 +1512,23 @@ pub struct DrawBoxOptions {
     pub title_alignment: u8,
     pub bottom_title: Option<String>,
     pub bottom_title_alignment: u8,
+}
+
+/// Options bag for [`OptimizedBuffer::draw_grid`] — the TS `drawGrid`
+/// shape (TextTable.ts:1005-1013 → buffer.zig:2104).
+pub struct DrawGridOptions<'a> {
+    /// table origin (the offsets are table-local)
+    pub x: i32,
+    pub y: i32,
+    pub border_chars: &'static crate::renderables::text_table::GridBorderChars,
+    pub border_fg: Rgba,
+    pub border_bg: Rgba,
+    /// column boundary x positions (len = columns + 1)
+    pub column_offsets: &'a [i32],
+    /// row boundary y positions (len = rows + 1)
+    pub row_offsets: &'a [i32],
+    pub draw_inner: bool,
+    pub draw_outer: bool,
 }
 
 /// Terminal cell width of a grapheme cluster — the `unicode` widthMethod:

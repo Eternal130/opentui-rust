@@ -299,9 +299,10 @@ Mechanism deltas (documented; output parity holds):
   upstream takes `.wasm` paths;
 * streaming/`renderNode` reconciliation is upstream liveness
   machinery; the port constructs the settled block tree (the
-  coalesced `internalBlockMode` path; tables render through the
-  raw-markdown fallback until `TextTableRenderable` lands — the
-  documented follow-up).
+  coalesced `internalBlockMode` path; tables construct
+  `TextTableRenderable`s — see `renderables/text_table.rs`; the
+  raw-markdown fallback survives only for the no-content cache-miss
+  shape, Markdown.ts:1595-1597).
 
 ## The perf lane: frame budgets + the vline cache contract
 

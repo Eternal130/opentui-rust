@@ -45,6 +45,8 @@ pub struct MeasureCtx {
     pub text: Option<crate::renderables::text::MeasuredText>,
     /// the single-line content width for Input leaves
     pub input_width_cols: u32,
+    /// table layout core for TextTable leaves
+    pub table: Option<crate::renderables::text_table::MeasuredTable>,
     /// editor content for Textarea leaves
     pub editor: Option<MeasuredEditor>,
     /// gutter measure inputs (width calc + the target's current virtual
@@ -63,6 +65,21 @@ pub enum MeasureKind {
     Editor,
     /// `GutterRenderable.setupMeasureFunc` (LineNumberRenderable.ts:106-128)
     Gutter,
+    /// `TextTableRenderable.setupMeasureFunc` (TextTable.ts:469-499)
+    Table,
+}
+
+impl MeasureCtx {
+    /// The TextTable measure payload (the upstream closure captures
+    /// `this`; the port clones the layout core into the ctx).
+    #[must_use]
+    pub fn table(core: crate::renderables::text_table::TableCore) -> Self {
+        MeasureCtx {
+            kind: MeasureKind::Table,
+            table: Some(crate::renderables::text_table::MeasuredTable { core }),
+            ..Default::default()
+        }
+    }
 }
 
 /// What a renderable paints.
@@ -109,6 +126,9 @@ pub enum Content {
     /// `DiffRenderable` (Diff.ts:55) — the column/row root; paints
     /// nothing itself, carries the rebuild state.
     Diff(DiffState),
+    /// `TextTableRenderable` (TextTable.ts:99) — the gridded table leaf
+    /// ([`crate::renderables::text_table`]).
+    TextTable(crate::renderables::text_table::TextTableState),
     /// `EmbeddedTerminalRenderable` (EmbeddedTerminal.ts:42) — the
     /// embedded VT pane wrapping the engine
     /// (`crate::embedded_terminal::Engine`, the native-module port).
@@ -456,6 +476,11 @@ impl Renderable {
         if let Content::EmbeddedTerminal(state) = &mut self.content {
             state.update_layout(self.w.max(0.0) as u32, self.h.max(0.0) as u32);
         }
+        // TextTable.onResize → rebuildLayoutForCurrentWidth
+        // (TextTable.ts:437-440, 653-672)
+        if let Content::TextTable(state) = &mut self.content {
+            state.update_layout(self.w.max(0.0) as u32, self.h.max(0.0) as u32);
+        }
         if size_changed {
             effects.size_changed = true;
             if let Some(owner) = &self.size_hook {
@@ -733,6 +758,9 @@ impl Renderable {
             Content::Gutter(_) => {}
             // the Diff root paints nothing itself (Renderable group)
             Content::Diff(_) => {}
+            // renderSelf (TextTable.ts:442-462): background fill,
+            // grid borders, then per-cell drawTextBuffer
+            Content::TextTable(state) => state.paint(buffer, self.screen_x, self.screen_y),
             // renderSelf → compose at the screen origin
             // (EmbeddedTerminal.ts:283-298); the cursor half is
             // collected in `prepare_paint` (it writes renderer state)
@@ -777,6 +805,11 @@ impl Renderable {
         // recomputing them every frame
         if let Content::Text(state) = &mut self.content {
             let _ = state.vlines();
+        }
+        // same contract for the table's per-cell vlines
+        // (the live views hold their own wrapped lines, TextTable.ts:619-620)
+        if let Content::TextTable(state) = &mut self.content {
+            state.prepare_paint();
         }
         for child in &mut self.children {
             child.prepare_paint(cursor_out, now_ms);

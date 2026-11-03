@@ -10,5 +10,6 @@ pub mod markdown_parser;
 pub mod scrollbar;
 pub mod scrollbox;
 pub mod text;
+pub mod text_table;
 pub mod textarea;
 pub mod time_to_first_draw;

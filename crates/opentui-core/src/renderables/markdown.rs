@@ -8,12 +8,16 @@
 //! markdown-text). Streaming, `renderNode` hooks and incremental
 //! reconciliation are upstream liveness machinery — the differential
 //! oracle observes the settled tree, so the port constructs it
-//! directly. Tables render through the fallback
-//! `createMarkdownCodeRenderable(table.raw)` until the TextTable
-//! renderable lands (documented delta; table scenarios pin the target).
+//! directly. Tables construct `TextTableRenderable`s
+//! (`createTableBlock` → `createTextTableRenderable`, Markdown.ts:1588
+//! -1621 → TextTable.ts; the raw-markdown fallback survives only for
+//! the no-content cache-miss shape, Markdown.ts:1595-1597).
 
 use crate::renderables::code::{build_code_document, CodeOptions};
 use crate::renderables::markdown_parser::{self, Token};
+use crate::renderables::text_table::{
+    ColumnFitter, ColumnWidthMode, TableConfig, TextTableOptions,
+};
 use crate::styled_text::TextChunk;
 use crate::syntax_style::SyntaxStyle;
 
@@ -29,6 +33,30 @@ pub struct MarkdownOptions {
     pub conceal_code: Option<bool>,
     /// capabilities.hyperlinks in the profile (false headless)
     pub hyperlinks_supported: bool,
+    /// `tableOptions` (Markdown.ts:112-114 → `MarkdownTableOptions`
+    /// :32-84) — the consumed subset.
+    pub table_options: Option<Box<MarkdownTableOptions>>,
+}
+
+/// `MarkdownTableOptions` (Markdown.ts:32-84) — the consumed subset.
+#[derive(Debug, Clone, Default)]
+pub struct MarkdownTableOptions {
+    /// `style`: "grid" | "columns" (default grid in coalesced mode)
+    pub style: Option<String>,
+    /// `borders`
+    pub borders: Option<bool>,
+    /// `widthMode`: "content" | "full"
+    pub width_mode: Option<String>,
+    /// `columnFitter`: "proportional" | "balanced"
+    pub column_fitter: Option<String>,
+    /// `wrapMode`: "none" | "char" | "word"
+    pub wrap_mode: Option<String>,
+    pub cell_padding: Option<u32>,
+    pub cell_padding_x: Option<u32>,
+    pub cell_padding_y: Option<u32>,
+    pub border_style: Option<String>,
+    pub outer_border: Option<bool>,
+    pub selectable: Option<bool>,
 }
 
 /// One block's renderable spec — what `updateBlocks` produces per token
@@ -62,6 +90,12 @@ pub enum BlockSpec {
     /// `createListRenderable` (Markdown.ts:857-872)
     List {
         items: Vec<ListItemSpec>,
+        margin_bottom: usize,
+    },
+    /// `createTextTableRenderable` (Markdown.ts:1546-1586) — a
+    /// `TextTableRenderable` over the chunk-grid content.
+    Table {
+        options: TextTableOptions,
         margin_bottom: usize,
     },
 }
@@ -438,6 +472,503 @@ fn pad_start(s: &str, width: usize) -> String {
     }
 }
 
+// --- tables (TextTableRenderable wiring) -----------------------------------
+//
+// `getStyle` (Markdown.ts:536-545): group → base-segment fallback (the
+// dotted-group half the table chunk builder needs).
+fn md_get_style<'a>(
+    style: &'a SyntaxStyle,
+    group: &str,
+) -> Option<&'a crate::syntax_style::StyleDefinition> {
+    style.get_style(group).or_else(|| {
+        style.get_style(group.split('.').next().unwrap_or(group))
+    })
+}
+
+/// `createChunk` (Markdown.ts:547-563) with the base-segment fallback.
+fn md_create_chunk(
+    text: &str,
+    group: &str,
+    style: &SyntaxStyle,
+    link: Option<String>,
+) -> TextChunk {
+    let def = md_get_style(style, group)
+        .or_else(|| style.get_style("default"))
+        .cloned();
+    let (fg, bg, attributes) = match &def {
+        Some(d) => (
+            d.fg,
+            d.bg,
+            crate::styled_text::create_text_attributes(
+                d.bold.unwrap_or(false),
+                d.italic.unwrap_or(false),
+                d.underline.unwrap_or(false),
+                d.dim.unwrap_or(false),
+                false,
+                false,
+                false,
+                false,
+            ),
+        ),
+        None => (None, None, 0),
+    };
+    TextChunk {
+        text: text.to_owned(),
+        fg,
+        bg,
+        attributes,
+        link,
+    }
+}
+
+/// `isSupportedLinkTarget` (Markdown.ts:234-238) over
+/// `MAX_LINK_URL_BYTES` (zig.ts:105).
+fn is_supported_link_target(url: &str) -> bool {
+    url.len() <= 512
+}
+
+/// `renderInlineContent` + `renderInlineToken` (Markdown.ts:586-699).
+fn render_inline_tokens(
+    tokens: &[Token],
+    chunks: &mut Vec<TextChunk>,
+    style: &SyntaxStyle,
+    conceal: bool,
+    hyperlinks_supported: bool,
+    link: Option<String>,
+) {
+    for token in tokens {
+        match token {
+            Token::Text { text, .. } | Token::Escape { text, .. } => {
+                chunks.push(md_create_chunk(text, "default", style, link.clone()));
+            }
+            Token::Tag { raw } => {
+                // inline html — marked's html token carries text = raw
+                chunks.push(md_create_chunk(raw, "default", style, link.clone()));
+            }
+            Token::Codespan { text, .. } => {
+                if conceal {
+                    chunks.push(md_create_chunk(text, "markup.raw", style, link.clone()));
+                } else {
+                    for piece in ["`", text.as_str(), "`"] {
+                        chunks.push(md_create_chunk(piece, "markup.raw", style, link.clone()));
+                    }
+                }
+            }
+            Token::Strong { tokens, .. } => {
+                if !conceal {
+                    chunks.push(md_create_chunk("**", "markup.strong", style, link.clone()));
+                }
+                render_inline_with_style(
+                    tokens,
+                    chunks,
+                    "markup.strong",
+                    style,
+                    conceal,
+                    hyperlinks_supported,
+                    link.clone(),
+                );
+                if !conceal {
+                    chunks.push(md_create_chunk("**", "markup.strong", style, link.clone()));
+                }
+            }
+            Token::Em { tokens, .. } => {
+                if !conceal {
+                    chunks.push(md_create_chunk("*", "markup.italic", style, link.clone()));
+                }
+                render_inline_with_style(
+                    tokens,
+                    chunks,
+                    "markup.italic",
+                    style,
+                    conceal,
+                    hyperlinks_supported,
+                    link.clone(),
+                );
+                if !conceal {
+                    chunks.push(md_create_chunk("*", "markup.italic", style, link.clone()));
+                }
+            }
+            Token::Del { tokens, .. } => {
+                if !conceal {
+                    chunks.push(md_create_chunk("~~", "markup.strikethrough", style, link.clone()));
+                }
+                render_inline_with_style(
+                    tokens,
+                    chunks,
+                    "markup.strikethrough",
+                    style,
+                    conceal,
+                    hyperlinks_supported,
+                    link.clone(),
+                );
+                if !conceal {
+                    chunks.push(md_create_chunk("~~", "markup.strikethrough", style, link.clone()));
+                }
+            }
+            Token::Link {
+                raw,
+                href,
+                text,
+                tokens,
+                ..
+            } => {
+                let link_href = Some(href.clone());
+                if conceal {
+                    render_inline_with_style(
+                        tokens,
+                        chunks,
+                        "markup.link.label",
+                        style,
+                        conceal,
+                        hyperlinks_supported,
+                        link_href.clone(),
+                    );
+                    if (!hyperlinks_supported || !is_supported_link_target(href))
+                        && text != href
+                        && raw != text
+                        && *raw != format!("<{text}>")
+                    {
+                        chunks.push(md_create_chunk(" (", "markup.link", style, link_href.clone()));
+                        chunks.push(md_create_chunk(
+                            href,
+                            "markup.link.url",
+                            style,
+                            link_href.clone(),
+                        ));
+                        chunks.push(md_create_chunk(")", "markup.link", style, link_href));
+                    }
+                } else if raw == text || *raw == format!("<{text}>") {
+                    if raw.starts_with('<') {
+                        chunks.push(md_create_chunk("<", "markup.link", style, link_href.clone()));
+                    }
+                    render_inline_with_style(
+                        tokens,
+                        chunks,
+                        "markup.link.label",
+                        style,
+                        conceal,
+                        hyperlinks_supported,
+                        link_href.clone(),
+                    );
+                    if raw.starts_with('<') {
+                        chunks.push(md_create_chunk(">", "markup.link", style, link_href));
+                    }
+                } else {
+                    chunks.push(md_create_chunk("[", "markup.link", style, link_href.clone()));
+                    render_inline_with_style(
+                        tokens,
+                        chunks,
+                        "markup.link.label",
+                        style,
+                        conceal,
+                        hyperlinks_supported,
+                        link_href.clone(),
+                    );
+                    chunks.push(md_create_chunk("](", "markup.link", style, link_href.clone()));
+                    chunks.push(md_create_chunk(
+                        href,
+                        "markup.link.url",
+                        style,
+                        link_href.clone(),
+                    ));
+                    chunks.push(md_create_chunk(")", "markup.link", style, link_href));
+                }
+            }
+            Token::Image { href, text, .. } => {
+                let image_href = link.clone().or_else(|| Some(href.clone()));
+                if conceal {
+                    let label = if text.is_empty() { "image" } else { text };
+                    chunks.push(md_create_chunk(
+                        label,
+                        "markup.link.label",
+                        style,
+                        image_href,
+                    ));
+                } else {
+                    chunks.push(md_create_chunk("![", "markup.link", style, image_href.clone()));
+                    chunks.push(md_create_chunk(text, "markup.link.label", style, image_href.clone()));
+                    chunks.push(md_create_chunk("](", "markup.link", style, image_href.clone()));
+                    chunks.push(md_create_chunk(href, "markup.link.url", style, image_href.clone()));
+                    chunks.push(md_create_chunk(")", "markup.link", style, image_href));
+                }
+            }
+            Token::Br { .. } => {
+                chunks.push(md_create_chunk("\n", "default", style, link.clone()));
+            }
+            other => {
+                // default branch (Markdown.ts:681-689): nested tokens; the
+                // text fallback covers token shapes the table cells never
+                // carry (block tokens), so containers recurse and the
+                // rest contributes nothing
+                if let Token::Heading { tokens, .. }
+                | Token::Paragraph { tokens, .. }
+                | Token::Blockquote { tokens, .. }
+                | Token::ListItem { tokens, .. }
+                | Token::Strong { tokens, .. }
+                | Token::Em { tokens, .. }
+                | Token::Del { tokens, .. } = other
+                {
+                    render_inline_tokens(
+                        tokens,
+                        chunks,
+                        style,
+                        conceal,
+                        hyperlinks_supported,
+                        link.clone(),
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// `renderInlineTokenWithStyle` (Markdown.ts:692-717).
+fn render_inline_with_style(
+    tokens: &[Token],
+    chunks: &mut Vec<TextChunk>,
+    style_group: &str,
+    style: &SyntaxStyle,
+    conceal: bool,
+    hyperlinks_supported: bool,
+    link: Option<String>,
+) {
+    for token in tokens {
+        match token {
+            Token::Text { text, .. } | Token::Escape { text, .. } => {
+                chunks.push(md_create_chunk(text, style_group, style, link.clone()));
+            }
+            Token::Codespan { text, .. } => {
+                if conceal {
+                    chunks.push(md_create_chunk(text, "markup.raw", style, link.clone()));
+                } else {
+                    for piece in ["`", text.as_str(), "`"] {
+                        chunks.push(md_create_chunk(piece, "markup.raw", style, link.clone()));
+                    }
+                }
+            }
+            other => render_inline_tokens(
+                std::slice::from_ref(other),
+                chunks,
+                style,
+                conceal,
+                hyperlinks_supported,
+                link.clone(),
+            ),
+        }
+    }
+}
+
+/// `createTableDataCellChunks` (Markdown.ts:1382-1388): the cell's
+/// inline chunks, or a single blank chunk.
+fn table_data_cell_chunks(
+    cell: Option<&markdown_parser::TableCell>,
+    style: &SyntaxStyle,
+    conceal: bool,
+    hyperlinks_supported: bool,
+) -> Vec<TextChunk> {
+    let mut chunks = Vec::new();
+    if let Some(cell) = cell {
+        render_inline_tokens(
+            &cell.tokens,
+            &mut chunks,
+            style,
+            conceal,
+            hyperlinks_supported,
+            None,
+        );
+    }
+    if chunks.is_empty() {
+        chunks.push(md_create_chunk(" ", "default", style, None));
+    }
+    chunks
+}
+
+/// `createTableHeaderCellChunks` (Markdown.ts:1390-1410): the inline
+/// chunks overlaid with the `markup.heading` style.
+fn table_header_cell_chunks(
+    cell: &markdown_parser::TableCell,
+    style: &SyntaxStyle,
+    conceal: bool,
+    hyperlinks_supported: bool,
+) -> Vec<TextChunk> {
+    let mut chunks = Vec::new();
+    render_inline_tokens(
+        &cell.tokens,
+        &mut chunks,
+        style,
+        conceal,
+        hyperlinks_supported,
+        None,
+    );
+    if chunks.is_empty() {
+        chunks.push(md_create_chunk(" ", "default", style, None));
+    }
+    let Some(heading) = md_get_style(style, "markup.heading")
+        .or_else(|| style.get_style("default"))
+        .cloned()
+    else {
+        return chunks;
+    };
+    let heading_attributes = crate::styled_text::create_text_attributes(
+        heading.bold.unwrap_or(false),
+        heading.italic.unwrap_or(false),
+        heading.underline.unwrap_or(false),
+        heading.dim.unwrap_or(false),
+        false,
+        false,
+        false,
+        false,
+    );
+    chunks
+        .into_iter()
+        .map(|chunk| TextChunk {
+            fg: heading.fg.or(chunk.fg),
+            bg: heading.bg.or(chunk.bg),
+            attributes: heading_attributes,
+            ..chunk
+        })
+        .collect()
+}
+
+/// `resolveTableRenderableOptions` (Markdown.ts:1497-1523) for the
+/// coalesced `internalBlockMode` the port pins: style "grid" unless
+/// overridden; `usesBorderlessColumnSpacing` (:1490-1495) is false in
+/// grid mode.
+fn resolve_table_config(
+    options: &MarkdownOptions,
+    style: &SyntaxStyle,
+) -> (TableConfig, crate::renderables::text::WrapMode) {
+    let table_options = options.table_options.as_deref();
+    let table_style = match table_options.and_then(|o| o.style.as_deref()) {
+        Some("columns") => "columns",
+        Some("grid") => "grid",
+        // coalesced default (Markdown.ts:1484-1489)
+        _ => "grid",
+    };
+    let borders = table_options.and_then(|o| o.borders).unwrap_or(table_style == "grid");
+    let borderless_columns = table_style == "columns" && !borders;
+    let wrap_mode = crate::renderables::text::WrapMode::parse(
+        table_options
+            .and_then(|o| o.wrap_mode.as_deref())
+            .unwrap_or("word"),
+    );
+    let column_width_mode = match table_options.and_then(|o| o.width_mode.as_deref()) {
+        Some(s) if s == "content" => ColumnWidthMode::Content,
+        Some(s) if s == "full" => ColumnWidthMode::Full,
+        _ if table_style == "columns" => ColumnWidthMode::Content,
+        _ => ColumnWidthMode::Full,
+    };
+    let column_fitter = match table_options.and_then(|o| o.column_fitter.as_deref()) {
+        Some(s) if s == "balanced" => ColumnFitter::Balanced,
+        _ => ColumnFitter::Proportional,
+    };
+    let cell_padding = table_options.and_then(|o| o.cell_padding).unwrap_or(0);
+    let cell_padding_x = table_options
+        .and_then(|o| o.cell_padding_x)
+        .unwrap_or(cell_padding);
+    let cell_padding_y = table_options
+        .and_then(|o| o.cell_padding_y)
+        .unwrap_or(cell_padding);
+    let border_color = style
+        .get_style("conceal")
+        .and_then(|d| d.fg)
+        .unwrap_or_else(|| crate::color::parse_color("#888888"));
+    let defaults = TableConfig::default();
+    let config = TableConfig {
+        wrap_mode,
+        column_width_mode,
+        column_fitter,
+        cell_padding_x,
+        cell_padding_y,
+        column_gap: if borderless_columns { 2 } else { 0 },
+        show_borders: borders,
+        border: borders,
+        outer_border: table_options.and_then(|o| o.outer_border).unwrap_or(borders),
+        border_style: table_options
+            .and_then(|o| o.border_style.clone())
+            .unwrap_or_else(|| "single".into()),
+        border_color,
+        ..defaults
+    };
+    (config, wrap_mode)
+}
+
+/// `buildTableContentCache`'s content (:1415-1471) + `createTableBlock`
+/// (:1588-1621): the chunk grid, or `None` for the empty cache shape
+/// (no header/rows → the raw-markdown fallback, :1595-1597).
+fn build_table_spec(
+    token: &Token,
+    style: &SyntaxStyle,
+    options: &MarkdownOptions,
+    margin_bottom: usize,
+) -> BlockSpec {
+    let Token::Table { raw, header, rows, .. } = token else {
+        unreachable!("checked by caller");
+    };
+    let conceal = options.conceal.unwrap_or(true);
+    if header.is_empty() || rows.is_empty() {
+        // cache null → createMarkdownCodeRenderable(table.raw)
+        return BlockSpec::MarkdownText {
+            options: CodeOptions {
+                content: raw.clone(),
+                filetype: Some("markdown".into()),
+                conceal: Some(conceal),
+                fg: options.fg,
+                bg: options.bg,
+                detect_links: true,
+                hyperlinks_supported: options.hyperlinks_supported,
+                ..Default::default()
+            },
+            margin_bottom,
+        };
+    }
+    let mut content: Vec<Vec<Vec<TextChunk>>> = Vec::with_capacity(rows.len() + 1);
+    // header row (rowIndex 0 is the header, :1436-1437)
+    content.push(
+        header
+            .iter()
+            .map(|cell| {
+                table_header_cell_chunks(cell, style, conceal, options.hyperlinks_supported)
+            })
+            .collect(),
+    );
+    for row in rows {
+        content.push(
+            (0..header.len())
+                .map(|col| {
+                    table_data_cell_chunks(
+                        row.get(col),
+                        style,
+                        conceal,
+                        options.hyperlinks_supported,
+                    )
+                })
+                .collect(),
+        );
+    }
+    let (config, wrap_mode) = resolve_table_config(options, style);
+    BlockSpec::Table {
+        options: TextTableOptions {
+            content,
+            wrap_mode: Some(wrap_mode),
+            column_width_mode: Some(config.column_width_mode),
+            column_fitter: Some(config.column_fitter),
+            cell_padding_x: Some(config.cell_padding_x),
+            cell_padding_y: Some(config.cell_padding_y),
+            column_gap: Some(config.column_gap),
+            show_borders: Some(config.show_borders),
+            border: Some(config.border),
+            outer_border: Some(config.outer_border),
+            border_style: Some(config.border_style.clone()),
+            border_color: Some(config.border_color),
+            fg: options.fg,
+            ..Default::default()
+        },
+        margin_bottom,
+    }
+}
+
+
 /// `updateBlocks` → `createDefaultRenderable` for each block token
 /// (Markdown.ts:1724-1764) — the coalesced mode the port pins.
 pub fn build_markdown_blocks(options: &MarkdownOptions, style: &SyntaxStyle) -> Vec<BlockSpec> {
@@ -498,23 +1029,10 @@ pub fn build_markdown_blocks(options: &MarkdownOptions, style: &SyntaxStyle) -> 
                     margin_bottom,
                 });
             }
-            Token::Table { raw, .. } => {
-                // TextTableRenderable is not yet ported — the fallback
-                // path (createTableBlock with no cache, Markdown.ts:1597)
-                // renders the raw markdown
-                specs.push(BlockSpec::MarkdownText {
-                    options: CodeOptions {
-                        content: raw.clone(),
-                        filetype: Some("markdown".into()),
-                        conceal: Some(conceal),
-                        fg: options.fg,
-                        bg: options.bg,
-                        detect_links: true,
-                        hyperlinks_supported: options.hyperlinks_supported,
-                        ..Default::default()
-                    },
-                    margin_bottom,
-                });
+            Token::Table { .. } => {
+                // createTableBlock (Markdown.ts:1588-1621): the chunk-grid
+                // content when the cache builds, else the raw fallback
+                specs.push(build_table_spec(token, style, options, margin_bottom));
             }
             _ => {
                 // heading/paragraph/text/html/def — the markdown-text

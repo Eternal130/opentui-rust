@@ -892,6 +892,30 @@ pub fn replay(scenario: &Scenario) -> Result<CliRenderer> {
                 if let Some(c) = o.get("concealCode").and_then(|v| v.as_bool()) {
                     opts.conceal_code = Some(c);
                 }
+                if let Some(t) = o.get("tableOptions").and_then(|v| v.as_object()) {
+                    let get_bool = |k: &str| t.get(k).and_then(|v| v.as_bool());
+                    let get_u32 = |k: &str| {
+                        t.get(k).and_then(|v| v.as_u64()).map(|n| n as u32)
+                    };
+                    let get_str = |k: &str| {
+                        t.get(k).and_then(|v| v.as_str()).map(|s| s.to_owned())
+                    };
+                    opts.table_options = Some(Box::new(
+                        opentui_core::renderables::markdown::MarkdownTableOptions {
+                            style: get_str("style"),
+                            borders: get_bool("borders"),
+                            width_mode: get_str("widthMode"),
+                            column_fitter: get_str("columnFitter"),
+                            wrap_mode: get_str("wrapMode"),
+                            cell_padding: get_u32("cellPadding"),
+                            cell_padding_x: get_u32("cellPaddingX"),
+                            cell_padding_y: get_u32("cellPaddingY"),
+                            border_style: get_str("borderStyle"),
+                            outer_border: get_bool("outerBorder"),
+                            selectable: get_bool("selectable"),
+                        },
+                    ));
+                }
                 let style = parse_syntax_style(o)?;
                 PendingNode::Markdown(Box::new(opts), style)
             }

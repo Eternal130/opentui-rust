@@ -847,6 +847,9 @@ for (const step of scenario.steps) {
       ...(o.bg !== undefined ? { bg: o.bg } : {}),
       ...(o.conceal !== undefined ? { conceal: o.conceal } : {}),
       ...(o.concealCode !== undefined ? { concealCode: o.concealCode } : {}),
+      // markdown-lane C1a: the table subset (plain scalar bag — passed
+      // through as the MarkdownTableOptions shape, Markdown.ts:32-84)
+      ...(o.tableOptions !== undefined ? { tableOptions: o.tableOptions } : {}),
     })
   } else if (step.op === "code") {
     const o = step.options ?? {}

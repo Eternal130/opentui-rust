@@ -53,11 +53,11 @@ recomputed state.
 | @opentui/keymap (+subpaths) | 12 | 14* | 4 | 2 | 6 |
 | **total** | **339** | **79** | **35** | **18** | **286** |
 
-### Current (recounted 2026-10-22 from the per-symbol rows below; audio lane merged)
+### Current (recounted 2026-11-03 from the per-symbol rows below; text-table lane merged)
 
 | package | exports | done | partial | deferred | todo |
 |---|---|---|---|---|---|
-| @opentui/core | 279 | 117 | 10 | 0 | 152 |
+| @opentui/core | 279 | 118 | 10 | 0 | 151 |
 | @opentui/solid | 48 | 35 | 3 | 7 | 3 |
 | @opentui/keymap (+subpaths) | 12 | 12 | 0 | 0 | 0 |
 | **total** | **339** | **164 (48.4%)** | **13** | **7** | **155** |
@@ -291,7 +291,7 @@ tree-sitter styling, testing helpers.
 | `TextBufferView` | 2 | core/src/text-buffer-view.ts:12 | opentui-core | todo |
 | `TextNodeRenderable` | 2 | core/src/renderables/TextNode.ts:34 | opentui-core::text_node | done |
 | `TextRenderable` | **1** | core/src/renderables/Text.ts:13 | opentui-core::renderables | done |
-| `TextTableRenderable` | 2 | core/src/renderables/TextTable.ts:99 | opentui-core::renderables | todo |
+| `TextTableRenderable` | 2 | core/src/renderables/TextTable.ts:99 | opentui-core::renderables | done (settled-tree port: options/measure/layout solver + drawGrid borders + per-cell TextBuffer paint; content-diff cell reuse + cell selection deferred — no headless consumer; differential md-table-grid/wide/padding vs 0.5.14 IDENTICAL, allocator unit tests from TextTable.test.ts) |
 | `TextareaRenderable` | **1** | core/src/renderables/Textarea.ts:145 | opentui-core::renderables::textarea | done |
 | `TimeToFirstDrawRenderable` | 2 | core/src/renderables/TimeToFirstDraw.ts:40 | opentui-core::renderables | done (pulled in by solid `TimeToFirstDraw`; TimeToFirstDraw.test.ts ported + ECMA toFixed) |
 | `Timeline` | 2 | core/src/animation/Timeline.ts:284 | opentui-core | todo |

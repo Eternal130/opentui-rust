@@ -1,0 +1,16 @@
+{
+  "name": "md-table-padding",
+  "width": 64,
+  "height": 20,
+  "steps": [
+    {
+      "op": "markdown",
+      "id": "md",
+      "parent": "root",
+      "options": {
+        "content": "| Col A | Col B | Col C |\n|:-----|:-----:|------:|\n| left | center | right |\n| padded cell | x | y |\n",
+        "tableOptions": { "cellPaddingX": 1, "cellPaddingY": 1, "borderStyle": "rounded" }
+      }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "md-table-wide",
+  "width": 44,
+  "height": 22,
+  "steps": [
+    {
+      "op": "markdown",
+      "id": "md",
+      "parent": "root",
+      "options": {
+        "content": "| 名称 | Description | 状态 |\n|:-----|:------------|:----|\n| wide char cell 你好世界 | short | ok |\n| a very long data cell that must wrap inside its column | **bold** and `code` | pending |\n| [link](https://example.com) |  | empty |\n"
+      }
+    }
+  ]
+}
