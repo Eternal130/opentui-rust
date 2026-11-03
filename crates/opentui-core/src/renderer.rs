@@ -180,6 +180,19 @@ pub struct CliRendererConfig {
     /// (node:events): the listener-warning cap, default 10 (Node's
     /// `defaultMaxListeners`).
     pub max_listeners: u32,
+    /// `screenMode` (renderer.ts:202, default at :370) — where the
+    /// renderer owns terminal space.
+    pub screen_mode: ScreenMode,
+    /// `footerHeight` (renderer.ts:205, default `DEFAULT_FOOTER_HEIGHT`
+    /// at :341/:376) — the requested footer height for
+    /// [`ScreenMode::SplitFooter`]; `None` upstream
+    /// (`footerHeight === undefined`).
+    pub footer_height: Option<u32>,
+    /// `externalOutputMode` (renderer.ts:208, default at :379) — what
+    /// happens to writes through the configured output; `None` is
+    /// upstream's undefined (defaulted per screenMode in
+    /// [`resolve_modes`]).
+    pub external_output_mode: Option<ExternalOutputMode>,
 }
 
 impl Default for CliRendererConfig {
@@ -200,8 +213,159 @@ impl Default for CliRendererConfig {
             console_mode: ConsoleMode::default(),
             console_options: ConsoleOptions::default(),
             max_listeners: 10,
+            screen_mode: ScreenMode::default(),
+            footer_height: None,
+            external_output_mode: None,
         }
     }
+}
+
+/// `ScreenMode` (renderer.ts:242) — controls how the renderer uses
+/// terminal space:
+///
+/// * `AlternateScreen` — the terminal's alternate screen buffer
+///   (default, renderer.ts:370);
+/// * `MainScreen` — render on the main screen;
+/// * `SplitFooter` — keep the renderer in a reserved footer on the
+///   main screen (the split-footer scrollback family).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ScreenMode {
+    #[default]
+    AlternateScreen,
+    MainScreen,
+    SplitFooter,
+}
+
+/// `ExternalOutputMode` (renderer.ts:250) — controls writes through
+/// the configured output:
+///
+/// * `CaptureStdout` — queue output and replay it above the split
+///   footer; only valid with [`ScreenMode::SplitFooter`]
+///   (renderer.ts:384-386);
+/// * `Passthrough` — leave the output alone (default,
+///   renderer.ts:379).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ExternalOutputMode {
+    #[default]
+    Passthrough,
+    CaptureStdout,
+}
+
+/// `DEFAULT_FOOTER_HEIGHT` (renderer.ts:341).
+pub const DEFAULT_FOOTER_HEIGHT: u32 = 12;
+
+/// `MAX_SCROLLBACK_SURFACE_HEIGHT_PASSES` (renderer.ts:342).
+pub const MAX_SCROLLBACK_SURFACE_HEIGHT_PASSES: usize = 4;
+
+/// The `resolveModes` failure modes — upstream throws
+/// (renderer.ts:355-360, :384-386); the port returns the error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RendererModeError {
+    /// `footerHeight must be greater than 0` (renderer.ts:359-360).
+    FooterHeightNotPositive,
+    /// `externalOutputMode "capture-stdout" requires screenMode
+    /// "split-footer"` (renderer.ts:384-386).
+    CaptureRequiresSplitFooter,
+}
+
+impl std::fmt::Display for RendererModeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::FooterHeightNotPositive => {
+                write!(f, "footerHeight must be greater than 0")
+            }
+            Self::CaptureRequiresSplitFooter => write!(
+                f,
+                "externalOutputMode \"capture-stdout\" requires screenMode \"split-footer\""
+            ),
+        }
+    }
+}
+
+impl std::error::Error for RendererModeError {}
+
+/// `normalizeFooterHeight` (renderer.ts:348-362) — `None` →
+/// [`DEFAULT_FOOTER_HEIGHT`]; a value must be ≥ 1 (upstream's
+/// non-finite check is impossible for `u32`).
+#[must_use]
+pub fn normalize_footer_height(footer_height: Option<u32>) -> Result<u32, RendererModeError> {
+    match footer_height {
+        None => Ok(DEFAULT_FOOTER_HEIGHT), // renderer.ts:349-351
+        Some(h) if h >= 1 => Ok(h),        // Math.trunc is identity on u32
+        Some(_) => Err(RendererModeError::FooterHeightNotPositive), // :359-360
+    }
+}
+
+/// The `resolveModes` outcome (renderer.ts:364-393) — the triple every
+/// mode-gated API (scrollback writes, surfaces, replay resets) checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResolvedModes {
+    pub screen_mode: ScreenMode,
+    pub footer_height: u32,
+    pub external_output_mode: ExternalOutputMode,
+}
+
+/// The boolean-env read behind `env.OTUI_USE_ALTERNATE_SCREEN` /
+/// `env.OTUI_OVERRIDE_STDOUT` (env.ts's parse: present + not one of
+/// the falsy spellings → true). Presence is what drives the override.
+fn env_flag(name: &str) -> Option<bool> {
+    let raw = std::env::var_os(name)?;
+    let value = raw.to_string_lossy().to_ascii_lowercase();
+    Some(!matches!(value.as_str(), "" | "0" | "false" | "no" | "off"))
+}
+
+/// `resolveModes(config)` (renderer.ts:365-386): the config enums with
+/// their defaults and the `OTUI_USE_ALTERNATE_SCREEN` /
+/// `OTUI_OVERRIDE_STDOUT` env overrides, validated (`capture-stdout`
+/// requires `split-footer`). Deterministic for a given config + env;
+/// tests that exercise the env arms must serialize behind a mutex (the
+/// process env is global).
+pub fn resolve_modes(config: &CliRendererConfig) -> Result<ResolvedModes, RendererModeError> {
+    // renderer.ts:370-373
+    let mut screen_mode = config.screen_mode;
+    if let Some(use_alt) = env_flag("OTUI_USE_ALTERNATE_SCREEN") {
+        screen_mode = if use_alt {
+            ScreenMode::AlternateScreen
+        } else {
+            ScreenMode::MainScreen
+        };
+    }
+
+    // renderer.ts:375-376
+    let footer_height = if screen_mode == ScreenMode::SplitFooter {
+        normalize_footer_height(config.footer_height)?
+    } else {
+        DEFAULT_FOOTER_HEIGHT
+    };
+
+    // renderer.ts:378-382
+    let mut external_output_mode = config.external_output_mode.unwrap_or({
+        if screen_mode == ScreenMode::SplitFooter {
+            ExternalOutputMode::CaptureStdout
+        } else {
+            ExternalOutputMode::Passthrough
+        }
+    });
+    if let Some(override_stdout) = env_flag("OTUI_OVERRIDE_STDOUT") {
+        external_output_mode = if override_stdout && screen_mode == ScreenMode::SplitFooter {
+            ExternalOutputMode::CaptureStdout
+        } else {
+            ExternalOutputMode::Passthrough
+        };
+    }
+
+    // renderer.ts:384-386
+    if external_output_mode == ExternalOutputMode::CaptureStdout
+        && screen_mode != ScreenMode::SplitFooter
+    {
+        return Err(RendererModeError::CaptureRequiresSplitFooter);
+    }
+
+    Ok(ResolvedModes {
+        screen_mode,
+        footer_height,
+        external_output_mode,
+    })
 }
 
 /// The renderer's global selection — `Selection`
@@ -799,6 +963,18 @@ pub struct CliRenderer {
     /// harness's view; the live path writes the same bytes through the
     /// session).
     split_transcript: String,
+    // ----- split-footer surface family (D1b-surface) -----
+    /// `_screenMode` (renderer.ts:882, resolved at :1074).
+    screen_mode: ScreenMode,
+    /// `_footerHeight` (renderer.ts:883, resolved at :1075).
+    footer_height: u32,
+    /// `_externalOutputMode` (renderer.ts:884, resolved at :1075).
+    external_output_mode: ExternalOutputMode,
+    /// `_capabilities` (renderer.ts:925) — the last probe snapshot;
+    /// `renderer.widthMethod` reads `capabilities?.unicode` through it
+    /// (renderer.ts:1468). Fed by the terminal probe lane via
+    /// [`CliRenderer::set_capabilities`].
+    capabilities: Option<TerminalCapabilities>,
 }
 
 /// `maxSplitCommitsPerFrame` (renderer.ts:909) — the flush bound: one
@@ -835,6 +1011,327 @@ pub enum ScrollbackWriteError {
     EmptySnapshot,
 }
 
+/// The `ScrollbackSurface` assertion failures — upstream throws at
+/// each site; the port returns the error (renderer.ts:1986-1988,
+/// :2062-2102).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollbackSurfaceError {
+    /// `createScrollbackSurface requires screenMode "split-footer"
+    /// and externalOutputMode "capture-stdout"` (renderer.ts:1986-1988).
+    RequiresSplitFooterCapture,
+    /// `ScrollbackSurface is destroyed` (renderer.ts:2062-2064).
+    Destroyed,
+    /// `ScrollbackSurface.commitRows requires render() before
+    /// commitRows()` (renderer.ts:2068-2071).
+    NotRendered,
+    /// `ScrollbackSurface.commitRows requires render() after renderer
+    /// geometry changes` (renderer.ts:2078-2083).
+    GeometryChanged,
+    /// `ScrollbackSurface.commitRows requires ...` row-bound family
+    /// (renderer.ts:2087-2101).
+    InvalidRowRange,
+}
+
+impl std::fmt::Display for ScrollbackSurfaceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RequiresSplitFooterCapture => write!(
+                f,
+                "createScrollbackSurface requires screenMode \"split-footer\" and externalOutputMode \"capture-stdout\""
+            ),
+            Self::Destroyed => write!(f, "ScrollbackSurface is destroyed"),
+            Self::NotRendered => write!(
+                f,
+                "ScrollbackSurface.commitRows requires render() before commitRows()"
+            ),
+            Self::GeometryChanged => write!(
+                f,
+                "ScrollbackSurface.commitRows requires render() after renderer geometry changes"
+            ),
+            Self::InvalidRowRange => write!(
+                f,
+                "ScrollbackSurface.commitRows requires 0 <= startRow <= endRowExclusive <= height"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ScrollbackSurfaceError {}
+
+/// `ScrollbackSurfaceOptions` (renderer.ts:316-318).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ScrollbackSurfaceOptions {
+    /// `startOnNewLine` (default true, renderer.ts:1992).
+    pub start_on_new_line: Option<bool>,
+}
+
+/// `ScrollbackSurfaceCommitOptions` (renderer.ts:320-323).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ScrollbackSurfaceCommitOptions {
+    /// `rowColumns` (clamped in `enqueueRenderedScrollbackCommit`,
+    /// renderer.ts:2583-2614).
+    pub row_columns: Option<u32>,
+    /// `trailingNewline` (default true, renderer.ts:2260).
+    pub trailing_newline: Option<bool>,
+}
+
+/// `ScrollbackSurface` (renderer.ts:325-338) — a retained surface
+/// with its own render tree and backing buffer; the host renders
+/// streaming entries onto it and commits painted row ranges into the
+/// parent renderer's scrollback FIFO.
+///
+/// Port shape (bounded divergence, same contract as
+/// `opentui-solid`'s scrollback writer): the render tree lives on a
+/// SCRATCH [`CliRenderer`] (core renderables bind to their taffy
+/// tree), the backing buffer is the scratch renderer's frame buffer,
+/// and the `renderContext` surface is the scratch renderer itself
+/// (the port constructs renderables through `make_*`). `commit_rows`
+/// takes the parent renderer explicitly — the enqueue target
+/// upstream reaches through `this.renderer`
+/// (renderer.ts:2261-2264). `settle` is synchronous: the port's
+/// code-highlighting pipeline is synchronous
+/// (`build_code_document`), so there is nothing to await
+/// (renderer.ts:2196-2226 collapses to a render).
+pub struct ScrollbackSurface {
+    /// The scratch renderer owning the surface's tree + buffers.
+    scratch: CliRenderer,
+    /// The public root's live id (the `scrollback-surface-root-N`
+    /// BoxRenderable, renderer.ts:2016-2029).
+    root_id: String,
+    surface_width: u32,
+    surface_height: u32,
+    /// The geometry the last `render()` snapshotted — the
+    /// `assertGeometryStillCurrent` inputs (renderer.ts:2078-2083).
+    geo_width: u32,
+    geo_width_method: WidthMethod,
+    /// The parent geometry at snapshot time.
+    destroyed: bool,
+    has_rendered: bool,
+    /// `nextCommitStartOnNewLine` (renderer.ts:2049) — true until the
+    /// first commit claims the surface's leading newline ownership.
+    next_commit_start_on_new_line: bool,
+}
+
+impl ScrollbackSurface {
+    /// The construction half of `createScrollbackSurface`
+    /// (renderer.ts:1990-2050): snapshot the pending tail column,
+    /// build the scratch renderer at width×1, and mount the public
+    /// box root (position absolute at 0,0, full width, auto height,
+    /// no border/fill, column flow — renderer.ts:2016-2029).
+    fn new(parent: &CliRenderer, options: ScrollbackSurfaceOptions) -> Result<Self, ScrollbackSurfaceError> {
+        static SURFACE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let surface_id = SURFACE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        let start_on_new_line = options.start_on_new_line.unwrap_or(true); // :1992
+        // firstLineOffset (:1993-1994) — the port's paint is
+        // full-width (the tail-column math owns the splice), so the
+        // offset only feeds the first commit's startOnNewLine default.
+        let tail_column = parent.get_pending_split_tail_column();
+        let _first_line_offset =
+            !start_on_new_line && tail_column > 0 && tail_column < parent.width().max(1);
+
+        let width = parent.width().max(1);
+        let mut scratch = create_cli_renderer(CliRendererConfig {
+            width,
+            height: 1, // renderer.ts:2007-2010 (snapshotContext height 1)
+            ..CliRendererConfig::default()
+        });
+        let root_id = format!("scrollback-surface-root-{surface_id}");
+        let root_opts = crate::renderables::box_::BoxOptions {
+            layout: crate::layout::LayoutOptions {
+                position: Some("absolute".to_owned()),
+                top: Some(Dimension::Points(0.0)),
+                left: Some(Dimension::Points(0.0)),
+                flex_direction: Some("column".to_owned()),
+                ..Default::default()
+            },
+            width: Some(Dimension::Points(width as f32)),
+            height: None, // "auto"
+            background_color: Some("transparent".to_owned()),
+            border: Some(crate::renderables::box_::BorderSpec::Off),
+            should_fill: Some(false),
+            ..Default::default()
+        };
+        let root_renderable = scratch.make_box(&root_id, &root_opts);
+        scratch.add(root_renderable);
+
+        Ok(ScrollbackSurface {
+            scratch,
+            root_id,
+            surface_width: width,
+            surface_height: 1,
+            geo_width: width,
+            geo_width_method: parent.width_method(),
+            destroyed: false,
+            has_rendered: false,
+            next_commit_start_on_new_line: start_on_new_line,
+        })
+    }
+
+    /// The surface's `renderContext` face — upstream hands the
+    /// context to `new *Renderable(surface.renderContext, …)`
+    /// (renderer.ts:307's `ScrollbackSnapshotRenderContext`); in the
+    /// port renderables are constructed through the renderer, so this
+    /// IS the context.
+    pub fn render_context(&mut self) -> &mut CliRenderer {
+        &mut self.scratch
+    }
+
+    /// `surface.root` (renderer.ts:2030-2032) — the public box root's
+    /// live id; mount children with
+    /// [`CliRenderer::mount_child`] under it.
+    #[must_use]
+    pub fn root_id(&self) -> &str {
+        &self.root_id
+    }
+
+    /// Mount a renderable under the surface root (`surface.root.add`,
+    /// renderer.ts:2030-2032's consumer face).
+    pub fn add(&mut self, child: Renderable) -> bool {
+        let root = self.root_id.clone();
+        self.scratch.mount_child(&root, child)
+    }
+
+    /// `surface.width` (renderer.ts:333-ish surface getters).
+    #[must_use]
+    pub fn width(&self) -> u32 {
+        self.surface_width
+    }
+
+    /// `surface.height`.
+    #[must_use]
+    pub fn height(&self) -> u32 {
+        self.surface_height
+    }
+
+    /// `surface.isDestroyed`.
+    #[must_use]
+    pub fn is_destroyed(&self) -> bool {
+        self.destroyed
+    }
+
+    /// The public root's measured layout height, clamped ≥ 1
+    /// (`measureSnapshotHeight`, scrollback.ts:108-122 — the same
+    /// measure the solid writer uses).
+    fn measure_root_height(&self) -> u32 {
+        self.scratch
+            .root
+            .inner
+            .find(&self.root_id)
+            .map_or(1, |n| n.h.max(1.0) as u32)
+    }
+
+    fn render_pass(&mut self, width: u32, height: u32) {
+        self.scratch.resize(width, height);
+        self.scratch.render();
+    }
+
+    /// `surface.render()` (renderer.ts:2150-2207) — re-render the
+    /// surface at the CURRENT renderer geometry, converging the
+    /// auto-height root over at most
+    /// [`MAX_SCROLLBACK_SURFACE_HEIGHT_PASSES`] measure/render passes
+    /// (:2165-2207), then snapshot the geometry for the next
+    /// `commitRows`' `assertGeometryStillCurrent`.
+    pub fn render(&mut self) {
+        if self.destroyed {
+            return; // assertNotDestroyed, renderer.ts:2152-2154
+        }
+        let width = self.scratch.config.width.max(1);
+        let mut target_height = self.surface_height.max(1); // :2188
+        let mut converged = false;
+
+        for _pass in 0..MAX_SCROLLBACK_SURFACE_HEIGHT_PASSES {
+            self.render_pass(width, target_height);
+            let measured = self.measure_root_height().max(1);
+            if measured == target_height {
+                converged = true; // :2190-2206
+                break;
+            }
+            target_height = measured;
+        }
+        if !converged {
+            // The post-loop renderPass (:2209-2210) — the budget ran
+            // out at a freshly measured height.
+            self.render_pass(width, target_height);
+        }
+
+        self.surface_width = width;
+        self.surface_height = target_height;
+        self.geo_width = width;
+        self.has_rendered = true; // :2201
+    }
+
+    /// `surface.settle(timeoutMs)` (renderer.ts:2212-2226) — render,
+    /// then wait for pending `CodeRenderable` highlighting. The
+    /// port's highlight pipeline is synchronous, so settle IS render.
+    pub fn settle(&mut self) {
+        self.render();
+    }
+
+    /// `surface.commitRows(startRow, endRowExclusive, options)`
+    /// (renderer.ts:2242-2272) — copy the painted row range out of
+    /// the backing buffer and enqueue it into `renderer`'s scrollback
+    /// FIFO with the surface's rolling newline ownership
+    /// (`nextCommitStartOnNewLine` → false after the first commit,
+    /// :2270). The parent renderer is the explicit enqueue target
+    /// (upstream closes over `renderer`, :2243).
+    pub fn commit_rows(
+        &mut self,
+        renderer: &mut CliRenderer,
+        start_row: u32,
+        end_row_exclusive: u32,
+        options: ScrollbackSurfaceCommitOptions,
+    ) -> Result<(), ScrollbackSurfaceError> {
+        if self.destroyed {
+            return Err(ScrollbackSurfaceError::Destroyed); // :2062-2064
+        }
+        if !self.has_rendered {
+            return Err(ScrollbackSurfaceError::NotRendered); // :2068-2071
+        }
+        // assertGeometryStillCurrent (:2078-2083): the surface's
+        // width/widthMethod must still match the parent's.
+        if renderer.width().max(1) != self.geo_width
+            || renderer.width_method() != self.geo_width_method
+        {
+            return Err(ScrollbackSurfaceError::GeometryChanged);
+        }
+        // assertRowRange (:2087-2101) — u32 bounds make the
+        // integer/negativity arms structurally unreachable.
+        if end_row_exclusive < start_row || end_row_exclusive > self.surface_height {
+            return Err(ScrollbackSurfaceError::InvalidRowRange);
+        }
+        if start_row == end_row_exclusive {
+            return Ok(()); // :2265-2267
+        }
+
+        // drawFrameBuffer (:2250-2253) — the port's payload is the
+        // painted text rows of the backing buffer.
+        let frame = self.scratch.current_render_buffer.char_frame();
+        let lines: Vec<String> = frame
+            .split('\n')
+            .skip(start_row as usize)
+            .take((end_row_exclusive - start_row) as usize)
+            .map(str::to_owned)
+            .collect();
+
+        let start_on_new_line = self.next_commit_start_on_new_line;
+        renderer.enqueue_rendered_scrollback_commit(
+            lines,
+            options.row_columns,
+            Some(start_on_new_line),
+            options.trailing_newline,
+        );
+        self.next_commit_start_on_new_line = false; // :2270
+        Ok(())
+    }
+
+    /// `surface.destroy()` (renderer.ts:2274-2306) — the surface's
+    /// tree + buffers drop with the scratch renderer; idempotent.
+    pub fn destroy(&mut self) {
+        self.destroyed = true;
+    }
+}
+
 use std::collections::HashMap;
 
 impl Default for CliRenderer {
@@ -846,8 +1343,21 @@ impl Default for CliRenderer {
 /// `createCliRenderer(config)` — renderer.ts:723-748. The upstream factory
 /// awaits terminal setup; the headless port is synchronous and never
 /// touches stdin/stdout.
+///
+/// The constructor resolves the mode triple (`resolveModes`,
+/// renderer.ts:1074) and arms the split-footer capture path when
+/// `externalOutputMode` is `"capture-stdout"` (the `stdout.write`
+/// intercept at renderer.ts:1291 — `resolveModes` has already
+/// validated it implies `split-footer`, which is exactly the gate
+/// every scrollback write/flush checks, renderer.ts:2364-2366).
+/// Upstream's constructor *throws* on an invalid config; the port's
+/// factory is infallible, so the mode errors surface as a panic
+/// carrying the upstream message (bounded divergence — the
+/// `Result`-returning seam is [`resolve_modes`]).
 #[must_use]
 pub fn create_cli_renderer(config: CliRendererConfig) -> CliRenderer {
+    let modes = resolve_modes(&config).unwrap_or_else(|e| panic!("{e}"));
+    let split_capture_active = modes.external_output_mode == ExternalOutputMode::CaptureStdout;
     let mut tree: TaffyTree<MeasureCtx> = TaffyTree::new();
     // rounding enabled by default in taffy — yoga's point-scale-1 behavior
     let root = RootRenderable::new(&mut tree, config.width, config.height);
@@ -894,10 +1404,14 @@ pub fn create_cli_renderer(config: CliRendererConfig) -> CliRenderer {
         terminal_title: String::new(),
         #[cfg(feature = "terminal-backend")]
         session: None,
-        split_capture_active: false,
+        split_capture_active,
         split_tail_column: 0,
         external_output_queue: crate::scrollback::ExternalOutputQueue::default(),
         split_transcript: String::new(),
+        screen_mode: modes.screen_mode,
+        footer_height: modes.footer_height,
+        external_output_mode: modes.external_output_mode,
+        capabilities: None,
     }
 }
 
@@ -911,6 +1425,44 @@ impl CliRenderer {
     #[must_use]
     pub fn height(&self) -> u32 {
         self.config.height
+    }
+
+    /// `renderer.widthMethod` (renderer.ts:1468) —
+    /// `capabilities?.unicode ?? nextRenderBuffer.widthMethod`; the
+    /// port's buffers carry no method of their own, so the fallback is
+    /// the zig default (`WidthMethod::default()`, terminal.zig:18).
+    #[must_use]
+    pub fn width_method(&self) -> WidthMethod {
+        self.capabilities
+            .as_ref()
+            .map(|caps| caps.unicode)
+            .unwrap_or_default()    }
+
+    /// Store the probe's capability snapshot (`_capabilities`,
+    /// renderer.ts:925) — feeds [`CliRenderer::width_method`] and the
+    /// CAPABILITIES event consumers.
+    pub fn set_capabilities(&mut self, caps: TerminalCapabilities) {
+        self.capabilities = Some(caps);
+    }
+
+    /// `renderer.screenMode` (renderer.ts:1738-1740).
+    #[must_use]
+    pub fn screen_mode(&self) -> ScreenMode {
+        self.screen_mode
+    }
+
+    /// The resolved footer height (`_footerHeight`, renderer.ts:883,
+    /// resolved at :1075).
+    #[must_use]
+    pub fn footer_height(&self) -> u32 {
+        self.footer_height
+    }
+
+    /// `renderer.externalOutputMode` — the resolved mode
+    /// (`_externalOutputMode`, renderer.ts:884, resolved at :1075).
+    #[must_use]
+    pub fn external_output_mode(&self) -> ExternalOutputMode {
+        self.external_output_mode
     }
 
     // -----------------------------------------------------------------
@@ -1270,13 +1822,14 @@ impl CliRenderer {
 
         // The writer context — width/widthMethod/tailColumn
         // (renderer.ts:2368-2375); the tail column is the PENDING one
-        // (queued commits included, renderer.ts:2572-2583). The width
-        // method upstream comes from probe caps; the runtime base
-        // reports the zig default (terminal.zig:18) until the
-        // surface lane wires the live caps.
+        // (queued commits included, renderer.ts:2572-2583), and the
+        // width method is the live one — `renderer.widthMethod`
+        // (renderer.ts:1468: `capabilities?.unicode ?? buffer`), wired
+        // since D1b-surface (the D1b-core base reported the zig
+        // default).
         let ctx = crate::scrollback::ScrollbackRenderContext {
             width: self.config.width.max(1),
-            width_method: WidthMethod::default(),
+            width_method: self.width_method(),
             tail_column: self.get_pending_split_tail_column(),
         };
         let snapshot = writer(&ctx);
@@ -1284,27 +1837,44 @@ impl CliRenderer {
             return Err(ScrollbackWriteError::EmptySnapshot); // renderer.ts:2383-2385
         }
 
-        // enqueueRenderedScrollbackCommit (renderer.ts:2583-2614):
-        // clamp, default the newline flags, enqueue, request render.
-        let width = self.config.width.max(1);
-        let clamped = crate::scrollback::snapshot_width_clamp(
-            snapshot.row_columns.unwrap_or(width),
-            width,
+        self.enqueue_rendered_scrollback_commit(
+            snapshot.lines,
+            snapshot.row_columns,
+            snapshot.start_on_new_line,
+            snapshot.trailing_newline,
         );
-        let row_columns = if snapshot.row_columns.is_some() {
+        Ok(())
+    }
+
+    /// `enqueueRenderedScrollbackCommit` (renderer.ts:2583-2614) —
+    /// clamp the rowColumns budget, default the newline flags,
+    /// enqueue ONE commit in the FIFO, and request a render so the
+    /// flush can batch commits into one frame (:2614). Shared by
+    /// `writeToScrollback` and the scrollback *surface* commit path
+    /// (`ScrollbackSurface.commitRows`, :2245-2272).
+    pub fn enqueue_rendered_scrollback_commit(
+        &mut self,
+        lines: Vec<String>,
+        row_columns: Option<u32>,
+        start_on_new_line: Option<bool>,
+        trailing_newline: Option<bool>,
+    ) {
+        let width = self.config.width.max(1);
+        let clamped =
+            crate::scrollback::snapshot_width_clamp(row_columns.unwrap_or(width), width);
+        let row_columns = if row_columns.is_some() {
             clamped
         } else {
             width
         };
         let commit = crate::scrollback::ExternalOutputCommit {
-            lines: snapshot.lines,
+            lines,
             row_columns,
-            start_on_new_line: snapshot.start_on_new_line.unwrap_or(true), // :2612
-            trailing_newline: snapshot.trailing_newline.unwrap_or(true),   // :2613
+            start_on_new_line: start_on_new_line.unwrap_or(true), // :2612
+            trailing_newline: trailing_newline.unwrap_or(true),   // :2613
         };
         self.enqueue_split_commit(commit);
         self.request_render(); // renderer.ts:2614
-        Ok(())
     }
 
     /// `enqueueSplitCommit` (renderer.ts:2608-2613) — queue the
@@ -1445,10 +2015,108 @@ impl CliRenderer {
         self.external_output_queue.size()
     }
 
+    /// The live queue (`externalOutputQueue`) — read-only peek access
+    /// for hosts asserting pending commits.
+    #[must_use]
+    pub fn external_output_queue(&self) -> &crate::scrollback::ExternalOutputQueue {
+        &self.external_output_queue
+    }
+
     /// The committed tail column (`splitTailColumn`, renderer.ts:901).
     #[must_use]
     pub fn split_tail_column(&self) -> u32 {
         self.split_tail_column
+    }
+
+    // -----------------------------------------------------------------
+    // Split-footer surface family (D1b-surface) —
+    // renderer.ts:1984-2338 (createScrollbackSurface), 2446-2475
+    // (resetSplitFooterForReplay)
+    // -----------------------------------------------------------------
+
+    /// `createScrollbackSurface(options)` (renderer.ts:1984-2338) —
+    /// a retained surface the host renders streaming entries onto and
+    /// commits row ranges from (ref mini `RunScrollbackStream`:
+    /// mount renderables under `surface.root`, `render()`/`settle()`,
+    /// `commitRows(committed, target)` per flush).
+    ///
+    /// Requires the split-footer capture mode (renderer.ts:1985-1989:
+    /// upstream throws; the port returns the error). Upstream's
+    /// surface keeps its render tree on the SAME renderer through a
+    /// snapshot `RenderContext` + off-screen `OptimizedBuffer`; the
+    /// port's renderables are bound to their taffy tree, so the
+    /// surface owns a SCRATCH renderer (the same shape
+    /// `opentui-solid`'s scrollback writer uses) and
+    /// [`ScrollbackSurface::commit_rows`] hands the painted rows back
+    /// to this renderer's commit FIFO — bounded divergence, noted in
+    /// the surface docs.
+    pub fn create_scrollback_surface(
+        &mut self,
+        options: ScrollbackSurfaceOptions,
+    ) -> Result<ScrollbackSurface, ScrollbackSurfaceError> {
+        if self.screen_mode != ScreenMode::SplitFooter
+            || self.external_output_mode != ExternalOutputMode::CaptureStdout
+        {
+            // renderer.ts:1985-1989
+            return Err(ScrollbackSurfaceError::RequiresSplitFooterCapture);
+        }
+        ScrollbackSurface::new(self, options)
+    }
+
+    /// `resetSplitFooterForReplay(options)` (renderer.ts:2446-2475):
+    /// drain the pending commits, drop the queue, reset the split
+    /// scrollback state, and (live) emit the replay-reset control
+    /// sequence (`resetScrollRegion + reset + home + clearScreen
+    /// [+ clearSavedLines] + home`, :2466-2473).
+    ///
+    /// Requires the split-footer capture mode (:2450-2454) and an
+    /// "active terminal" (:2455-2457) — upstream's
+    /// `_terminalIsSetup`; the port treats a headless renderer (no
+    /// attached session) as active too, since the headless transcript
+    /// model IS its terminal (bounded divergence).
+    pub fn reset_split_footer_for_replay(&mut self, clear_saved_lines: bool) -> Result<(), ScrollbackSurfaceError> {
+        if self.destroyed {
+            return Ok(()); // renderer.ts:2448
+        }
+        if self.screen_mode != ScreenMode::SplitFooter
+            || self.external_output_mode != ExternalOutputMode::CaptureStdout
+        {
+            return Err(ScrollbackSurfaceError::RequiresSplitFooterCapture); // :2450-2454
+        }
+        self.flush_pending_split_output_before_transition(true); // :2460
+        self.external_output_queue.clear(); // :2461
+        // resetSplitScrollback (:2462 → :2921-2924): the native
+        // transcript cursor resets; the port's tracked tail resets
+        // with it.
+        self.split_tail_column = 0;
+        // clearSavedLines (:2471) — the transcript model is the port's
+        // saved-lines view.
+        if clear_saved_lines {
+            self.split_transcript.clear();
+        }
+        // The control-sequence burst (:2466-2473) reaches the real
+        // terminal only (writeOut); the headless model absorbs
+        // nothing — the next repaint is full (`forceFullRepaint`,
+        // :2465 → the port's request below).
+        #[cfg(feature = "terminal-backend")]
+        {
+            let seq = format!(
+                "{}{}{}{}{}{}",
+                crate::ansi::ansi_consts::RESET_SCROLL_REGION,
+                crate::ansi::ansi_consts::RESET,
+                crate::ansi::ansi_consts::HOME,
+                crate::ansi::ansi_consts::CLEAR,
+                if clear_saved_lines {
+                    crate::ansi::ansi_consts::CLEAR_SAVED_LINES
+                } else {
+                    ""
+                },
+                crate::ansi::ansi_consts::HOME,
+            );
+            let _ = self.write_split_bytes_live(&seq);
+        }
+        self.request_render(); // :2474
+        Ok(())
     }
 
     /// Allocate (or intern) the OSC 8 link id for `url` — the port of
@@ -5407,4 +6075,293 @@ mod tests {
         // one hunk starting at logical line 0, unwrapped → visual row 0
         assert_eq!(renderer.diff_hunk_row_offsets("d"), vec![0]);
     }
+
+    // =================================================================
+    // Split-footer surface family (D1b-surface) — resolveModes
+    // (renderer.ts:365-386), createScrollbackSurface (:1984-2338),
+    // resetSplitFooterForReplay (:2446-2475)
+    // =================================================================
+
+    fn split_config() -> CliRendererConfig {
+        CliRendererConfig {
+            screen_mode: ScreenMode::SplitFooter,
+            footer_height: Some(8),
+            external_output_mode: Some(ExternalOutputMode::CaptureStdout),
+            ..Default::default()
+        }
+    }
+
+    /// Serializes the env-override arms — the process env is global.
+    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// The resolveModes decision table (renderer.ts:365-386): the
+    /// defaults, footerHeight normalization, capture-stdout's
+    /// split-footer dependency, and both env overrides.
+    #[test]
+    fn resolve_modes_decision_table() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::remove_var("OTUI_USE_ALTERNATE_SCREEN");
+        std::env::remove_var("OTUI_OVERRIDE_STDOUT");
+
+        // defaults: alternate-screen, footer 12, passthrough
+        // (renderer.ts:370, :341/:376, :379)
+        let m = resolve_modes(&CliRendererConfig::default()).unwrap();
+        assert_eq!(m.screen_mode, ScreenMode::AlternateScreen);
+        assert_eq!(m.footer_height, DEFAULT_FOOTER_HEIGHT);
+        assert_eq!(m.external_output_mode, ExternalOutputMode::Passthrough);
+
+        // split-footer defaults capture-stdout (:379) and keeps the
+        // requested footerHeight; None → DEFAULT (:376 via :349-351)
+        let m = resolve_modes(&split_config()).unwrap();
+        assert_eq!(m.screen_mode, ScreenMode::SplitFooter);
+        assert_eq!(m.footer_height, 8);
+        assert_eq!(m.external_output_mode, ExternalOutputMode::CaptureStdout);
+        let mut c = split_config();
+        c.footer_height = None;
+        assert_eq!(resolve_modes(&c).unwrap().footer_height, DEFAULT_FOOTER_HEIGHT);
+
+        // non-split modes keep DEFAULT_FOOTER_HEIGHT regardless
+        // (:375-376)
+        let mut c = split_config();
+        c.screen_mode = ScreenMode::MainScreen;
+        c.external_output_mode = Some(ExternalOutputMode::Passthrough);
+        let m = resolve_modes(&c).unwrap();
+        assert_eq!(m.footer_height, DEFAULT_FOOTER_HEIGHT);
+        assert_eq!(m.screen_mode, ScreenMode::MainScreen);
+
+        // footerHeight must be > 0 (:359-360)
+        let mut c = split_config();
+        c.footer_height = Some(0);
+        assert_eq!(
+            resolve_modes(&c),
+            Err(RendererModeError::FooterHeightNotPositive)
+        );
+
+        // capture-stdout requires split-footer (:384-386)
+        let mut c = CliRendererConfig::default();
+        c.external_output_mode = Some(ExternalOutputMode::CaptureStdout);
+        assert_eq!(
+            resolve_modes(&c),
+            Err(RendererModeError::CaptureRequiresSplitFooter)
+        );
+
+        // OTUI_USE_ALTERNATE_SCREEN forces the screen mode (:371-373)
+        let mut c = split_config();
+        c.external_output_mode = Some(ExternalOutputMode::Passthrough);
+        std::env::set_var("OTUI_USE_ALTERNATE_SCREEN", "0");
+        let m = resolve_modes(&c).unwrap();
+        assert_eq!(m.screen_mode, ScreenMode::MainScreen);
+        std::env::set_var("OTUI_USE_ALTERNATE_SCREEN", "1");
+        let m = resolve_modes(&c).unwrap();
+        assert_eq!(m.screen_mode, ScreenMode::AlternateScreen);
+        std::env::remove_var("OTUI_USE_ALTERNATE_SCREEN");
+
+        // OTUI_OVERRIDE_STDOUT: truthy + split-footer → capture,
+        // otherwise passthrough (:380-382)
+        let c = CliRendererConfig::default(); // alternate-screen
+        std::env::set_var("OTUI_OVERRIDE_STDOUT", "1");
+        assert_eq!(
+            resolve_modes(&c).unwrap().external_output_mode,
+            ExternalOutputMode::Passthrough
+        );
+        let m = resolve_modes(&split_config()).unwrap();
+        assert_eq!(m.external_output_mode, ExternalOutputMode::CaptureStdout);
+        std::env::set_var("OTUI_OVERRIDE_STDOUT", "0");
+        let m = resolve_modes(&split_config()).unwrap();
+        assert_eq!(m.external_output_mode, ExternalOutputMode::Passthrough);
+        std::env::remove_var("OTUI_OVERRIDE_STDOUT");
+    }
+
+    /// The constructor arms the runtime from the resolved modes: the
+    /// split-footer capture path (the D1b-core base) turns on with
+    /// `externalOutputMode "capture-stdout"` (renderer.ts:1074,
+    /// :1291) and stays off on the default config.
+    #[test]
+    fn constructor_arms_split_capture_from_modes() {
+        let mut r = create_cli_renderer(CliRendererConfig::default());
+        assert!(!r.is_split_footer_capture_active());
+        assert_eq!(r.screen_mode(), ScreenMode::AlternateScreen);
+        assert_eq!(r.footer_height(), DEFAULT_FOOTER_HEIGHT);
+        assert_eq!(r.external_output_mode(), ExternalOutputMode::Passthrough);
+        // the D1b-core manual arm still works (mode transitions)
+        r.set_split_footer_capture(true);
+        assert!(r.is_split_footer_capture_active());
+
+        let r = create_cli_renderer(split_config());
+        assert!(r.is_split_footer_capture_active());
+        assert_eq!(r.screen_mode(), ScreenMode::SplitFooter);
+        assert_eq!(r.footer_height(), 8);
+        assert_eq!(r.external_output_mode(), ExternalOutputMode::CaptureStdout);
+    }
+
+    /// The surface mode gate (renderer.ts:1985-1989): constructing
+    /// outside split-footer capture errors, and the surface path is
+    /// usable exactly under it.
+    #[test]
+    fn scrollback_surface_requires_split_footer_capture() {
+        let mut r = create_cli_renderer(CliRendererConfig::default());
+        assert!(matches!(
+            r.create_scrollback_surface(ScrollbackSurfaceOptions::default()),
+            Err(ScrollbackSurfaceError::RequiresSplitFooterCapture)
+        ));
+
+        let mut r = create_cli_renderer(split_config());
+        assert!(r
+            .create_scrollback_surface(ScrollbackSurfaceOptions::default())
+            .is_ok());
+    }
+
+    /// The surface lifecycle + snapshot correctness (renderer.ts:1990,
+    /// :2150-2207, :2242-2272): mount a text entry under the root,
+    /// render converges the auto height, commitRows enqueues the
+    /// painted range with the rolling newline ownership, and the
+    /// assert ladder (render-before-commit, geometry, row bounds,
+    /// destroyed) rejects the misuse shapes.
+    #[test]
+    fn scrollback_surface_lifecycle_and_snapshot() {
+        let mut r = create_cli_renderer(CliRendererConfig {
+            width: 20,
+            height: 24,
+            ..split_config()
+        });
+        let mut surface = r
+            .create_scrollback_surface(ScrollbackSurfaceOptions::default())
+            .unwrap();
+        assert_eq!(surface.width(), 20);
+        assert_eq!(surface.height(), 1);
+        assert!(!surface.is_destroyed());
+
+        // commitRows requires render() first (renderer.ts:2068-2071)
+        assert_eq!(
+            surface.commit_rows(&mut r, 0, 1, ScrollbackSurfaceCommitOptions::default()),
+            Err(ScrollbackSurfaceError::NotRendered)
+        );
+
+        // mount a two-line text entry (the ref consumer shape:
+        // surface.root.add(renderable))
+        let opts = TextOptions {
+            content: crate::renderables::text::ContentInput::Str(
+                "hello surface\nsecond row".to_owned(),
+            ),
+            ..Default::default()
+        };
+        let t = surface.render_context().make_text("entry", &opts);
+        assert!(surface.add(t));
+
+        surface.render();
+        let h = surface.height();
+        assert!(h >= 2, "auto height converged over the text rows, got {h}");
+
+        // row-range ladder (renderer.ts:2087-2101)
+        assert_eq!(
+            surface.commit_rows(&mut r, h, 0, ScrollbackSurfaceCommitOptions::default()),
+            Err(ScrollbackSurfaceError::InvalidRowRange)
+        );
+        assert_eq!(
+            surface.commit_rows(&mut r, 0, h + 1, ScrollbackSurfaceCommitOptions::default()),
+            Err(ScrollbackSurfaceError::InvalidRowRange)
+        );
+        // empty range is a no-op (:2265-2267)
+        assert_eq!(
+            surface.commit_rows(&mut r, 1, 1, ScrollbackSurfaceCommitOptions::default()),
+            Ok(())
+        );
+        assert_eq!(r.external_output_queue_size(), 0);
+
+        // the first commit carries the surface's startOnNewLine (the
+        // option default true, renderer.ts:1992), the second flips it
+        // (:2270)
+        surface
+            .commit_rows(&mut r, 0, h, ScrollbackSurfaceCommitOptions::default())
+            .unwrap();
+        assert_eq!(r.external_output_queue_size(), 1);
+        let commit = r.external_output_queue().peek(1)[0].clone();
+        assert!(commit.start_on_new_line);
+        assert!(commit.trailing_newline);
+        assert!(
+            commit.lines.iter().any(|l| l.trim_end().starts_with("hello surface")),
+            "painted rows carry the entry text: {:?}",
+            commit.lines
+        );
+        assert_eq!(commit.lines.len(), h as usize);
+
+        surface
+            .commit_rows(&mut r, 0, h, ScrollbackSurfaceCommitOptions::default())
+            .unwrap();
+        let commit2 = r.external_output_queue().peek(2)[1].clone();
+        assert!(!commit2.start_on_new_line, "nextCommitStartOnNewLine flips");
+
+        // destroyed surfaces reject everything (renderer.ts:2062-2064)
+        surface.destroy();
+        surface.destroy(); // idempotent
+        assert!(surface.is_destroyed());
+        assert_eq!(
+            surface.commit_rows(&mut r, 0, 1, ScrollbackSurfaceCommitOptions::default()),
+            Err(ScrollbackSurfaceError::Destroyed)
+        );
+    }
+
+    /// `resetSplitFooterForReplay` (renderer.ts:2446-2475): pending
+    /// commits drain, the queue empties, the tail resets, and
+    /// clearSavedLines empties the transcript model; outside the
+    /// split-footer capture mode it errors (:2450-2454).
+    #[test]
+    fn reset_split_footer_for_replay_resets_state() {
+        let mut r = create_cli_renderer(CliRendererConfig::default());
+        assert_eq!(
+            r.reset_split_footer_for_replay(false),
+            Err(ScrollbackSurfaceError::RequiresSplitFooterCapture)
+        );
+
+        let mut r = create_cli_renderer(CliRendererConfig {
+            width: 20,
+            ..split_config()
+        });
+        r.write_to_scrollback(Box::new(|_| crate::scrollback::ScrollbackSnapshot {
+            lines: vec!["queued tail".to_owned()],
+            trailing_newline: Some(false),
+            ..Default::default()
+        }))
+        .unwrap();
+        r.flush_pending_split_commits(false, true);
+        assert_eq!(r.split_tail_column(), "queued tail".len() as u32);
+
+        r.reset_split_footer_for_replay(true).unwrap();
+        assert_eq!(r.external_output_queue_size(), 0);
+        assert_eq!(r.split_tail_column(), 0);
+        assert!(r.split_transcript().is_empty());
+        assert!(r.is_render_pending(), ":2474 requestRender");
+    }
+
+    /// `renderer.widthMethod` (renderer.ts:1468): the probe caps'
+    /// unicode field once set, the zig default before — the D1b-core
+    /// divergence-④ closure (the writer context now carries it).
+    #[test]
+    fn width_method_reads_capabilities() {
+        let mut r = create_cli_renderer(split_config());
+        assert_eq!(r.width_method(), WidthMethod::default());
+        r.write_to_scrollback(Box::new(|ctx| {
+            assert_eq!(ctx.width_method, WidthMethod::default());
+            crate::scrollback::ScrollbackSnapshot {
+                lines: vec!["x".to_owned()],
+                ..Default::default()
+            }
+        }))
+        .unwrap();
+        r.flush_pending_split_commits(false, true);
+
+        let mut caps = TerminalCapabilities::default();
+        caps.unicode = WidthMethod::UnicodeWide;
+        r.set_capabilities(caps);
+        assert_eq!(r.width_method(), WidthMethod::UnicodeWide);
+        r.write_to_scrollback(Box::new(|ctx| {
+            assert_eq!(ctx.width_method, WidthMethod::UnicodeWide);
+            crate::scrollback::ScrollbackSnapshot {
+                lines: vec!["y".to_owned()],
+                ..Default::default()
+            }
+        }))
+        .unwrap();
+    }
 }
+

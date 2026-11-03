@@ -24,7 +24,7 @@
 
 use crate::element::Element;
 use crate::reconcile::SolidRenderer;
-use opentui_core::renderer::CliRendererConfig;
+use opentui_core::renderer::{CliRenderer, CliRendererConfig, ScrollbackWriteError};
 
 /// `SolidScrollbackWriterOptions` (scrollback.ts:25-31).
 #[derive(Debug, Clone, Default)]
@@ -183,4 +183,66 @@ fn measure_height(sr: &SolidRenderer, root_key: &str) -> u32 {
         .inner
         .find(root_key)
         .map_or(1, |n| n.h.max(1.0) as u32)
+}
+
+/// `writeSolidToScrollback(renderer, node, options)`
+/// (scrollback.ts:221-228): the solid convenience — build the writer
+/// snapshot and hand it to the host's `renderer.writeToScrollback`
+/// in one step. Paints the snapshot tree to rows at write time (the
+/// core commit payload since D1b-core) and forwards the writer's
+/// newline knobs verbatim.
+pub fn write_solid_to_scrollback(
+    renderer: &mut CliRenderer,
+    node: impl Fn() -> Element + 'static,
+    options: SolidScrollbackWriterOptions,
+) -> Result<(), ScrollbackWriteError> {
+    let writer = create_scrollback_writer(node, options);
+    renderer.write_to_scrollback(Box::new(|ctx| {
+        let snapshot = writer.write(&ScrollbackRenderContext {
+            width: ctx.width,
+            tail_column: ctx.tail_column,
+        });
+        opentui_core::scrollback::ScrollbackSnapshot {
+            lines: snapshot.paint_lines(),
+            row_columns: snapshot.row_columns,
+            start_on_new_line: Some(snapshot.start_on_new_line),
+            trailing_newline: Some(snapshot.trailing_newline),
+        }
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// writeSolidToScrollback (scrollback.ts:221-228) — the
+    /// convenience enqueues through the core write path: mode gate,
+    /// painted rows, and the writer's newline knobs verbatim.
+    #[test]
+    fn write_solid_to_scrollback_enqueues_painted_rows() {
+        let mut renderer = opentui_core::renderer::create_cli_renderer(
+            opentui_core::renderer::CliRendererConfig::default(),
+        );
+        // outside the split-footer capture mode the gate rejects
+        // (renderer.ts:2364-2366)
+        assert!(matches!(
+            write_solid_to_scrollback(&mut renderer, || crate::text_! { content: "hi" }.into_element(), Default::default()),
+            Err(ScrollbackWriteError::CaptureNotActive)
+        ));
+
+        renderer.set_split_footer_capture(true);
+        write_solid_to_scrollback(
+            &mut renderer,
+            || crate::text_! { content: "solid row" }.into_element(),
+            SolidScrollbackWriterOptions {
+                trailing_newline: Some(false),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(renderer.external_output_queue_size(), 1);
+        let commit = renderer.external_output_queue().peek(1)[0].clone();
+        assert!(commit.lines.iter().any(|l| l.contains("solid row")));
+        assert!(!commit.trailing_newline);
+    }
 }

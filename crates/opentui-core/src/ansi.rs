@@ -152,6 +152,10 @@ pub mod ansi_consts {
     pub const RESET: &str = "\x1b[0m";
     pub const CLEAR: &str = "\x1b[2J";
     pub const HOME: &str = "\x1b[H";
+    /// `ANSI.resetScrollRegion` (ansi.zig — `CSI r`).
+    pub const RESET_SCROLL_REGION: &str = "\x1b[r";
+    /// `ANSI.clearSavedLines` (ansi.zig — `CSI 3J`, xterm extended).
+    pub const CLEAR_SAVED_LINES: &str = "\x1b[3J";
     pub const CLEAR_AND_HOME: &str = "\x1b[H\x1b[2J";
     pub const ERASE_TO_END_OF_LINE: &str = "\x1b[K";
     pub const HIDE_CURSOR: &str = "\x1b[?25l";

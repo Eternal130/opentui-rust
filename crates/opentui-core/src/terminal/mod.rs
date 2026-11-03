@@ -48,29 +48,39 @@
 //! from it is NOT captured — B must re-add it if it consumes
 //! `caps.explicit_width`), notification queries (`OSC 99`/`1337`,
 //! caps.notifications), the foot variant branch
-//! (terminal.zig:377), the tmux DCS passthrough wrappers, the
-//! LinkPool generation/refcount slot recycling (link.zig:7-10 — the
-//! port's renderer-side pool interns URLs but never retires ids), and
-//! the split-footer SURFACE family (renderer.ts:2339+ surface half —
-//! `createScrollbackSurface`, mode/geometry enums; the RUNTIME base —
-//! `ExternalOutputCommit` queue, tail-column math, flush
-//! adjudication, `writeToScrollback` — landed with D1b-core in
-//! `opentui_core::scrollback`; `Terminal::teardown_scrollback`
-//! remains the alt-screen tail-jump only). The THEME_MODE / PALETTE events
+//! (terminal.zig:377), the tmux DCS passthrough wrappers, and
+//! the LinkPool generation/refcount slot recycling (link.zig:7-10 —
+//! the port's renderer-side pool interns URLs but never retires ids).
+//! The THEME_MODE / PALETTE events
 //! (renderer.ts:761-762) ride the theme-probe consumer lane;
 //! OSC 10/11 replies are captured (`CapabilityProbe::last_osc11_bg`)
 //! but not yet reduced to a theme mode.
 //!
-//! Scope guard (Phase A ruling, widened by D1b-core): alt-screen by
-//! default, plus the non-alt `makeRoomForRendererOutput` reservation
-//! (ansi.zig:418-425) and the split-footer scrollback RUNTIME BASE —
-//! the `ExternalOutputCommit` queue / tail-column / flush
-//! adjudication family (renderer.ts:2339-2826, `opentui_core::
-//! scrollback` + `CliRenderer::write_to_scrollback`). The inline
-//! viewport surface and the split-footer SURFACE family
-//! (`createScrollbackSurface`, mode/geometry config enums,
-//! `resetSplitFooterForReplay`) remain deferred to lane D1b-surface —
-//! GAPS-registered, not silently approximated.
+//! The split-footer scrollback family is CLOSED (gap G-211): the
+//! runtime base landed with D1b-core (`opentui_core::scrollback` +
+//! `CliRenderer::write_to_scrollback`), the SURFACE family with
+//! D1b-surface (`resolveModes` config enums — screenMode/footerHeight/
+//! externalOutputMode, `createScrollbackSurface`/`ScrollbackSurface`,
+//! `resetSplitFooterForReplay`; renderer.ts:1984-2338, :2446-2475).
+//! Remaining consumer-side note: swapping oc-tui's thin-seam mini
+//! footer for this family is opencode-rust's D2.3 (out of this
+//! repo's scope); `Terminal::teardown_scrollback` remains the
+//! alt-screen tail-jump only.
+//!
+//! Scope guard (Phase A ruling, widened by D1b-core, closed by
+//! D1b-surface): alt-screen by default, plus the non-alt
+//! `makeRoomForRendererOutput` reservation (ansi.zig:418-425), the
+//! split-footer scrollback RUNTIME BASE (the `ExternalOutputCommit`
+//! queue / tail-column / flush adjudication family,
+//! renderer.ts:2339-2826, `opentui_core::scrollback` +
+//! `CliRenderer::write_to_scrollback`), and the split-footer SURFACE
+//! family (renderer.ts:365-393 mode resolution, :1984-2338 surfaces,
+//! :2446-2475 replay reset — `CliRendererConfig::screen_mode`/
+//! `footer_height`/`external_output_mode` +
+//! `CliRenderer::create_scrollback_surface`). Only the inline
+//! viewport surface (the native scroll-region viewport beyond the
+//! port's byte stream) stays GAPS-registered, not silently
+//! approximated.
 pub mod modes;
 pub mod probe;
 pub mod pumps;

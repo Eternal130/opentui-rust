@@ -560,3 +560,92 @@ fn pty_write_to_scrollback_flushes_through_session() {
         "scrollback row one\nrow two\n"
     );
 }
+
+/// The split-footer SURFACE live path end-to-end over the PTY: a
+/// renderer constructed in `screenMode "split-footer"` +
+/// `externalOutputMode "capture-stdout"` (resolveModes arms the
+/// capture runtime, renderer.ts:1074/:1291), a `createScrollbackSurface`
+/// with a text entry mounted under its root (the ref
+/// RunScrollbackStream shape), `render()` converging the auto height,
+/// `commitRows` enqueuing the painted rows, and the render-loop flush
+/// landing the transcript bytes on the master (renderer.ts:1984-2338,
+/// 2729-2826).
+#[test]
+fn pty_split_footer_surface_commits_rows_live() {
+    let pty = open_pty();
+    let opts = SetupOptions {
+        use_alt_screen: false,
+        reserve_surface_height: 4,
+        ..SetupOptions::default()
+    };
+    let term = Terminal::new(
+        UnixTty::from_fd(pty.slave.try_clone().unwrap()),
+        SlaveWriter {
+            fd: pty.slave.try_clone().unwrap(),
+        },
+        &opts,
+    )
+    .unwrap();
+    let master_fd = pty.master.as_fd();
+    let _ = read_available(master_fd, Instant::now() + Duration::from_millis(300)); // setup
+
+    use opentui_core::renderer::{
+        create_cli_renderer, ExternalOutputMode, ScreenMode, ScrollbackSurfaceCommitOptions,
+        ScrollbackSurfaceOptions,
+    };
+    let mut r = create_cli_renderer(CliRendererConfig {
+        width: 40,
+        height: 24,
+        screen_mode: ScreenMode::SplitFooter,
+        footer_height: Some(12),
+        external_output_mode: Some(ExternalOutputMode::CaptureStdout),
+        ..CliRendererConfig::default()
+    });
+    // resolveModes armed the capture path (no manual toggle needed)
+    assert!(r.is_split_footer_capture_active());
+    r.attach_terminal_session(Box::new(term));
+
+    let mut surface = r
+        .create_scrollback_surface(ScrollbackSurfaceOptions::default())
+        .expect("surface under split-footer capture");
+    let opts = opentui_core::renderables::text::TextOptions {
+        content: opentui_core::renderables::text::ContentInput::Str(
+            "surface row one\nsurface row two".to_owned(),
+        ),
+        ..Default::default()
+    };
+    let entry = surface.render_context().make_text("entry", &opts);
+    assert!(surface.add(entry));
+    surface.render();
+    let h = surface.height();
+    assert!(h >= 2);
+
+    surface
+        .commit_rows(&mut r, 0, h, ScrollbackSurfaceCommitOptions::default())
+        .unwrap();
+    assert_eq!(r.external_output_queue_size(), 1);
+
+    let frames = r.settle(8);
+    assert!(frames >= 1);
+    assert_eq!(r.external_output_queue_size(), 0);
+
+    let flushed = read_available(master_fd, Instant::now() + Duration::from_secs(1));
+    let text = String::from_utf8_lossy(&flushed);
+    assert!(
+        text.contains("surface row one\nsurface row two\n"),
+        "committed rows land on the master in order with newline intent, got {text:?}"
+    );
+    assert!(text.contains("surface row one\nsurface row two\n"));
+    assert_eq!(r.split_transcript(), "surface row one\nsurface row two\n");
+
+    // resetSplitFooterForReplay: the control burst reaches the master
+    // (renderer.ts:2466-2473) and the state resets.
+    r.reset_split_footer_for_replay(true).unwrap();
+    let reset = read_available(master_fd, Instant::now() + Duration::from_secs(1));
+    assert_eq!(
+        String::from_utf8_lossy(&reset),
+        "\x1b[r\x1b[0m\x1b[H\x1b[2J\x1b[3J\x1b[H"
+    );
+    assert_eq!(r.split_tail_column(), 0);
+    assert!(r.split_transcript().is_empty());
+}
