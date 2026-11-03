@@ -48,7 +48,7 @@ hdrkm=$(awk '/^### Current/{f=1;next} f&&/keymap/{print;exit}' PORT-MATRIX.md)
 hdr1=$(awk '/^### Current/{f=1;next} f&&/tier-1/{print;exit}' PORT-MATRIX.md)
 # header cells: | name | exports | done | partial | deferred | todo |
 cmprow(){ # cmprow <label> <header-line> <recount-line "pkg k=v ...">
-  IFS='|' read -r _ _ hexph hdone hpart hdef htodo _ <<<"$2"
+  IFS='|' read -r _ _ hexp hdone hpart hdef htodo _ <<<"$2"
   for kv in $3; do case "$kv" in *=*) k=${kv%%=*}; v=${kv##*=};; *) continue;; esac
     case "$k" in exports) hv=${hexp:-};; done) hv=${hdone:-};; partial) hv=${hpart:-};; deferred) hv=${hdef:-};; todo) hv=${htodo:-};; *) continue;; esac
     hv=${hv//[*]/}; hv=$(echo "$hv"|cut -d'(' -f1|tr -d ' %')
