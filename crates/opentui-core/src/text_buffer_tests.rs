@@ -245,3 +245,238 @@ fn measure_intrinsic_vs_wrapped() {
     // none mode always intrinsic
     assert_eq!(doc.measure(WrapMode::None, 5), (11, 2));
 }
+
+// --- truncate: applyTruncation (text-buffer-view.zig:1280-1445) -----------
+
+fn truncate_ellipsis_slices(
+    doc: &TextDocument,
+    vlines: &mut [crate::text_buffer::VirtualLine],
+    vp_width: u32,
+) {
+    crate::text_buffer::apply_truncation(doc, vlines, vp_width);
+}
+
+#[test]
+fn truncate_splits_prefix_ellipsis_suffix() {
+    // applyTruncation 1368-1431: available = vp - 3, prefix = /2,
+    // suffix = remainder anchored at the line end
+    let doc = doc_from("abcdefghijklmnop"); // 16 cols
+    let mut vlines = compute_virtual_lines(&doc, WrapMode::None, None);
+    truncate_ellipsis_slices(&doc, &mut vlines, 10);
+    assert_eq!(vlines.len(), 1);
+    let v = &vlines[0];
+    // available 7 → prefix 3 ("abc"), ellipsis, suffix 4 ("mnop")
+    assert!(v.is_truncated);
+    assert_eq!(v.width_cols, 10);
+    assert_eq!(v.ellipsis_col, 3);
+    assert_eq!(v.truncation_suffix_col_start, 12);
+    assert_eq!(v.slices.len(), 3);
+    assert!(!v.slices[0].is_ellipsis);
+    assert_eq!(v.slices[0].width_cols, 3);
+    assert!(v.slices[1].is_ellipsis);
+    assert_eq!(v.slices[1].width_cols, crate::text_buffer::ELLIPSIS_WIDTH);
+    assert_eq!(v.slices[2].width_cols, 4);
+}
+
+#[test]
+fn truncate_narrow_viewport_keeps_only_the_mark() {
+    // vp.width <= 3 (1363-1365): no chunks, zero width, mark set
+    let doc = doc_from("abcdef");
+    let mut vlines = compute_virtual_lines(&doc, WrapMode::None, None);
+    truncate_ellipsis_slices(&doc, &mut vlines, 3);
+    let v = &vlines[0];
+    assert!(v.is_truncated);
+    assert!(v.slices.is_empty());
+    assert_eq!(v.width_cols, 0);
+    assert_eq!(v.truncation_suffix_col_start, 6); // original width
+}
+
+#[test]
+fn truncate_leaves_fitting_lines_untouched() {
+    // overflow_count == 0 → early return (1344-1348)
+    let doc = doc_from("abc\ndefghi");
+    let mut vlines = compute_virtual_lines(&doc, WrapMode::None, None);
+    let before = vlines.clone();
+    truncate_ellipsis_slices(&doc, &mut vlines, 6);
+    assert_eq!(vlines, before);
+}
+
+#[test]
+fn truncate_cuts_snap_to_graphemes() {
+    // keepChunkPrefix/dropChunkPrefix (1288-1334) are grapheme-safe:
+    // a wide cluster that straddles the cut is dropped whole
+    let doc = doc_from("a世bc"); // widths 1,2,1,1
+    let mut vlines = compute_virtual_lines(&doc, WrapMode::None, None);
+    truncate_ellipsis_slices(&doc, &mut vlines, 4);
+    let v = &vlines[0];
+    // available 1, prefix 0, suffix 1 → ellipsis then "c"
+    assert!(v.is_truncated);
+    assert_eq!(v.ellipsis_col, 0);
+    assert_eq!(v.truncation_suffix_col_start, 4);
+    assert_eq!(v.slices.len(), 2);
+    assert_eq!(v.slices[1].width_cols, 1);
+    // the suffix byte window is the trailing one-column cluster
+    let line = &doc.lines[0];
+    assert_eq!(
+        &line.text[v.slices[1].byte_start as usize
+            ..(v.slices[1].byte_start + v.slices[1].byte_len) as usize],
+        "c"
+    );
+}
+
+// --- the draw loop's three deferred semantics ------------------------------
+
+use crate::buffer::OptimizedBuffer;
+use crate::text_buffer::{draw_text_view, TextViewState, Viewport};
+
+fn draw_doc(doc: &TextDocument, vp: Option<Viewport>, truncate_vp: Option<u32>) -> OptimizedBuffer {
+    let mut buffer = OptimizedBuffer::new(20, 5);
+    let mut vlines = compute_virtual_lines(doc, WrapMode::None, None);
+    if let Some(w) = truncate_vp {
+        crate::text_buffer::apply_truncation(doc, &mut vlines, w);
+    }
+    let view = TextViewState {
+        text_align: TextAlign::Left,
+        tab_indicator: None,
+        tab_indicator_color: None,
+        viewport: vp,
+    };
+    draw_text_view(&mut buffer, doc, &view, &vlines, 0, 0);
+    buffer
+}
+
+fn row_text(buffer: &OptimizedBuffer, y: u32) -> String {
+    (0..buffer.width)
+        .map(|x| {
+            buffer
+                .get(x, y)
+                .map(|c| char::from_u32(c.char).unwrap_or('?'))
+                .unwrap_or(' ')
+        })
+        .collect::<String>()
+        .trim_end()
+        .to_owned()
+}
+
+#[test]
+fn truncate_draws_prefix_ellipsis_suffix() {
+    let doc = doc_from("abcdefghijklmnop");
+    let buffer = draw_doc(
+        &doc,
+        Some(Viewport {
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 5,
+        }),
+        Some(10),
+    );
+    // prefix 3 + "..." + suffix 4, exactly the 10-column viewport
+    assert_eq!(row_text(&buffer, 0), "abc...mnop");
+}
+
+#[test]
+fn scissor_clips_cells_and_drops_straddling_wide_glyphs() {
+    // drawTextBufferInternal: per-glyph skip (1832-1835), wide-glyph
+    // whole-drop when any cell is outside (1849-1861)
+    let doc = doc_from("a世bc"); // cols: a=0, 世=1..2, b=3, c=4
+    let mut buffer = OptimizedBuffer::new(20, 2);
+    buffer.push_scissor_rect(2, 0, 2, 2); // columns 2..3 only
+    let vlines = compute_virtual_lines(&doc, WrapMode::None, None);
+    let view = TextViewState {
+        text_align: TextAlign::Left,
+        tab_indicator: None,
+        tab_indicator_color: None,
+        viewport: Some(Viewport {
+            x: 0,
+            y: 0,
+            width: 20,
+            height: 2,
+        }),
+    };
+    draw_text_view(&mut buffer, &doc, &view, &vlines, 0, 0);
+    buffer.pop_scissor_rect();
+    // scissor covers cols 2..3: 'a' (col 0) skipped per-glyph, 世 spans
+    // cols 1..2 with its first cell outside → the whole glyph drops
+    // (upstream 1832-1835 + 1849-1861), 'b' (col 3) draws, 'c' (col 4)
+    // is outside again
+    assert_eq!(row_text(&buffer, 0), "   b");
+    // the cells outside the scissor stay untouched
+    assert_eq!(
+        buffer.get(0, 0).unwrap().char,
+        crate::buffer::DEFAULT_SPACE_CHAR
+    );
+    assert_eq!(
+        buffer.get(4, 0).unwrap().char,
+        crate::buffer::DEFAULT_SPACE_CHAR
+    );
+}
+
+#[test]
+fn scissor_nested_intersect_clips_draw() {
+    // pushScissorRect intersects with the parent (buffer.zig:375-394):
+    // [1..5] ∩ [3..8] = [3..4]
+    let doc = doc_from("abcdef");
+    let mut buffer = OptimizedBuffer::new(10, 2);
+    buffer.push_scissor_rect(1, 0, 4, 2);
+    buffer.push_scissor_rect(3, 0, 5, 2);
+    let vlines = compute_virtual_lines(&doc, WrapMode::None, None);
+    let view = TextViewState {
+        text_align: TextAlign::Left,
+        tab_indicator: None,
+        tab_indicator_color: None,
+        viewport: Some(Viewport {
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 2,
+        }),
+    };
+    draw_text_view(&mut buffer, &doc, &view, &vlines, 0, 0);
+    buffer.pop_scissor_rect();
+    buffer.pop_scissor_rect();
+    // [1..5] ∩ [3..8] = cols 3..4: only 'd' and 'e' survive
+    assert_eq!(row_text(&buffer, 0), "   de");
+}
+
+#[test]
+fn scroll_offset_y_slices_the_vline_window() {
+    // getVirtualLines (492-508): the viewport shows [y, y+height)
+    let doc = doc_from("one\ntwo\nthree\nfour");
+    let buffer = draw_doc(
+        &doc,
+        Some(Viewport {
+            x: 0,
+            y: 2,
+            width: 20,
+            height: 5,
+        }),
+        None,
+    );
+    assert_eq!(row_text(&buffer, 0), "three");
+    assert_eq!(row_text(&buffer, 1), "four");
+    assert_eq!(row_text(&buffer, 2), "");
+}
+
+#[test]
+fn scroll_offset_x_skips_columns_and_drops_edge_wide_glyphs() {
+    // horizontal offset (1801-1811) skips the first columns; a wide
+    // glyph straddling the offset edge is dropped whole (1840-1859)
+    let doc = doc_from("a世bc");
+    // h_off 2: 'a' and the first cell of 世 are skipped; 世 would start
+    // at screen col -1 → dropped (currentX + width <= 0 path is for
+    // fully-left glyphs; here the skip consumes it via rendered_col)
+    let buffer = draw_doc(
+        &doc,
+        Some(Viewport {
+            x: 2,
+            y: 0,
+            width: 18,
+            height: 5,
+        }),
+        None,
+    );
+    // cols 0..2 skipped ('a' 1 + 世 2 → 3 skipped actually: 'a'=1, 世=2
+    // covers cols 1-2), so 'b' lands at col 0
+    assert_eq!(row_text(&buffer, 0), "bc");
+}

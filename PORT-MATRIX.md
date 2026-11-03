@@ -286,7 +286,7 @@ tree-sitter styling, testing helpers.
 | `TerminalPalette` | 2 | core/src/lib/terminal-palette.ts:93 | opentui-core | todo |
 | `Text` | 2 | core/src/renderables/composition/constructs.ts:36 | opentui-core | done |
 | `TextAttributes` | **1** | core/src/types.ts:8 | opentui-core | done |
-| `TextBuffer` | **1** | core/src/text-buffer.ts:16 | opentui-core::editor | partial |
+| `TextBuffer` | **1** | core/src/text-buffer.ts:16 | opentui-core::editor | partial (remaining subset delta: **selection only** — selectionBg/Fg fields exist, paint/measure ignore them. `truncate:true` (applyTruncation + ellipsis/suffix style override, text-buffer-view.zig:1280-1445 + buffer.zig:1908-1952), scissor-gated cells (buffer.zig:1832-1861/2017) and scroll offsets ≠ 0 (viewport x/y slicing + clamped scrollX/scrollY setters, TextBufferRenderable.ts:176-220) are ported; differential text-truncate-on-off / text-scissor-nested / text-scroll-viewport vs 0.5.14 IDENTICAL) |
 | `TextBufferRenderable` | 2 | core/src/renderables/TextBufferRenderable.ts:25 | opentui-core::renderables | todo |
 | `TextBufferView` | 2 | core/src/text-buffer-view.ts:12 | opentui-core | todo |
 | `TextNodeRenderable` | 2 | core/src/renderables/TextNode.ts:34 | opentui-core::text_node | done |
