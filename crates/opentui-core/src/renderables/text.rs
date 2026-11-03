@@ -287,12 +287,23 @@ impl TextRenderableState {
                 Some(self.viewport.map_or(0, |vp| vp.width))
             };
             let wrap_width = wrap_width.filter(|w| *w > 0);
-            recomputed = compute_virtual_lines(&self.doc, self.wrap_mode, wrap_width);
+            // `ensureTruncation` (text-buffer-view.zig:1268-1278): with
+            // `truncate` set and a live viewport, `getVirtualLines`
+            // applies the truncation pass before the draw sees the lines
+            if self.truncate {
+                if let Some(vp) = self.viewport {
+                    crate::text_buffer::apply_truncation(&self.doc, &mut self.vlines, vp.width);
+                }
+            }
+            let mut lines = compute_virtual_lines(&self.doc, self.wrap_mode, wrap_width);
+            if self.truncate {
+                if let Some(vp) = self.viewport {
+                    crate::text_buffer::apply_truncation(&self.doc, &mut lines, vp.width);
+                }
+            }
+            recomputed = lines;
             &recomputed
         };
-        // `truncate: true` (setTruncate + ensureTruncation,
-        // text-buffer-view.zig:1290-1445) is a scrollbox-lane target;
-        // vlines that fit the viewport need no truncation pass.
         draw_text_view(buffer, &self.doc, &view, vlines, screen_x, screen_y);
     }
 }

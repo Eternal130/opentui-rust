@@ -19,8 +19,10 @@
 //!    style resolution against the spans, INVERSE fg/bg swap
 //!    (buffer.zig:1990-1994), tab indicator cells (2007-2034).
 //!
-//! Subset deltas (documented): selection, truncation (`truncate: true`),
-//! scissor rects and scroll offsets ≠ 0 are later lanes; opacity is
+//! Subset deltas (documented): selection is a later lane (the
+//! selectionBg/Fg fields exist; the paint/measure paths ignore them).
+//! Truncation (`truncate: true`, [`apply_truncation`]), scissor-gated
+//! cells and scroll offsets ≠ 0 are ported (draw-text path). Opacity is
 //! always 1.0 in the headless profile. Styled chunks model as **one
 //! native segment per logical line** (upstream re-segments the rope by
 //! lines after `setStyledText`; the chunk *styles* live in the spans,
@@ -334,6 +336,11 @@ pub struct VlineSlice {
     pub byte_len: u32,
     pub col_start: u32,
     pub width_cols: u32,
+    /// The truncation ellipsis slice (`applyTruncation`'s synthetic
+    /// `ellipsis_chunk` slice, text-buffer-view.zig:1389-1395): renders
+    /// as three `.` cells regardless of the line bytes (the byte
+    /// window is inert — the upstream chunk owns the "..." bytes).
+    pub is_ellipsis: bool,
 }
 
 /// One rendered (virtual) line — `VirtualLine`
@@ -345,6 +352,13 @@ pub struct VirtualLine {
     pub source_col_start: u32,
     pub width_cols: u32,
     pub slices: Vec<VlineSlice>,
+    /// `is_truncated`/`ellipsis_col`/`truncation_suffix_col_start`
+    /// (text-buffer-view.zig:165-167): set by [`apply_truncation`];
+    /// the draw loop remaps rendered columns past the ellipsis back to
+    /// source columns with them (buffer.zig:1881-1893).
+    pub is_truncated: bool,
+    pub ellipsis_col: u32,
+    pub truncation_suffix_col_start: u32,
 }
 
 /// `updateVirtualLines` (text-buffer-view.zig:448-485): dispatch by
@@ -374,8 +388,10 @@ pub fn compute_virtual_lines(
                         byte_len: line.text.len() as u32,
                         col_start: 0,
                         width_cols: line.width_cols,
+                        is_ellipsis: false,
                     }]
                 },
+                ..VirtualLine::default()
             })
             .collect();
     }
@@ -434,6 +450,7 @@ impl CurrentLine {
             byte_len,
             col_start,
             width_cols,
+            is_ellipsis: false,
         });
         self.width_cols += width_cols;
     }
@@ -447,6 +464,7 @@ fn commit_line(cur: &mut CurrentLine, source_col_start: &mut u32, out: &mut Vec<
         source_col_start: *source_col_start,
         width_cols: width,
         slices: std::mem::take(&mut cur.slices),
+        ..VirtualLine::default()
     });
     cur.width_cols = 0;
     // the source offset advances by the committed width (1663)
@@ -520,6 +538,7 @@ fn char_mode_line(line: &LogicalLine, wrap_w: u32, out: &mut Vec<VirtualLine>) {
             source_col_start,
             width_cols: cur.width_cols,
             slices: std::mem::take(&mut cur.slices),
+            ..VirtualLine::default()
         });
     }
 }
@@ -1171,15 +1190,181 @@ fn word_mode_line(line: &LogicalLine, wrap_w: u32, out: &mut Vec<VirtualLine>) {
             source_col_start,
             width_cols,
             slices,
+            ..VirtualLine::default()
         });
+    }
+}
+
+// --- truncation (`truncate: true`) -----------------------------------------
+
+/// The fixed ellipsis width — `ellipsis_width: u32 = 3`
+/// (text-buffer-view.zig:1284) over the "..." `ellipsis_chunk`
+/// (294-296).
+pub const ELLIPSIS_WIDTH: u32 = 3;
+
+/// `keepChunkPrefix` (text-buffer-view.zig:1288-1308): keep a
+/// grapheme-safe `keep_cols` prefix of a slice; `None` when nothing
+/// fits. The byte window indexes the logical line (the one-chunk-per-
+/// line model) — the grapheme fit is the same
+/// `findWrapPosByWidthGraphemeSafe` call.
+fn keep_chunk_prefix(line: &LogicalLine, chunk: &VlineSlice, keep_cols: u32) -> Option<VlineSlice> {
+    if keep_cols == 0 {
+        return None;
+    }
+    if keep_cols >= chunk.width_cols {
+        return Some(*chunk);
+    }
+    let window = line
+        .clusters
+        .iter()
+        .filter(|c| {
+            c.byte_start >= chunk.byte_start && c.byte_end() <= chunk.byte_start + chunk.byte_len
+        })
+        .copied()
+        .collect::<Vec<_>>();
+    let (bytes, _count, cols) = wrap_pos_by_width(&window, keep_cols);
+    if bytes == 0 || cols == 0 {
+        return None;
+    }
+    let mut partial = *chunk;
+    partial.byte_len = bytes;
+    partial.width_cols = cols;
+    Some(partial)
+}
+
+/// `dropChunkPrefix` (text-buffer-view.zig:1311-1334): drop a
+/// grapheme-safe `drop_cols` prefix; `None` when the drop consumes the
+/// slice (`findGraphemePosByWidth` with `include_start_before = true`).
+fn drop_chunk_prefix(line: &LogicalLine, chunk: &VlineSlice, drop_cols: u32) -> Option<VlineSlice> {
+    if drop_cols == 0 {
+        return Some(*chunk);
+    }
+    if drop_cols >= chunk.width_cols {
+        return None;
+    }
+    let window = line
+        .clusters
+        .iter()
+        .filter(|c| {
+            c.byte_start >= chunk.byte_start && c.byte_end() <= chunk.byte_start + chunk.byte_len
+        })
+        .copied()
+        .collect::<Vec<_>>();
+    let (dbytes, _dcount, dcols) = grapheme_pos_by_width(&window, drop_cols);
+    if dbytes >= chunk.byte_len || dcols >= chunk.width_cols {
+        return None;
+    }
+    let mut partial = *chunk;
+    partial.byte_start += dbytes;
+    partial.byte_len -= dbytes;
+    partial.col_start += dcols;
+    partial.width_cols -= dcols;
+    Some(partial)
+}
+
+/// `applyTruncation` (text-buffer-view.zig:1280-1445): every vline
+/// wider than the viewport becomes `prefix…suffix` around a 3-column
+/// ellipsis (prefix = `(vp.width - 3) / 2` columns, suffix = the
+/// remainder anchored at the line end). A viewport no wider than the
+/// ellipsis keeps only the `is_truncated` mark (1363-1365: no chunks,
+/// zero width). Slices that fit are untouched; the replacement is
+/// staged per vline so the widths/markers land atomically.
+pub fn apply_truncation(doc: &TextDocument, vlines: &mut [VirtualLine], vp_width: u32) {
+    // applyTruncation returns early when vp.width == 0 (1282)
+    if vp_width == 0 {
+        return;
+    }
+
+    for vline in vlines.iter_mut() {
+        if vline.width_cols <= vp_width {
+            continue;
+        }
+        let original_width = vline.width_cols;
+        vline.truncation_suffix_col_start = original_width;
+
+        if vp_width <= ELLIPSIS_WIDTH {
+            vline.slices.clear();
+            vline.width_cols = 0;
+            vline.is_truncated = true;
+            vline.ellipsis_col = 0;
+            continue;
+        }
+
+        let available_width = vp_width - ELLIPSIS_WIDTH;
+        let prefix_width = available_width / 2;
+        let suffix_width = available_width - prefix_width;
+        let line = &doc.lines[vline.source_line as usize];
+
+        let mut chunks: Vec<VlineSlice> = Vec::new();
+        let mut prefix_accumulated: u32 = 0;
+        for chunk in &vline.slices {
+            if prefix_accumulated >= prefix_width {
+                break;
+            }
+            let space_left = prefix_width - prefix_accumulated;
+            if chunk.width_cols <= space_left {
+                chunks.push(*chunk);
+                prefix_accumulated += chunk.width_cols;
+            } else {
+                if let Some(partial) = keep_chunk_prefix(line, chunk, space_left) {
+                    chunks.push(partial);
+                    prefix_accumulated += partial.width_cols;
+                }
+                break;
+            }
+        }
+
+        chunks.push(VlineSlice {
+            byte_start: 0,
+            byte_len: ELLIPSIS_WIDTH,
+            col_start: prefix_accumulated,
+            width_cols: ELLIPSIS_WIDTH,
+            is_ellipsis: true,
+        });
+
+        let suffix_start_pos = original_width - suffix_width;
+        let mut pos_accumulated: u32 = 0;
+        let mut suffix_accumulated: u32 = 0;
+        let mut actual_suffix_start: Option<u32> = None;
+        for chunk in &vline.slices {
+            let chunk_end = pos_accumulated + chunk.width_cols;
+            if chunk_end <= suffix_start_pos {
+                pos_accumulated += chunk.width_cols;
+                continue;
+            }
+            if pos_accumulated >= suffix_start_pos {
+                chunks.push(*chunk);
+                if actual_suffix_start.is_none() {
+                    actual_suffix_start = Some(pos_accumulated);
+                }
+                suffix_accumulated += chunk.width_cols;
+            } else if let Some(partial) =
+                drop_chunk_prefix(line, chunk, suffix_start_pos - pos_accumulated)
+            {
+                chunks.push(partial);
+                if actual_suffix_start.is_none() {
+                    actual_suffix_start =
+                        Some(pos_accumulated + (partial.col_start - chunk.col_start));
+                }
+                suffix_accumulated += partial.width_cols;
+            }
+            pos_accumulated += chunk.width_cols;
+        }
+
+        vline.width_cols = prefix_accumulated + ELLIPSIS_WIDTH + suffix_accumulated;
+        vline.is_truncated = true;
+        vline.ellipsis_col = prefix_accumulated;
+        vline.truncation_suffix_col_start = actual_suffix_start.unwrap_or(original_width);
+        vline.slices = chunks;
     }
 }
 
 // --- the draw loop (buffer.zig drawTextBufferInternal) ---------------------
 
-/// Viewport — `Viewport` (text-buffer-view.zig:105-110). Scroll offsets
-/// stay 0 in this lane; width/height come from the renderable's
-/// laid-out size clamped ≥ 1 (`Math.max(layout.x, 1)` —
+/// Viewport — `Viewport` (text-buffer-view.zig:105-110). `x`/`y` are
+/// the scroll offsets (`setViewport(scrollX, scrollY, w, h)`,
+/// TextBufferRenderable.ts:106-108); width/height come from the
+/// renderable's laid-out size clamped ≥ 1 (`Math.max(layout.x, 1)` —
 /// Renderable.ts:1114-1115 via onResize → setViewport).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Viewport {
@@ -1213,9 +1398,11 @@ pub struct TextViewState {
 }
 
 /// `drawTextBufferInternal` (buffer.zig:1652-2087) — the subset the
-/// headless differential profile exercises: no selection, no truncate,
-/// no scissor, opacity 1. `vlines` is the **full** virtual-line list;
-/// the viewport slice is taken here (`getVirtualLines`,
+/// headless differential profile exercises: no selection, opacity 1.
+/// Truncation markers on the vlines (`is_truncated` et al.) remap
+/// rendered columns past the ellipsis back to source columns
+/// (1881-1893). `vlines` is the **full** virtual-line list; the
+/// viewport slice is taken here (`getVirtualLines`,
 /// text-buffer-view.zig:492-508).
 pub fn draw_text_view(
     buffer: &mut OptimizedBuffer,
@@ -1306,14 +1493,33 @@ pub fn draw_text_view(
                 continue;
             }
             let slice_end = vchunk.byte_start + vchunk.byte_len;
-            let clusters = line
-                .clusters
-                .iter()
-                .filter(|c| c.byte_start >= vchunk.byte_start && c.byte_end() <= slice_end);
+            // the ellipsis slice renders three '.' cells; its byte
+            // window is inert (the upstream ellipsis chunk owns the
+            // "..." bytes, text-buffer-view.zig:294-296 + 1389-1395)
+            let ellipsis_clusters: Vec<Cluster> = if vchunk.is_ellipsis {
+                (0..ELLIPSIS_WIDTH)
+                    .map(|_| Cluster {
+                        byte_start: 0,
+                        byte_len: 1,
+                        width: 1,
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let clusters: Vec<Cluster> = if vchunk.is_ellipsis {
+                ellipsis_clusters
+            } else {
+                line.clusters
+                    .iter()
+                    .filter(|c| c.byte_start >= vchunk.byte_start && c.byte_end() <= slice_end)
+                    .copied()
+                    .collect()
+            };
 
             for cluster in clusters {
                 let w = cluster.width;
-                let is_tab = cluster.is_tab(&line.text);
+                let is_tab = !vchunk.is_ellipsis && cluster.is_tab(&line.text);
 
                 // horizontal offset skip (1801-1811)
                 if rendered_col < h_off {
@@ -1400,6 +1606,52 @@ pub fn draw_text_view(
                     next_change_col = span.col_end;
                 }
 
+                // truncated-vline override (buffer.zig:1908-1952): the
+                // ellipsis cells reset to the text defaults; the suffix
+                // cells re-derive their span from the *source* column
+                // (a fresh scan from span 0 — not the monotonic walk)
+                if vline.is_truncated {
+                    let col_in_line = rendered_col;
+                    if col_in_line >= vline.ellipsis_col
+                        && col_in_line < vline.ellipsis_col + ELLIPSIS_WIDTH
+                    {
+                        line_fg = defaults.fg;
+                        line_bg = defaults.bg;
+                        line_attributes = defaults.attributes;
+                    } else if col_in_line >= vline.ellipsis_col + ELLIPSIS_WIDTH {
+                        let suffix_col_pos = vline.truncation_suffix_col_start
+                            + (col_in_line - vline.ellipsis_col - ELLIPSIS_WIDTH);
+                        if spans.is_empty() {
+                            line_fg = defaults.fg;
+                            line_bg = defaults.bg;
+                            line_attributes = defaults.attributes;
+                            next_change_col = u32::MAX;
+                        } else {
+                            let mut suffix_span_idx = 0usize;
+                            while suffix_span_idx < spans.len()
+                                && spans[suffix_span_idx].col_end <= suffix_col_pos
+                            {
+                                suffix_span_idx += 1;
+                            }
+                            if suffix_span_idx < spans.len() {
+                                span_idx = suffix_span_idx;
+                            }
+                            let active = &spans[span_idx];
+                            line_fg = defaults.fg;
+                            line_bg = defaults.bg;
+                            line_attributes = defaults.attributes;
+                            if let Some(fg) = active.fg {
+                                line_fg = fg;
+                            }
+                            if let Some(bg) = active.bg {
+                                line_bg = bg;
+                            }
+                            line_attributes |= active.attributes;
+                            next_change_col = active.col_end;
+                        }
+                    }
+                }
+
                 // zero-width clusters render nothing, advance nothing (1982-1984)
                 if w == 0 {
                     continue;
@@ -1458,9 +1710,13 @@ pub fn draw_text_view(
                     }
                 } else {
                     // cluster encoding (2036-2048): single printable ASCII
-                    // byte inline; everything else through the grapheme pool
-                    let bytes =
-                        &line.text[cluster.byte_start as usize..cluster.byte_end() as usize];
+                    // byte inline; everything else through the grapheme
+                    // pool (the ellipsis slice always renders '.')
+                    let bytes: &str = if vchunk.is_ellipsis {
+                        "."
+                    } else {
+                        &line.text[cluster.byte_start as usize..cluster.byte_end() as usize]
+                    };
                     let encoded = if bytes.len() == 1 && w == 1 && bytes.as_bytes()[0] >= 32 {
                         u32::from(bytes.as_bytes()[0])
                     } else {
