@@ -1332,6 +1332,13 @@ pub fn draw_text_view(
                 if current_x >= buffer.width as i32 {
                     break;
                 }
+                // non-tab glyph fully outside the scissor draws nothing
+                // but still advances (1832-1835)
+                if !is_tab && !buffer.is_point_in_scissor(current_x, current_y) {
+                    current_x += w as i32;
+                    rendered_col += w;
+                    continue;
+                }
                 // wide glyph must fit the viewport AND the screen (1840-1859)
                 if w > 1
                     && !is_tab
@@ -1343,9 +1350,40 @@ pub fn draw_text_view(
                     rendered_col += w;
                     continue;
                 }
+                // … and every cell of it must sit inside the scissor,
+                // else the whole glyph is dropped (1849-1861)
+                if w > 1 && !is_tab {
+                    let mut clipped = false;
+                    for off in 1..w {
+                        if !buffer.is_point_in_scissor(current_x + off as i32, current_y) {
+                            clipped = true;
+                            break;
+                        }
+                    }
+                    if clipped {
+                        current_x += w as i32;
+                        rendered_col += w;
+                        continue;
+                    }
+                }
 
-                // style resolution at the source column (1876-1910)
-                let source_col = vline.source_col_start + rendered_col;
+                // style resolution at the source column (1876-1910);
+                // truncated vlines remap past-ellipsis columns back to
+                // source columns (1881-1893) — the ellipsis itself
+                // parks at maxInt (1883-1885: no further span walk
+                // beyond the last span)
+                let mut source_col = vline.source_col_start + rendered_col;
+                if vline.is_truncated {
+                    let col_in_line = rendered_col;
+                    if col_in_line >= vline.ellipsis_col
+                        && col_in_line < vline.ellipsis_col + ELLIPSIS_WIDTH
+                    {
+                        source_col = u32::MAX;
+                    } else if col_in_line >= vline.ellipsis_col + ELLIPSIS_WIDTH {
+                        source_col = vline.truncation_suffix_col_start
+                            + (col_in_line - vline.ellipsis_col - ELLIPSIS_WIDTH);
+                    }
+                }
                 while source_col >= next_change_col && span_idx + 1 < spans.len() {
                     span_idx += 1;
                     let span = &spans[span_idx];
@@ -1389,6 +1427,11 @@ pub fn draw_text_view(
                         }
                         if tab_x >= buffer.width as i32 {
                             break;
+                        }
+                        // tab cells outside the scissor are skipped (2017)
+                        if !buffer.is_point_in_scissor(tab_x, current_y) {
+                            tab_col += 1;
+                            continue;
                         }
                         let ch = if tab_col == 0 {
                             view.tab_indicator
