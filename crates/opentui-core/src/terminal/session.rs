@@ -71,6 +71,10 @@ pub(super) struct TerminalState {
     mouse_was_enabled: bool,
     pub(super) bracketed_paste: bool,
     pub(super) focus_tracking: bool,
+    /// The image-session marker (the C3 graphics teardown gate): set
+    /// by [`Terminal::note_kitty_graphics`] once the session emitted
+    /// kitty graphics — `teardown` then pops the graphics family.
+    kitty_graphics_session: bool,
 }
 
 /// A live terminal session: raw mode + alt screen armed on `new`,
@@ -130,6 +134,22 @@ impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
     /// The teardown byte-stream for the given live state — shared by
     /// [`Terminal::teardown`] and the panic-hook epilogue snapshot.
     fn write_epilogue(st: &TerminalState, out: &mut dyn io::Write) -> io::Result<()> {
+        // The kitty graphics pop (the A1-registered gap, closed by the
+        // image lane C3): an IMAGE session (kitty graphics were
+        // emitted) deletes them before the mode resets — upstream's
+        // `performShutdownSequence` walks its committed kitty
+        // placements and writes a per-id `a=d,d=I,i=<id>` delete for
+        // each BEFORE `resetState` (renderer.zig:602-618, the delete
+        // shape at terminal-image.zig:234). The port emits the
+        // delete-ALL spelling (`\x1b_Ga=d,d=a\x1b\\`) the consumer
+        // standardized (oc-tui terminal_proto.rs:53, auditC P13 —
+        // app.rs:9878-9881 gates on a non-None graphics protocol);
+        // per-placement id tracking arrives with the buffer
+        // rasterization lane. Never sent by default (no image
+        // session → byte-identical epilogue).
+        if st.kitty_graphics_session {
+            out.write_all(b"\x1b_Ga=d,d=a\x1b\\")?;
+        }
         out.write_all(modes::SHOW_CURSOR)?; // terminal.zig:283
         out.write_all(b"\x1b[0m")?; // terminal.zig:284 (ansi.ANSI.reset)
         out.write_all(modes::RESET_MOUSE_POINTER)?; // terminal.zig:285
@@ -274,7 +294,8 @@ impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
     /// set (alt off, mouse pops under the same gate, ?2004l ?1004l,
     /// kitty pop, DECSCUSR reset) — oc-tui additionally pops graphics
     /// (`a=d,d=a`, image lanes) and writes no mouse-pointer/SGR/
-    /// cursor-color resets; upstream zig superset wins.
+    /// cursor-color resets; the graphics delete-all they emit is now the
+    /// port's own (`note_kitty_graphics` arms it, image lane C3).
     pub fn teardown(&mut self) -> io::Result<()> {
         if self.torn_down {
             return Ok(()); // idempotent — Drop after explicit teardown
@@ -356,6 +377,22 @@ impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
     /// The tty device (resize checks in A2 go through here).
     pub fn tty(&mut self) -> &mut T {
         &mut self.tty
+    }
+
+    /// Mark this as an image session (the C3 graphics teardown
+    /// gate): the consumer calls this once it has EMITTED kitty
+    /// graphics on this terminal — `teardown`/`Drop` then leads its
+    /// epilogue with the graphics delete-all (`a=d,d=a`). The
+    /// upstream analog is the renderer's committed-protocol ledger
+    /// (`hasCommittedProtocol(.kitty)` + `currentImages`,
+    /// renderer.zig:602-618); the oc-tui consumer gates on its
+    /// graphics-protocol config (app.rs:9878-9881). No-op after
+    /// teardown.
+    pub fn note_kitty_graphics(&mut self) {
+        if self.torn_down {
+            return;
+        }
+        self.state.kitty_graphics_session = true;
     }
 
     /// Whether [`Terminal::teardown`] already ran.
