@@ -1,0 +1,26 @@
+{
+  "name": "text-scissor-nested",
+  "width": 26,
+  "height": 12,
+  "steps": [
+    { "op": "box", "id": "b1", "parent": "root", "options": {
+      "border": true, "borderColor": "#00FF00", "overflow": "hidden",
+      "width": 14, "height": 5
+    } },
+    { "op": "text", "id": "t1", "parent": "b1", "options": {
+      "width": 12, "height": 3, "wrapMode": "none",
+      "content": "AAA世界BBBB-overflow-past-edge"
+    } },
+    { "op": "box", "id": "b2", "parent": "root", "options": {
+      "border": true, "borderColor": "#FF8800", "overflow": "hidden",
+      "width": 20, "height": 6
+    } },
+    { "op": "box", "id": "b2i", "parent": "b2", "options": {
+      "overflow": "hidden", "width": 10, "height": 3
+    } },
+    { "op": "text", "id": "t2", "parent": "b2i", "options": {
+      "width": 10, "height": 3, "wrapMode": "none",
+      "content": "inner世界wide-glyph-clipped-at-nested-edge"
+    } }
+  ]
+}

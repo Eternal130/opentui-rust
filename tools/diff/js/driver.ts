@@ -771,6 +771,7 @@ for (const step of scenario.steps) {
       ...(o.tabIndicator !== undefined ? { tabIndicator: o.tabIndicator } : {}),
       ...(o.tabIndicatorColor !== undefined ? { tabIndicatorColor: o.tabIndicatorColor } : {}),
       ...(o.truncate !== undefined ? { truncate: o.truncate } : {}),
+      ...(o.overflow !== undefined ? { overflow: o.overflow } : {}),
     }
     r = new TextRenderable(renderer, options)
     if (o.nodeContent !== undefined) {
@@ -790,6 +791,7 @@ for (const step of scenario.steps) {
       ...(o.height !== undefined ? { height: o.height } : {}),
       ...(o.flexDirection !== undefined ? { flexDirection: o.flexDirection } : {}),
       ...(o.padding !== undefined ? { padding: o.padding } : {}),
+      ...(o.overflow !== undefined ? { overflow: o.overflow } : {}),
     })
   } else if (step.op === "scrollbox") {
     const o = step.options ?? {}

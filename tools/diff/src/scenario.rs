@@ -398,6 +398,12 @@ fn text_options_from_json(o: &serde_json::Value) -> Result<TextOptions> {
     if let Some(t) = o.get("truncate").and_then(|v| v.as_bool()) {
         opts.truncate = t;
     }
+    // `overflow` (Renderable.ts:71/762-764): a RenderableOptions member
+    // every renderable (text included) accepts; non-visible drives the
+    // scissor push around children (1425-1432)
+    if let Some(ov) = o.get("overflow").and_then(|v| v.as_str()) {
+        opts.layout.overflow = Some(ov.to_owned());
+    }
     Ok(opts)
 }
 
@@ -548,16 +554,16 @@ pub fn replay(scenario: &Scenario) -> Result<CliRenderer> {
                 match prop.as_str() {
                     "scrollTop" => renderer.set_scroll_top(&id, value),
                     "scrollLeft" => renderer.set_scroll_left(&id, value),
+                    // text-leaf scroll (`r.scrollY = v` — the clamped
+                    // TextBufferRenderable setters)
+                    "scrollX" => renderer.text_set_scroll(&id, true, value),
+                    "scrollY" => renderer.text_set_scroll(&id, false, value),
                     other => anyhow::bail!("set: unsupported prop {other}"),
                 }
                 continue;
             }
             "call" => {
                 mount(&mut renderer, &mut by_id, &children_of, None, &roots);
-                    // text-leaf scroll (`r.scrollY = v` — the clamped
-                    // TextBufferRenderable setters)
-                    "scrollX" => renderer.text_set_scroll(&id, true, value),
-                    "scrollY" => renderer.text_set_scroll(&id, false, value),
                 let id = step.id.clone().context("call step needs id")?;
                 let method = step.method.clone().context("call step needs method")?;
                 let args = step.args.clone().unwrap_or_default();
@@ -1475,6 +1481,10 @@ fn box_options_from_json(o: &serde_json::Value) -> Result<BoxOptions> {
     }
     if let Some(p) = o.get("padding").and_then(|v| v.as_f64()) {
         opts.layout.padding = Some(opentui_core::layout::Dimension::Points(p as f32));
+    }
+    // `overflow` (Renderable.ts:71/762-764) — non-visible clips children
+    if let Some(ov) = o.get("overflow").and_then(|v| v.as_str()) {
+        opts.layout.overflow = Some(ov.to_owned());
     }
     Ok(opts)
 }

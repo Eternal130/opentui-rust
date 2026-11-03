@@ -1,0 +1,26 @@
+{
+  "name": "text-truncate-on-off",
+  "width": 24,
+  "height": 10,
+  "steps": [
+    { "op": "text", "id": "t1", "parent": "root", "options": {
+      "width": 24, "height": 2, "wrapMode": "none", "truncate": false,
+      "content": "the quick brown fox jumps over the lazy dog again"
+    } },
+    { "op": "text", "id": "t2", "parent": "root", "options": {
+      "width": 24, "height": 2, "wrapMode": "none", "truncate": true,
+      "content": "the quick brown fox jumps over the lazy dog again"
+    } },
+    { "op": "text", "id": "t3", "parent": "root", "options": {
+      "width": 24, "height": 2, "wrapMode": "none", "truncate": true, "textAlign": "center",
+      "content": "这条线远远超过二十四个字符所以会被截断处理世界和平"
+    } },
+    { "op": "text", "id": "t4", "parent": "root", "options": {
+      "width": 8, "height": 2, "wrapMode": "none", "truncate": true,
+      "content": [
+        { "text": "red-part ", "fg": "#FF0000" },
+        { "text": "blue-tail", "fg": "#0000FF" }
+      ]
+    } }
+  ]
+}
