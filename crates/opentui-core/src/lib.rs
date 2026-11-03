@@ -128,7 +128,10 @@ pub use renderables::text_table::{
     MeasuredTable, TableConfig, TableCore, TextTableLayout, TextTableOptions, TextTableState,
 };
 pub use renderables::textarea::{TextareaOptions, TextareaState, TEXTAREA_ACTIONS};
-pub use renderer::{create_cli_renderer, CliRenderer, CliRendererConfig, RenderTarget};
+pub use renderer::{
+    create_cli_renderer, CliRenderer, CliRendererConfig, ConsoleAction, ConsoleKeyBinding,
+    ConsoleMode, ConsoleOptions, RenderTarget, StdinSource, ThemeModeWait, ThemeWaitPoll,
+};
 pub use scheduler::RenderScheduler;
 pub use scroll_acceleration::{LinearScrollAccel, MacOSScrollAccel, ScrollAcceleration};
 pub use styled_text::{

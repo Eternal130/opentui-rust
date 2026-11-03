@@ -631,7 +631,6 @@ impl<T: crate::terminal::TtyDevice, W: std::io::Write> RendererTerminalSession
     for crate::terminal::Terminal<T, W>
 {
     fn write_bytes(&mut self, bytes: &[u8]) -> std::io::Result<()> {
-        use std::io::Write;
         let out = self.output();
         out.write_all(bytes)?;
         out.flush()
@@ -1015,6 +1014,10 @@ impl CliRenderer {
         if let Some(mode) = self.theme_wait_resolved.remove(&id) {
             return Some(ThemeWaitPoll::Resolved(mode));
         }
+        // Unknown id (already consumed, or never registered)?
+        if !self.theme_waiters.iter().any(|(wid, _)| *wid == id) {
+            return None;
+        }
         let mut resolve_with = None;
         if self.theme_mode.is_some() || self.destroyed {
             resolve_with = Some(self.theme_mode);
@@ -1032,11 +1035,7 @@ impl CliRenderer {
             self.theme_waiters.retain(|(wid, _)| *wid != id);
             return Some(ThemeWaitPoll::Resolved(mode));
         }
-        if self.theme_waiters.iter().any(|(wid, _)| *wid == id) {
-            Some(ThemeWaitPoll::Pending)
-        } else {
-            None
-        }
+        Some(ThemeWaitPoll::Pending)
     }
 
     /// Resolve every waiter whose id is pending — the
