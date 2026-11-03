@@ -219,7 +219,7 @@ tree-sitter styling, testing helpers.
 | `BoxRenderable` | **1** | core/src/renderables/Box.ts:46 | opentui-core::renderables | done |
 | `CRTRollingBarEffect` | 2 | core/src/post/effects.ts:727 | opentui-core | todo |
 | `CliRenderEvents` | **1** | core/src/renderer.ts:750 | opentui-core::renderer | partial (FRAME/FOCUS family/RESIZE/CAPABILITIES/THEME_MODE/EXTERNAL_OUTPUT (renderer.ts:755, :2608-2613 — landed D1b-core) emitted; DESTROY — renderer.ts:4408's destroy ladder — still unported with RENDER_ERROR/HANDLER_ERROR/SELECTION/DEBUG_OVERLAY_TOGGLE/MEMORY_SNAPSHOT) |
-| `CliRenderer` | **1** | core/src/renderer.ts:780 | opentui-core::renderer | partial (headless render target + events/focus/mouse/input + D1a lifecycle: requestRender/settle coalescing, destroy/isDestroyed no-op semantics, setBackgroundColor, setTerminalTitle, waitForThemeMode, useMouse runtime toggle, consoleMode "disabled", session ownership (terminal-backend); screenMode/footerHeight/externalOutputMode ride D1b-core; debug overlay + kitty transport stats todo) |
+| `CliRenderer` | **1** | core/src/renderer.ts:780 | opentui-core::renderer | partial (headless render target + events/focus/mouse/input + D1a lifecycle: requestRender/settle coalescing, destroy/isDestroyed no-op semantics, setBackgroundColor, setTerminalTitle, waitForThemeMode, useMouse runtime toggle, consoleMode "disabled", session ownership (terminal-backend); screenMode/footerHeight/externalOutputMode + createScrollbackSurface/resetSplitFooterForReplay landed D1b-surface; debug overlay + kitty transport stats todo) |
 | `Clipboard` | 2 | core/src/lib/clipboard.ts:337 | opentui-core | todo |
 | `ClipboardTarget` | 2 | core/src/lib/clipboard.ts:292 | opentui-core | done (ABI enum; clipboard.test.ts:19-24 pinned) |
 | `CloudsEffect` | 2 | core/src/post/effects.ts:494 | opentui-core | todo |
@@ -527,7 +527,7 @@ tree-sitter styling, testing helpers.
 | `useSelectionHandler` | 2 | solid/src/elements/hooks.ts:132 | opentui-solid | todo (selection = EditBuffer lane) |
 | `useTerminalDimensions` | **1** | solid/src/elements/hooks.ts:36 | SolidRenderer::terminal_dimensions (signal) | done |
 | `useTimeline` | 2 | solid/src/elements/hooks.ts:144 | opentui-core (timeline = render lane target) | deferred |
-| `writeSolidToScrollback` | 2 | solid/src/scrollback.ts:221 | ScrollbackWriter::write + paint_lines | done (shape; the core consumer — `CliRenderer::write_to_scrollback` — landed in D1b-core) |
+| `writeSolidToScrollback` | 2 | solid/src/scrollback.ts:221 | opentui-solid::scrollback::write_solid_to_scrollback | done (convenience wired through `CliRenderer::write_to_scrollback` since D1b-surface; the writer shape landed D1b-core) |
 
 ### keymap (4 runtime exports)
 
@@ -623,7 +623,8 @@ split-footer scrollback RUNTIME base: the write path, the
 `ExternalOutputCommit` FIFO, tail-column newline ownership, and the
 flush adjudication; the SURFACE family — `createScrollbackSurface`,
 `screenMode`/`footerHeight`/`externalOutputMode` config enums —
-stays with lane D1b-surface). Type/interface members, not runtime
+landed with lane D1b-surface; see its additions table below).
+Type/interface members, not runtime
 exports, so they ride this supplementary table like the D1a
 additions above.
 
@@ -639,5 +640,30 @@ additions above.
 | `CliRenderEvents.EXTERNAL_OUTPUT` | core/src/renderer.ts:755 | opentui-core::renderer::CliRenderEvent::ExternalOutput | done (enum parity — the row-221 partial note updated) |
 | `makeRoomForRendererOutput` (setup arm) | native/src/ansi.zig:418 (renderer.zig:566-569) | opentui-core::terminal::modes::make_room_for_renderer_output + SetupOptions::use_alt_screen/reserve_surface_height | done (non-alt reservation arm; default alt-screen unchanged) |
 | flush adjudication family (`flushPendingSplitCommits` / `flushPendingSplitOutputBeforeTransition` / tail-column math) | core/src/renderer.ts:2497-2571, 2729-2826, 2894-2918 | opentui-core::scrollback + CliRenderer::flush_pending_split_commits / flush_pending_split_output_before_transition / get_pending_split_tail_column | done (bounded 8/tick drain, FIFO drop, re-request; `Backpressured` arm unreachable without the native gate — parity shape only) |
-| `resetSplitFooterForReplay` | core/src/renderer.ts:2442 | — | deferred (D1b-surface: needs the mode/geometry enums) |
-| `createScrollbackSurface` | core/src/renderer.ts (surface family) | — | deferred (D1b-surface by lane ruling) |
+| `resetSplitFooterForReplay` | core/src/renderer.ts:2442 | opentui-core::renderer::CliRenderer::reset_split_footer_for_replay | done (D1b-surface; flush→clear→tail reset + the :2466-2473 control burst; headless counts as an active terminal — bounded divergence) |
+| `createScrollbackSurface` | core/src/renderer.ts:1984 | opentui-core::renderer::CliRenderer::create_scrollback_surface | done (D1b-surface; see the surface-family rows below) |
+| `writeSolidToScrollback` (core consumer wiring) | solid/src/scrollback.ts:221 | opentui-solid::scrollback::write_solid_to_scrollback | done (D1b-surface convenience over `write_to_scrollback`; the row-~530 shape note superseded) |
+
+### lane D1b-surface additions (split-footer surface family — closes gap G-211)
+
+Ported by lane `lane/d1b-surface` (tui-full-convergence phase-D1b third
+lane; the config/mode half and the retained-surface half of the
+split-footer family, over the D1b-core runtime base). Type/interface
+members riding the supplementary tables like the D1b-core rows above.
+
+| symbol | upstream file:line | Rust target | status |
+|---|---|---|---|
+| `ScreenMode` | core/src/renderer.ts:242 | opentui-core::renderer::ScreenMode | done (enum parity; default "alternate-screen" :370) |
+| `ExternalOutputMode` | core/src/renderer.ts:250 | opentui-core::renderer::ExternalOutputMode | done (enum parity; default "passthrough" :379) |
+| `CliRendererConfig.screenMode` | core/src/renderer.ts:202 | CliRendererConfig::screen_mode | done |
+| `CliRendererConfig.footerHeight` | core/src/renderer.ts:205 | CliRendererConfig::footer_height | done (Option<u32> = upstream's undefined; DEFAULT_FOOTER_HEIGHT=12 :341) |
+| `CliRendererConfig.externalOutputMode` | core/src/renderer.ts:208 | CliRendererConfig::external_output_mode | done (Option; defaulted per screenMode in resolve_modes) |
+| `normalizeFooterHeight` / `DEFAULT_FOOTER_HEIGHT` / `MAX_SCROLLBACK_SURFACE_HEIGHT_PASSES` | core/src/renderer.ts:341-342, 348-362 | opentui-core::renderer::normalize_footer_height / consts | done (non-finite arm structurally unreachable for u32) |
+| `resolveModes` (+ OTUI_USE_ALTERNATE_SCREEN/OTUI_OVERRIDE_STDOUT overrides) | core/src/renderer.ts:365-393 | opentui-core::renderer::resolve_modes -> ResolvedModes/RendererModeError | done (decision-table tested; constructor arms the capture runtime :1074/:1291 — panics where upstream throws, the Result seam is pub) |
+| `renderer.widthMethod` (caps wiring — D1b-core divergence ④ closed) | core/src/renderer.ts:1468 | CliRenderer::width_method + set_capabilities | done (caps?.unicode ?? zig default) |
+| `enqueueRenderedScrollbackCommit` | core/src/renderer.ts:2583-2614 | CliRenderer::enqueue_rendered_scrollback_commit | done (shared by writeToScrollback + surface commitRows) |
+| `ScrollbackSurfaceOptions` / `ScrollbackSurfaceCommitOptions` | core/src/renderer.ts:316-323 | opentui-core::renderer::ScrollbackSurfaceOptions / ScrollbackSurfaceCommitOptions | done |
+| `ScrollbackSurface` (render/settle/commitRows/destroy + assert ladder) | core/src/renderer.ts:325-338, 2060-2306 | opentui-core::renderer::ScrollbackSurface | done (scratch-renderer shape — core renderables bind to their taffy tree, commit_rows takes the parent renderer explicitly; settle is sync — highlight pipeline sync; bounded divergences) |
+| `ScrollbackSnapshotRenderContext` / `claimFirstLineOffset` | core/src/renderer.ts:1994-2013 | ScrollbackSurface::render_context (the scratch renderer IS the context face) | done (port shape; first-line splice owned by the tail-column math) |
+| `resetSplitFooterForReplay` | core/src/renderer.ts:2442-2475 | CliRenderer::reset_split_footer_for_replay | done (clearSavedLines empties the transcript model; control burst live-only) |
+| `CliRendererExternalOutputEvent` peek access | — | CliRenderer::external_output_queue | done (read-only peek for host assertions) |
