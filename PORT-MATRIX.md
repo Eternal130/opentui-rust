@@ -53,14 +53,14 @@ recomputed state.
 | @opentui/keymap (+subpaths) | 12 | 14* | 4 | 2 | 6 |
 | **total** | **339** | **79** | **35** | **18** | **286** |
 
-### Current (recounted 2026-11-03 via `tools/recount-matrix.sh` — run it after every lane that edits rows)
+### Current (recounted 2026-11-04 via `tools/recount-matrix.sh` — run it after every lane that edits rows)
 
 | package | exports | done | partial | deferred | todo |
 |---|---|---|---|---|---|
-| @opentui/core | 279 | 121 | 14 | 0 | 144 |
+| @opentui/core | 279 | 124 | 15 | 0 | 140 |
 | @opentui/solid | 48 | 35 | 3 | 7 | 3 |
 | @opentui/keymap (+subpaths) | 12 | 12 | 0 | 0 | 0 |
-| **total** | **339** | **168 (49.6%)** | **17** | **7** | **147** |
+| **total** | **339** | **171 (50.4%)** | **18** | **7** | **143** |
 | tier-1 rows only (bold `**1**`) | 52 | 45 | 7 | 0 | 0 |
 
 Audio lane note (the tier-1 `partial` — last tier-1 row landed): the
@@ -315,12 +315,12 @@ tree-sitter styling, testing helpers.
 | `TabSelectRenderableEvents` | 2 | core/src/renderables/TabSelect.ts:55 | opentui-core::renderables | todo |
 | `TargetChannel` | **1** | core/src/types.ts:99 | opentui-core | partial |
 | `TerminalConsole` | 2 | core/src/console.ts:322 | opentui-core | todo |
-| `TerminalPalette` | 2 | core/src/lib/terminal-palette.ts:93 | opentui-core | todo |
+| `TerminalPalette` | 2 | core/src/lib/terminal-palette.ts:93 | opentui-core | partial (type+construction half landed D1c: `TerminalColors` :24-35 + `normalizeTerminalPalette` :415 in `opentui-core::terminal_palette`; the OSC 4/10/11 detector class + idle timeout (:93+, :354-413) stays deferred — no ref consumer) |
 | `Text` | 2 | core/src/renderables/composition/constructs.ts:36 | opentui-core | done |
 | `TextAttributes` | **1** | core/src/types.ts:8 | opentui-core | done |
 | `TextBuffer` | **1** | core/src/text-buffer.ts:16 | opentui-core::editor | partial (remaining subset delta: **selection only** — selectionBg/Fg fields exist, paint/measure ignore them. `truncate:true` (applyTruncation + ellipsis/suffix style override, text-buffer-view.zig:1280-1445 + buffer.zig:1908-1952), scissor-gated cells (buffer.zig:1832-1861/2017) and scroll offsets ≠ 0 (viewport x/y slicing + clamped scrollX/scrollY setters, TextBufferRenderable.ts:176-220) are ported; differential text-truncate-on-off / text-scissor-nested / text-scroll-viewport vs 0.5.14 IDENTICAL) |
 | `TextBufferRenderable` | 2 | core/src/renderables/TextBufferRenderable.ts:25 | opentui-core::renderables | todo |
-| `TextBufferView` | 2 | core/src/text-buffer-view.ts:12 | opentui-core | todo |
+| `TextBufferView` | 2 | core/src/text-buffer-view.ts:12 | opentui-core::text_buffer_view | done (contract-level port over the pure-Rust primitives (TextDocument + compute_virtual_lines/apply_truncation) — mechanism≠upstream (no native Zig handle, hence no `ptr`); create/destroy + destroyed-guard, absolute & local selection with Cell/Word/Line expansion, occupancy, wrap width/mode, align, viewport, tab indicator (+color), truncate, lineInfo/logicalLineInfo/getLineSources, get(Selected/Plain)Text, measureForDimensions, getVirtualLineCount; firstLineOffset stored, raster effect deferred) |
 | `TextNodeRenderable` | 2 | core/src/renderables/TextNode.ts:34 | opentui-core::text_node | done |
 | `TextRenderable` | **1** | core/src/renderables/Text.ts:13 | opentui-core::renderables | done |
 | `TextTableRenderable` | 2 | core/src/renderables/TextTable.ts:99 | opentui-core::renderables | done (settled-tree port: options/measure/layout solver + drawGrid borders + per-cell TextBuffer paint; content-diff cell reuse + cell selection deferred — no headless consumer; differential md-table-grid/wide/padding vs 0.5.14 IDENTICAL, allocator unit tests from TextTable.test.ts) |
@@ -376,7 +376,7 @@ tree-sitter styling, testing helpers.
 | `createClipboard` | **1** | core/src/lib/clipboard.ts:179 | opentui-core | done (sync port: destination policies/remote-gating/pre-abort pinned by clipboard-service.test.ts; async dispose-wait degenerate) |
 | `createCoreSlotRegistry` | 2 | core/src/plugins/core-slot.ts:168 | opentui-core | todo |
 | `createExtmarksController` | 2 | core/src/lib/extmarks.ts:859 | opentui-core | todo |
-| `createHostClipboard` | 2 | core/src/lib/clipboard.ts:165 | opentui-core | todo |
+| `createHostClipboard` | 2 | core/src/lib/clipboard.ts:165 | opentui-core::clipboard | done (factory :165-166 over the DEFAULT backend; upstream's default is the native Zig clipboard service (host-clipboard.native.ts:342 `createNativeHostClipboardBackend`) — mechanism≠upstream: the port's default is the platform command family (wl-copy/wl-paste → xclip → pbcopy/pbpaste → clip.exe/Get-Clipboard; primary-selection aware, Unsupported where the platform lacks one), output==upstream result statuses; argv family + selection precedence pinned by unit tests, no process spawn in tests; no backend → UnsupportedHostBackend keeps createClipboard's composition contract) |
 | `createIcyStreamDemuxer` | 2 | core/src/audio-stream/icy/demuxer.ts:108 | opentui-core | todo |
 | `createMarkdownCodeBlockRenderer` | **1** | core/src/renderables/Markdown.ts:171 | opentui-core::renderer | partial |
 | `createRendererClipboardAdapter` | **1** | core/src/lib/clipboard.ts:308 | opentui-core::clipboard | done (boundary trait; clipboard-service.test.ts:207-236 ported) |
@@ -429,7 +429,7 @@ tree-sitter styling, testing helpers.
 | `nonAlphanumericKeys` | 2 | core/src/lib/parse.keypress.ts:125 | opentui-core::parse_keypress | done |
 | `normalizeColorValue` | 2 | core/src/lib/RGBA.ts:217 | opentui-core::color | todo |
 | `normalizeIndexedColorIndex` | 2 | core/src/lib/RGBA.ts:63 | opentui-core::color | done |
-| `normalizeTerminalPalette` | 2 | core/src/lib/terminal-palette.ts:415 | opentui-core | todo |
+| `normalizeTerminalPalette` | 2 | core/src/lib/terminal-palette.ts:415 | opentui-core::terminal_palette | done (256-slot palette with ANSI-256 fallback + default fg/bg; `#rgb`/`#rrggbb` hex via `rgba_from_hex`) |
 | `parseAlign` | 2 | core/src/lib/yoga.options.ts:44 | opentui-core::layout | todo |
 | `parseAlignItems` | 2 | core/src/lib/yoga.options.ts:72 | opentui-core::layout | todo |
 | `parseBorderStyle` | 2 | core/src/lib/border.ts:26 | opentui-core | todo |
@@ -667,3 +667,20 @@ members riding the supplementary tables like the D1b-core rows above.
 | `ScrollbackSnapshotRenderContext` / `claimFirstLineOffset` | core/src/renderer.ts:1994-2013 | ScrollbackSurface::render_context (the scratch renderer IS the context face) | done (port shape; first-line splice owned by the tail-column math) |
 | `resetSplitFooterForReplay` | core/src/renderer.ts:2442-2475 | CliRenderer::reset_split_footer_for_replay | done (clearSavedLines empties the transcript model; control burst live-only) |
 | `CliRendererExternalOutputEvent` peek access | — | CliRenderer::external_output_queue | done (read-only peek for host assertions) |
+
+### lane D1c additions (six small API gaps — Gate D0 approved)
+
+Ported by lane `lane/d1c` (tui-full-convergence phase-D1 fourth lane).
+Members ride this supplementary table like the D1b lanes above; the
+frozen rows touched by the lane (`TextBufferView`, `createHostClipboard`,
+`TerminalPalette`, `normalizeTerminalPalette`) were updated in place.
+
+| symbol | upstream file:line | Rust target | status |
+|---|---|---|---|
+| `OnHighlightCallback` / `HighlightContext` | core/src/renderables/Code.ts:11-21 | opentui-core::renderables::code | done (sync-settled port: upstream's async `Promise` collapses — the port highlights synchronously at construction and the differential oracle captures the settled frame; invoked on the raw highlights before the markdown built-in hook) |
+| `OnChunksCallback` / `ChunkRenderContext` | core/src/renderables/Code.ts:23-32 | opentui-core::renderables::code | done (same sync ruling; runs after `treeSitterToTextChunks`, before `detectLinks`) |
+| `CodePipelineHooks` | — (port-side carrier for Code.ts:42-43/67) | opentui-core::renderables::code | done (`build_code_document_with_hooks`; default hooks are no-ops — 119 differential scenarios stay IDENTICAL) |
+| `EditorTraits` / `EditorCapture` / `sameTraits` | core/src/renderables/EditBufferRenderable.ts:28-49 | opentui-core::editor | done (ref's `prompt/traits.ts:1` consumes the type — the upstream truth is EditBufferRenderable, not ref-local; `TextareaState::set_traits` is the `traits` setter :283-291 — no-op suppressed via `sameTraits`, suspend syncs the keymap-suspension projection; TRAITS_CHANGED's observable is the returned bool) |
+| `TerminalColors` / `NormalizedTerminalPalette` / hex parse | core/src/lib/terminal-palette.ts:24-41 | opentui-core::terminal_palette | done (crate-root module — the `terminal` module is feature-gated and this is a pure data contract the ref theme layer consumes unconditionally; ref sites: context/theme.tsx:1,381 + mini/theme.ts:1,273,297) |
+| `HostCommandBackend` / `CommandHostClipboardBackend` / `HostCommandSpec` | — (port-side mechanism behind createHostClipboard) | opentui-core::clipboard | done (see the `createHostClipboard` frozen row) |
+| `ensureRuntimePluginSupport` (+`SolidRuntimePluginSupportOptions`, rewrite options) | solid/scripts/runtime-plugin-support-configure.ts:100-125 (via package.json:39-42 `./runtime-plugin-support/configure`) | opentui-solid::runtime_plugin_support | done (contract-level per Gate D0: mechanism≠upstream — no bun loader plugin / solid transform, a process-global install record instead; output==upstream — first install `true`, idempotent `false`, the three compat errors word-for-word (:75-97), defaultRuntimeModules :52-61 + `additional` form the installed specifier set) |

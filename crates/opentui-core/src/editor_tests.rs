@@ -1507,3 +1507,102 @@ fn keymap_action_applies_to_textarea() {
         assert_eq!(ta.logical_cursor().col, 4);
     });
 }
+
+// ---------------------------------------------------------------------------
+// EditorTraits — EditBufferRenderable.ts:28-49 (lane D1c item d)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn editor_traits_same_traits_semantics() {
+    use crate::editor::{same_traits, EditorCapture, EditorTraits};
+
+    let base = EditorTraits::default();
+    assert!(same_traits(&base, &EditorTraits::default()));
+
+    // capture order matters (sameCapture compares elementwise)
+    let a = EditorTraits {
+        capture: Some(vec![EditorCapture::Escape, EditorCapture::Tab]),
+        ..Default::default()
+    };
+    let b = EditorTraits {
+        capture: Some(vec![EditorCapture::Tab, EditorCapture::Escape]),
+        ..Default::default()
+    };
+    assert!(!same_traits(&a, &b));
+    let c = EditorTraits {
+        capture: Some(vec![EditorCapture::Escape, EditorCapture::Tab]),
+        ..Default::default()
+    };
+    assert!(same_traits(&a, &c));
+    // None vs Some([]) differ (upstream: `!a && !b` only when both null)
+    let empty = EditorTraits {
+        capture: Some(Vec::new()),
+        ..Default::default()
+    };
+    assert!(!same_traits(&base, &empty));
+
+    // suspend / status compare directly
+    let s1 = EditorTraits {
+        suspend: Some(true),
+        status: Some("BUSY".into()),
+        ..Default::default()
+    };
+    let s2 = EditorTraits {
+        suspend: Some(true),
+        status: Some("BUSY".into()),
+        ..Default::default()
+    };
+    assert!(same_traits(&s1, &s2));
+    let s3 = EditorTraits {
+        suspend: Some(false),
+        status: Some("BUSY".into()),
+        ..Default::default()
+    };
+    assert!(!same_traits(&s1, &s3));
+}
+
+#[test]
+fn editor_capture_string_forms() {
+    use crate::editor::EditorCapture;
+    assert_eq!(EditorCapture::Escape.as_str(), "escape");
+    assert_eq!(EditorCapture::Navigate.as_str(), "navigate");
+    assert_eq!(EditorCapture::Submit.as_str(), "submit");
+    assert_eq!(EditorCapture::Tab.as_str(), "tab");
+}
+
+#[test]
+fn textarea_set_traits_suppresses_noops_and_syncs_suspend() {
+    use crate::editor::EditorTraits;
+    use crate::renderables::textarea::{TextareaOptions, TextareaState};
+
+    use crate::editor::EditorCapture;
+    let mut state = TextareaState::from_options("traits-test", &TextareaOptions::default(), 80, 24);
+    assert_eq!(state.traits(), &EditorTraits::default());
+    assert!(!state.suspended);
+
+    // the ref prompt contract: computePromptTraits' shape lands
+    let traits = EditorTraits {
+        capture: Some(vec![EditorCapture::Tab]),
+        status: Some("SHELL".into()),
+        suspend: None,
+    };
+    assert!(state.set_traits(traits.clone())); // TRAITS_CHANGED
+    assert!(!state.set_traits(traits.clone())); // sameTraits → no-op
+
+    // dialog-prompt's busy contract: suspend syncs the keymap projection
+    let busy = EditorTraits {
+        suspend: Some(true),
+        status: Some("BUSY".into()),
+        ..Default::default()
+    };
+    assert!(state.set_traits(busy));
+    assert!(state.suspended);
+    // ...and clearing suspend releases it
+    let idle = EditorTraits {
+        suspend: Some(false),
+        status: Some("BUSY".into()),
+        ..Default::default()
+    };
+    assert!(state.set_traits(idle));
+    assert!(!state.suspended);
+}

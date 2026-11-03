@@ -23,6 +23,66 @@ use crate::tree_sitter::{
     chunks::tree_sitter_to_text_chunks, get_tree_sitter_client, HighlightMeta, SimpleHighlight,
 };
 
+/// `HighlightContext` (Code.ts:11-15) — what the callback sees.
+pub struct HighlightContext<'a> {
+    pub content: &'a str,
+    pub filetype: &'a str,
+    pub syntax_style: &'a SyntaxStyle,
+}
+
+/// `OnHighlightCallback` (Code.ts:17-21): receives the tree-sitter
+/// highlights, may return replacements. Upstream is async
+/// (`Promise<SimpleHighlight[] | undefined>`); the port is
+/// synchronous — the pipeline runs at construction and the
+/// differential oracle captures the settled frame either way.
+pub type OnHighlightCallback<'a> =
+    dyn Fn(&[SimpleHighlight], &HighlightContext<'_>) -> Option<Vec<SimpleHighlight>> + 'a;
+
+/// `ChunkRenderContext` (Code.ts:23-27).
+pub struct ChunkRenderContext<'a> {
+    pub content: &'a str,
+    pub filetype: &'a str,
+    pub syntax_style: &'a SyntaxStyle,
+    pub highlights: &'a [SimpleHighlight],
+    /// `sourceRanges` (Code.ts:26) — `{start, end}` byte ranges
+    /// (empty when not concealed-sliced).
+    pub source_ranges: &'a [(u32, u32)],
+}
+
+/// `OnChunksCallback` (Code.ts:29-32) — same sync-settled ruling as
+/// [`OnHighlightCallback`].
+pub type OnChunksCallback<'a> =
+    dyn Fn(Vec<TextChunk>, &ChunkRenderContext<'_>) -> Option<Vec<TextChunk>> + 'a;
+
+/// The two Code.ts hooks the pipeline invokes between
+/// `highlightOnce` and `setStyledText` (Code.ts:348-455), as
+/// callbacks over the settled synchronous pipeline. The markdown
+/// built-ins ride as the `detect_links`/`markdown_link_highlights`
+/// flags on [`CodeOptions`]; these hooks run BEFORE the built-ins,
+/// matching upstream's single-hook call sites.
+pub struct CodePipelineHooks<'a> {
+    /// `onHighlight` (Code.ts:354-357 — after the worker highlights).
+    pub on_highlight: Option<Box<OnHighlightCallback<'a>>>,
+    /// `onChunks` (Code.ts:411-417 — after `treeSitterToTextChunks`).
+    pub on_chunks: Option<Box<OnChunksCallback<'a>>>,
+}
+
+impl Default for CodePipelineHooks<'_> {
+    fn default() -> Self {
+        CodePipelineHooks {
+            on_highlight: None,
+            on_chunks: None,
+        }
+    }
+}
+
+impl CodePipelineHooks<'_> {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// `CodeOptions` — Code.ts:32-44 (the subset the pipeline consumes).
 #[derive(Debug, Clone, Default)]
 pub struct CodeOptions {
@@ -79,6 +139,16 @@ pub fn build_code_document_with_highlights(
     options: &CodeOptions,
     syntax_style: &SyntaxStyle,
 ) -> (CodeDocument, Vec<SimpleHighlight>) {
+    build_code_document_with_hooks(options, syntax_style, &mut CodePipelineHooks::new())
+}
+
+/// [`build_code_document_with_highlights`] plus the live
+/// `onHighlight`/`onChunks` hooks (Code.ts:354-357 / :411-417).
+pub fn build_code_document_with_hooks(
+    options: &CodeOptions,
+    syntax_style: &SyntaxStyle,
+    hooks: &mut CodePipelineHooks<'_>,
+) -> (CodeDocument, Vec<SimpleHighlight>) {
     let conceal = options.conceal.unwrap_or(true);
     let defaults = CodeDocument::defaults(&CodeDocument {
         chunks: Vec::new(),
@@ -102,6 +172,19 @@ pub fn build_code_document_with_highlights(
         .expect("tree-sitter client")
         .highlight_once(&options.content, filetype);
     let mut highlights: Vec<SimpleHighlight> = result.highlights.unwrap_or_default();
+
+    // onHighlight hook (Code.ts:354-357) — runs on the raw highlights
+    // before the markdown built-in hook.
+    if let Some(callback) = hooks.on_highlight.as_ref() {
+        let context = HighlightContext {
+            content: &options.content,
+            filetype: filetype.as_str(),
+            syntax_style,
+        };
+        if let Some(replacement) = callback(&highlights, &context) {
+            highlights = replacement;
+        }
+    }
 
     // onHighlight = addMarkdownLinkHighlights (Markdown.ts:724-790)
     if options.markdown_link_highlights {
@@ -130,6 +213,18 @@ pub fn build_code_document_with_highlights(
                 ranges: ranges.as_mut(),
             },
         );
+        if let Some(callback) = hooks.on_chunks.as_ref() {
+            let context = ChunkRenderContext {
+                content: &options.content,
+                filetype: filetype.as_str(),
+                syntax_style,
+                highlights: &highlights,
+                source_ranges: &[],
+            };
+            if let Some(replacement) = callback(chunks.clone(), &context) {
+                chunks = replacement;
+            }
+        }
         if options.detect_links {
             chunks = detect_links(chunks, &options.content, &highlights, ranges.as_deref());
         }

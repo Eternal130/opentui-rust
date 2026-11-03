@@ -66,29 +66,33 @@ pub mod terminal;
 mod text_buffer_tests;
 
 pub mod scheduler;
-pub mod scrollback;
 pub mod scroll_acceleration;
+pub mod scrollback;
 pub mod syntax_style;
+pub mod terminal_palette;
 pub mod text_buffer;
+pub mod text_buffer_view;
 pub mod text_node;
 pub mod tree_sitter;
 
 pub use ansi::TextAttributes;
 pub use buffer::OptimizedBuffer;
 pub use clipboard::{
-    create_clipboard, create_host_clipboard_with_backend, create_renderer_clipboard_adapter,
-    validate_clipboard_text, AbortSignal, ClipboardClearResult, ClipboardError, ClipboardOptions,
-    ClipboardReadOptions, ClipboardReadResult, ClipboardSelection, ClipboardService,
-    ClipboardTarget, ClipboardWriteDestination, ClipboardWriteOptions, ClipboardWriteResult,
-    HostClipboardBackend, HostClipboardClearResult, HostClipboardOperationOptions,
-    HostClipboardOptions, HostClipboardReadOptions, HostClipboardService,
-    HostClipboardWriteOptions, HostClipboardWriteResult, NormalizedHostClipboardOptions,
-    Osc52Support, RendererClipboardAdapter, RendererClipboardBoundary, TerminalClipboardAdapter,
-    TerminalClipboardOperationResult,
+    create_clipboard, create_host_clipboard, create_host_clipboard_with_backend,
+    create_renderer_clipboard_adapter, validate_clipboard_text, AbortSignal, ClipboardClearResult,
+    ClipboardError, ClipboardOptions, ClipboardReadOptions, ClipboardReadResult,
+    ClipboardSelection, ClipboardService, ClipboardTarget, ClipboardWriteDestination,
+    ClipboardWriteOptions, ClipboardWriteResult, CommandHostClipboardBackend, HostClipboardBackend,
+    HostClipboardClearResult, HostClipboardOperationOptions, HostClipboardOptions,
+    HostClipboardReadOptions, HostClipboardService, HostClipboardWriteOptions,
+    HostClipboardWriteResult, HostCommandBackend, HostCommandRunner, HostCommandSpec,
+    NormalizedHostClipboardOptions, Osc52Support, RendererClipboardAdapter,
+    RendererClipboardBoundary, TerminalClipboardAdapter, TerminalClipboardOperationResult,
 };
 pub use color::{parse_color, ColorIntent, Rgba};
 pub use editor::{
-    EditBuffer, EditorView, SelectionBehavior, SelectionOccupancy, TextSelection, VisualCursor,
+    same_traits, EditBuffer, EditorCapture, EditorTraits, EditorView, SelectionBehavior,
+    SelectionOccupancy, TextSelection, VisualCursor,
 };
 pub use events::{KeyEvent, KeyHandler, MouseButton, MouseEvent, PasteEvent};
 pub use image::{
@@ -108,8 +112,9 @@ pub use paste::{decode_paste_bytes, strip_ansi_sequences, BracketedPasteCollecto
 pub use renderable::{Renderable, RenderableId, RootRenderable};
 pub use renderables::box_::{BorderSpec, BorderStyle, BoxOptions, BoxRenderableState};
 pub use renderables::code::{
-    add_markdown_link_highlights, detect_links, normalize_markdown_link_target, CodeDocument,
-    CodeOptions,
+    add_markdown_link_highlights, build_code_document_with_hooks, detect_links,
+    normalize_markdown_link_target, ChunkRenderContext, CodeDocument, CodeOptions,
+    CodePipelineHooks, HighlightContext, OnChunksCallback, OnHighlightCallback,
 };
 pub use renderables::image::{
     resolve_image_render_protocol, DrawImageRequest, ImageFit, ImageRenderCtx, ImageRenderProtocol,
@@ -143,7 +148,9 @@ pub use syntax_style::{
     convert_theme_to_styles, MergedStyle, StyleDefinition, StyleDefinitionInput, SyntaxStyle,
     ThemeTokenStyle,
 };
+pub use terminal_palette::{normalize_terminal_palette, NormalizedTerminalPalette, TerminalColors};
 pub use text_buffer::{TextAlign, TextDocument};
+pub use text_buffer_view::{LineInfo, MeasureResult, TextBufferView};
 pub use text_node::{NodeStyle, TextNodeOptions, TextNodeRenderable};
 pub use tree_sitter::{
     add_default_parsers, destroy_tree_sitter_client, get_tree_sitter_client, FiletypeParserOptions,
