@@ -1,0 +1,17 @@
+{
+  "name": "text-scroll-viewport",
+  "width": 20,
+  "height": 10,
+  "steps": [
+    { "op": "text", "id": "t1", "parent": "root", "options": {
+      "width": 20, "height": 3, "wrapMode": "none",
+      "content": "line-one-that-is-quite-long-indeed\nline-two 世界 with wide glyphs\nline-three\nline-four\nline-five also long enough to scroll horizontally here"
+    } },
+    { "op": "frame" },
+    { "op": "set", "id": "t1", "prop": "scrollY", "value": 2 },
+    { "op": "frame" },
+    { "op": "set", "id": "t1", "prop": "scrollX", "value": 8 },
+    { "op": "frame" },
+    { "op": "set", "id": "t1", "prop": "scrollY", "value": 99 }
+  ]
+}

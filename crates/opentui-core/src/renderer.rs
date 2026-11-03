@@ -2471,6 +2471,23 @@ impl CliRenderer {
         self.frame_id
     }
 
+    /// Text-leaf scroll setters — `scrollY`/`scrollX` on
+    /// TextBufferRenderable (TextBufferRenderable.ts:176-196): clamped
+    /// against the viewport, then `updateViewportOffset` (218-220).
+    pub fn text_set_scroll(&mut self, id: &str, horizontal: bool, value: f32) {
+        let Some(node) = Self::find_node_mut(&mut self.root.inner, id) else {
+            return;
+        };
+        if let Content::Text(state) = &mut node.content {
+            let v = value.max(0.0) as u32;
+            if horizontal {
+                state.set_scroll_x(v);
+            } else {
+                state.set_scroll_y(v);
+            }
+        }
+    }
+
     /// Update a text leaf's measure context after content changes
     /// (`content` setter → updateTextBuffer, Text.ts:75-83).
     pub fn refresh_text_measure(&mut self, id: &str) {

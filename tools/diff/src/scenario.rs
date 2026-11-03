@@ -554,6 +554,10 @@ pub fn replay(scenario: &Scenario) -> Result<CliRenderer> {
             }
             "call" => {
                 mount(&mut renderer, &mut by_id, &children_of, None, &roots);
+                    // text-leaf scroll (`r.scrollY = v` — the clamped
+                    // TextBufferRenderable setters)
+                    "scrollX" => renderer.text_set_scroll(&id, true, value),
+                    "scrollY" => renderer.text_set_scroll(&id, false, value),
                 let id = step.id.clone().context("call step needs id")?;
                 let method = step.method.clone().context("call step needs method")?;
                 let args = step.args.clone().unwrap_or_default();

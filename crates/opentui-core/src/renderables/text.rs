@@ -135,6 +135,11 @@ pub struct TextRenderableState {
     pub tab_indicator: Option<u32>,
     pub tab_indicator_color: Option<Rgba>,
     pub truncate: bool,
+    /// `_scrollX`/`_scrollY` (TextBufferRenderable.ts:38-39): the
+    /// viewport offsets fed to `setViewport`; clamped by the setters
+    /// (176-196).
+    pub(crate) scroll_x: u32,
+    pub(crate) scroll_y: u32,
     /// `setViewport` state (TextBufferRenderable.ts:106-108 via
     /// onResize) — None until first layout.
     pub(crate) viewport: Option<Viewport>,
@@ -176,6 +181,8 @@ impl TextRenderableState {
             tab_indicator: opts.tab_indicator,
             tab_indicator_color: opts.tab_indicator_color,
             truncate: opts.truncate,
+            scroll_x: 0,
+            scroll_y: 0,
             viewport: None,
             vlines: Vec::new(),
             vlines_wrap_width: None,
@@ -191,20 +198,78 @@ impl TextRenderableState {
         }
     }
 
-    /// `onResize` → `setViewport(0, 0, width, height)`
+    /// `onResize` → `setViewport(scrollX, scrollY, width, height)`
     /// (TextBufferRenderable.ts:371-376): the viewport (clamped ≥ 1 —
     /// Renderable.ts:1114-1115) also sets the wrap width
-    /// (text-buffer-view.zig:355-368).
+    /// (text-buffer-view.zig:355-368 — vlines recompute only when the
+    /// *width* changed).
     pub fn update_layout(&mut self, width: u32, height: u32) {
         let vp = Viewport {
-            x: 0,
-            y: 0,
+            x: self.scroll_x,
+            y: self.scroll_y,
             width: width.max(1),
             height: height.max(1),
         };
+        let width_changed = self.viewport.is_none_or(|v| v.width != vp.width);
         if self.viewport != Some(vp) {
             self.viewport = Some(vp);
+        }
+        if width_changed {
             self.vlines_valid = false;
+        }
+    }
+
+    /// `scrollHeight` = `virtualLineCount`
+    /// (TextBufferRenderable.ts:198-200) — the untruncated vline count
+    /// at the current wrap width (`getVirtualLineCount` →
+    /// `updateVirtualLines`, no truncation pass).
+    pub fn scroll_height(&mut self) -> u32 {
+        self.vlines().len() as u32
+    }
+
+    /// `scrollWidth` = `lineInfo.lineWidthColsMax`
+    /// (TextBufferRenderable.ts:196-197, the logical-line intrinsic
+    /// max via `logicalLineInfo`).
+    #[must_use]
+    pub fn scroll_width(&self) -> u32 {
+        self.doc
+            .lines
+            .iter()
+            .map(|l| l.width_cols)
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// `scrollY` setter (TextBufferRenderable.ts:176-184): clamp to
+    /// `[0, max(0, scrollHeight - height)]`, then
+    /// `updateViewportOffset` (218-220) — the vline cache stays warm
+    /// (setViewport only dirties on width change).
+    pub fn set_scroll_y(&mut self, value: u32) {
+        let h = self.viewport.map_or(0, |vp| vp.height);
+        let clamped = value.min(self.scroll_height().saturating_sub(h));
+        if clamped != self.scroll_y {
+            self.scroll_y = clamped;
+            self.update_viewport_offset();
+        }
+    }
+
+    /// `scrollX` setter (TextBufferRenderable.ts:186-196): clamp to
+    /// `[0, max(0, scrollWidth - width)]`.
+    pub fn set_scroll_x(&mut self, value: u32) {
+        let w = self.viewport.map_or(0, |vp| vp.width);
+        let clamped = value.min(self.scroll_width().saturating_sub(w));
+        if clamped != self.scroll_x {
+            self.scroll_x = clamped;
+            self.update_viewport_offset();
+        }
+    }
+
+    /// `updateViewportOffset` (TextBufferRenderable.ts:216-220):
+    /// re-issue `setViewport` with the current scroll position.
+    fn update_viewport_offset(&mut self) {
+        if let Some(vp) = &mut self.viewport {
+            vp.x = self.scroll_x;
+            vp.y = self.scroll_y;
         }
     }
 
@@ -222,6 +287,14 @@ impl TextRenderableState {
             // wrap width only when > 0
             let wrap_width = wrap_width.filter(|w| *w > 0);
             self.vlines = compute_virtual_lines(&self.doc, self.wrap_mode, wrap_width);
+            // `ensureTruncation` (text-buffer-view.zig:1268-1278): with
+            // `truncate` set and a live viewport, `getVirtualLines`
+            // applies the truncation pass before the draw sees the lines
+            if self.truncate {
+                if let Some(vp) = self.viewport {
+                    crate::text_buffer::apply_truncation(&self.doc, &mut self.vlines, vp.width);
+                }
+            }
             self.vlines_wrap_width = wrap_width;
             self.vlines_valid = true;
         }
@@ -287,14 +360,6 @@ impl TextRenderableState {
                 Some(self.viewport.map_or(0, |vp| vp.width))
             };
             let wrap_width = wrap_width.filter(|w| *w > 0);
-            // `ensureTruncation` (text-buffer-view.zig:1268-1278): with
-            // `truncate` set and a live viewport, `getVirtualLines`
-            // applies the truncation pass before the draw sees the lines
-            if self.truncate {
-                if let Some(vp) = self.viewport {
-                    crate::text_buffer::apply_truncation(&self.doc, &mut self.vlines, vp.width);
-                }
-            }
             let mut lines = compute_virtual_lines(&self.doc, self.wrap_mode, wrap_width);
             if self.truncate {
                 if let Some(vp) = self.viewport {
