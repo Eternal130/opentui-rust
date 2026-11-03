@@ -218,7 +218,7 @@ tree-sitter styling, testing helpers.
 | `Box` | 2 | core/src/renderables/composition/constructs.ts:32 | opentui-core | done |
 | `BoxRenderable` | **1** | core/src/renderables/Box.ts:46 | opentui-core::renderables | done |
 | `CRTRollingBarEffect` | 2 | core/src/post/effects.ts:727 | opentui-core | todo |
-| `CliRenderEvents` | **1** | core/src/renderer.ts:750 | opentui-core::renderer | partial (FRAME/FOCUS family/RESIZE/CAPABILITIES/THEME_MODE emitted; DESTROY — renderer.ts:4408's destroy ladder — and EXTERNAL_OUTPUT (renderer.ts:2339+, D1b-core) still unported with RENDER_ERROR/HANDLER_ERROR/SELECTION/DEBUG_OVERLAY_TOGGLE/MEMORY_SNAPSHOT) |
+| `CliRenderEvents` | **1** | core/src/renderer.ts:750 | opentui-core::renderer | partial (FRAME/FOCUS family/RESIZE/CAPABILITIES/THEME_MODE/EXTERNAL_OUTPUT (renderer.ts:755, :2608-2613 — landed D1b-core) emitted; DESTROY — renderer.ts:4408's destroy ladder — still unported with RENDER_ERROR/HANDLER_ERROR/SELECTION/DEBUG_OVERLAY_TOGGLE/MEMORY_SNAPSHOT) |
 | `CliRenderer` | **1** | core/src/renderer.ts:780 | opentui-core::renderer | partial (headless render target + events/focus/mouse/input + D1a lifecycle: requestRender/settle coalescing, destroy/isDestroyed no-op semantics, setBackgroundColor, setTerminalTitle, waitForThemeMode, useMouse runtime toggle, consoleMode "disabled", session ownership (terminal-backend); screenMode/footerHeight/externalOutputMode ride D1b-core; debug overlay + kitty transport stats todo) |
 | `Clipboard` | 2 | core/src/lib/clipboard.ts:337 | opentui-core | todo |
 | `ClipboardTarget` | 2 | core/src/lib/clipboard.ts:292 | opentui-core | done (ABI enum; clipboard.test.ts:19-24 pinned) |
@@ -499,7 +499,7 @@ tree-sitter styling, testing helpers.
 | `createComponent` | 2 | solid-js re-export | element trees (no component fn indirection) | done (shape: builders) |
 | `createDynamic` | 2 | solid/src/elements/extras.ts:75 | opentui-solid | deferred |
 | `createElement` | 2 | solid-js re-export | SolidRenderer::mount_element | done (semantics) |
-| `createScrollbackWriter` | **1** | solid/src/scrollback.ts:145 | opentui-solid::scrollback | done (4-pass measure + paint_lines) |
+| `createScrollbackWriter` | **1** | solid/src/scrollback.ts:145 | opentui-solid::scrollback | done (4-pass measure + paint_lines; consumed by core `write_to_scrollback` since D1b-core) |
 | `createSlot` | 2 | solid/src/plugins/slot.tsx:66 | opentui-solid | deferred (plugin-side slots) |
 | `createSlotNode` | 2 | solid/src/reconciler.ts:155 | reconcile marker (Group renderable) | done (shape: marker) |
 | `createSolidSlotRegistry` | 2 | solid/src/plugins/slot.tsx:56 | opentui-solid | deferred (plugin-side slots) |
@@ -527,7 +527,7 @@ tree-sitter styling, testing helpers.
 | `useSelectionHandler` | 2 | solid/src/elements/hooks.ts:132 | opentui-solid | todo (selection = EditBuffer lane) |
 | `useTerminalDimensions` | **1** | solid/src/elements/hooks.ts:36 | SolidRenderer::terminal_dimensions (signal) | done |
 | `useTimeline` | 2 | solid/src/elements/hooks.ts:144 | opentui-core (timeline = render lane target) | deferred |
-| `writeSolidToScrollback` | 2 | solid/src/scrollback.ts:221 | ScrollbackWriter::write + paint_lines | done (shape: core writeToScrollback not ported) |
+| `writeSolidToScrollback` | 2 | solid/src/scrollback.ts:221 | ScrollbackWriter::write + paint_lines | done (shape; the core consumer — `CliRenderer::write_to_scrollback` — landed in D1b-core) |
 
 ### keymap (4 runtime exports)
 
@@ -615,3 +615,29 @@ this supplementary table like the O2g/O2c additions above.
 | `ConsoleAction` | core/src/console.ts:231 | opentui-core::renderer::ConsoleAction | done (enum parity) |
 | `ConsoleKeyBinding` | core/src/console.ts:243 | opentui_core::renderer::ConsoleKeyBinding | done (flattened `BaseKeyBinding<ConsoleAction>`) |
 | `EventEmitter.setMaxListeners` (renderer face) | node:events (inherited, renderer.ts:57) | opentui-core::renderer::CliRenderer::set_max_listeners | partial (cap stored + getter; Node's warning channel needs a logger seam — deferred) |
+
+### lane D1b-core additions (beyond the frozen 339; split-footer scrollback runtime base)
+
+Ported by lane `lane/d1b-core` (tui-full-convergence D1b-core — the
+split-footer scrollback RUNTIME base: the write path, the
+`ExternalOutputCommit` FIFO, tail-column newline ownership, and the
+flush adjudication; the SURFACE family — `createScrollbackSurface`,
+`screenMode`/`footerHeight`/`externalOutputMode` config enums —
+stays with lane D1b-surface). Type/interface members, not runtime
+exports, so they ride this supplementary table like the D1a
+additions above.
+
+| symbol | upstream file:line | Rust target | status |
+|---|---|---|---|
+| `ScrollbackRenderContext` | core/src/renderer.ts:295 | opentui-core::scrollback::ScrollbackRenderContext | done (width/widthMethod/tailColumn; widthMethod defaults until surface wiring) |
+| `ScrollbackSnapshot` | core/src/renderer.ts:304 | opentui-core::scrollback::ScrollbackSnapshot | done (painted-rows payload — the opentui-solid `createScrollbackWriter` consumption contract; `teardown` is the scratch renderer's drop) |
+| `ScrollbackWriter` | core/src/renderer.ts:314 | opentui-core::scrollback::ScrollbackWriter | done (`FnOnce(&ctx) -> ScrollbackSnapshot`) |
+| `CliRenderer.writeToScrollback` | core/src/renderer.ts:2363 | opentui-core::renderer::CliRenderer::write_to_scrollback | done (mode gate returns `ScrollbackWriteError` instead of throwing; clamps per :2477-2499) |
+| `ExternalOutputCommit` | core/src/renderer.ts:395 | opentui-core::scrollback::ExternalOutputCommit | done (payload = painted rows; no native OptimizedBuffer — bounded divergence) |
+| `ExternalOutputQueue` | core/src/renderer.ts:403 | opentui-core::scrollback::ExternalOutputQueue | done (writeSnapshot/peek/claim/drop/clear, :405-441) |
+| `CliRendererExternalOutputEvent` | core/src/renderer.ts:252 | opentui-core::scrollback::CliRendererExternalOutputEvent | done (= the commit; emitted only with listeners, :2610) |
+| `CliRenderEvents.EXTERNAL_OUTPUT` | core/src/renderer.ts:755 | opentui-core::renderer::CliRenderEvent::ExternalOutput | done (enum parity — the row-221 partial note updated) |
+| `makeRoomForRendererOutput` (setup arm) | native/src/ansi.zig:418 (renderer.zig:566-569) | opentui-core::terminal::modes::make_room_for_renderer_output + SetupOptions::use_alt_screen/reserve_surface_height | done (non-alt reservation arm; default alt-screen unchanged) |
+| flush adjudication family (`flushPendingSplitCommits` / `flushPendingSplitOutputBeforeTransition` / tail-column math) | core/src/renderer.ts:2497-2571, 2729-2826, 2894-2918 | opentui-core::scrollback + CliRenderer::flush_pending_split_commits / flush_pending_split_output_before_transition / get_pending_split_tail_column | done (bounded 8/tick drain, FIFO drop, re-request; `Backpressured` arm unreachable without the native gate — parity shape only) |
+| `resetSplitFooterForReplay` | core/src/renderer.ts:2442 | — | deferred (D1b-surface: needs the mode/geometry enums) |
+| `createScrollbackSurface` | core/src/renderer.ts (surface family) | — | deferred (D1b-surface by lane ruling) |

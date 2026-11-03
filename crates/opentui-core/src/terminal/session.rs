@@ -46,6 +46,19 @@ pub struct SetupOptions {
     /// `?1004` focus reporting (terminal.zig:1001-1005). Same story as
     /// `bracketed_paste` (oc-tui always enables, app.rs:7631).
     pub auto_focus: bool,
+    /// `useAlternateScreen` (renderer.zig:560/566-569) — default
+    /// `true` (the Phase A alt-screen ruling). When `false`, the
+    /// setup skips `?1049h` and instead reserves the main-screen
+    /// surface via `makeRoomForRendererOutput` (ansi.zig:418-425)
+    /// when `reserve_surface_height > 0` — the split-footer runtime
+    /// base (D1b-core): the renderer's rows sit at the bottom of the
+    /// main screen with the shell's scrollback above.
+    pub use_alt_screen: bool,
+    /// The `makeRoomForRendererOutput` height (renderer.zig:568
+    /// passes `@max(self.height, 1)`) — only read when
+    /// `use_alt_screen` is false; 0 = no reservation (the bare
+    /// non-alt arm).
+    pub reserve_surface_height: u32,
 }
 
 impl Default for SetupOptions {
@@ -56,6 +69,8 @@ impl Default for SetupOptions {
             kitty_keyboard_flags: 0,
             bracketed_paste: true,
             auto_focus: true,
+            use_alt_screen: true,
+            reserve_surface_height: 0,
         }
     }
 }
@@ -113,6 +128,10 @@ impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
     ///
     /// 1. `\x1b[s`          saveCursorState        (renderer.zig:563)
     /// 2. `\x1b[?1049h`     enterAltScreen         (renderer.zig:566)
+    ///    — or, when `use_alt_screen` is false with a reserved
+    ///    surface, `height-1` newlines (makeRoomForRendererOutput,
+    ///    ansi.zig:418-425 via renderer.zig:566-569 — the D1b-core
+    ///    non-alt arm)
     /// 3. `\x1b[>4;1m`      modifyOtherKeys on     (terminal.zig:409-411 —
     ///    state is fresh, so upstream ALWAYS writes this first)
     /// 4. if kitty flags > 0: `\x1b[>4;0m` then `\x1b[>{flags}u`
@@ -186,7 +205,7 @@ impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
     pub fn new(mut tty: T, mut out: W, opts: &SetupOptions) -> io::Result<Self> {
         let termios_save = tty.raw_mode()?;
         let mut state = TerminalState {
-            alt_screen: true,
+            alt_screen: opts.use_alt_screen,
             bracketed_paste: opts.bracketed_paste,
             focus_tracking: opts.auto_focus,
             ..TerminalState::default()
@@ -194,7 +213,19 @@ impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
 
         let result = (|| -> io::Result<()> {
             out.write_all(modes::SAVE_CURSOR)?; // renderer.zig:563
-            out.write_all(modes::ENTER_ALT_SCREEN)?; // renderer.zig:566
+            if opts.use_alt_screen {
+                out.write_all(modes::ENTER_ALT_SCREEN)?; // renderer.zig:566
+            } else if opts.reserve_surface_height > 0 {
+                // The non-alt reservation arm (renderer.zig:566-569):
+                // `makeRoomForRendererOutput(@max(height, 1))` — the
+                // split-footer runtime base (D1b-core). Upstream's
+                // `setCursorPosition(1, 1, false)` right after
+                // (renderer.zig:571) is state-only, no bytes.
+                modes::make_room_for_renderer_output(
+                    &mut out,
+                    opts.reserve_surface_height.max(1),
+                )?;
+            }
             out.write_all(modes::MODIFY_OTHER_KEYS_ENABLE)?; // terminal.zig:410
             state.modify_other_keys = true;
 

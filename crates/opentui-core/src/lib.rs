@@ -66,6 +66,7 @@ pub mod terminal;
 mod text_buffer_tests;
 
 pub mod scheduler;
+pub mod scrollback;
 pub mod scroll_acceleration;
 pub mod syntax_style;
 pub mod text_buffer;

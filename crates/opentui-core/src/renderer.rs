@@ -515,11 +515,12 @@ pub struct TerminalPalette {
 /// stream (the slice the input lane emits).
 ///
 /// GAP REGISTER (parity vs the 16-value upstream enum, renderer.ts:750-767):
-/// still unported are `RENDER_ERROR`, `HANDLER_ERROR`, `EXTERNAL_OUTPUT`,
-/// `SELECTION`, `DEBUG_OVERLAY_TOGGLE`, `DESTROY`, `MEMORY_SNAPSHOT` —
+/// still unported are `RENDER_ERROR`, `HANDLER_ERROR`, `SELECTION`,
+/// `DEBUG_OVERLAY_TOGGLE`, `DESTROY`, `MEMORY_SNAPSHOT` —
 /// deferred with their upstream features. `THEME_MODE`/`PALETTE` have
 /// A4 variants; the `PALETTE` emitter (TerminalPaletteDetector) rides
-/// the palette consumer lane.
+/// the palette consumer lane. `EXTERNAL_OUTPUT` landed with the
+/// split-footer scrollback runtime base (D1b-core).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliRenderEvent {
     /// `FRAME` — `{ frameId }` (renderer.ts:4761-4765).
@@ -566,6 +567,13 @@ pub enum CliRenderEvent {
     /// TerminalPaletteDetector family stays deferred, so nothing emits
     /// it yet (see `TerminalPalette` docs).
     Palette(TerminalPalette),
+    /// `EXTERNAL_OUTPUT` — a scrollback commit was enqueued (the
+    /// `enqueueSplitCommit` emit, renderer.ts:2608-2613; enum value
+    /// renderer.ts:755). The payload is the commit itself
+    /// (`CliRendererExternalOutputEvent`, renderer.ts:252-257) —
+    /// emitted only when at least one listener is registered, exactly
+    /// like upstream's `listenerCount > 0` gate (renderer.ts:2610).
+    ExternalOutput(crate::scrollback::CliRendererExternalOutputEvent),
 }
 
 /// The `waitForThemeMode` result (renderer-theme-mode.ts:62-83):
@@ -772,6 +780,59 @@ pub struct CliRenderer {
     /// attached by the embedder; `destroy()` tears it down.
     #[cfg(feature = "terminal-backend")]
     pub session: Option<Box<dyn RendererTerminalSession>>,
+    // ----- split-footer scrollback runtime base (D1b-core) -----
+    /// Whether the split-footer capture path is armed — the runtime
+    /// base of upstream's `screenMode === "split-footer" &&
+    /// externalOutputMode === "capture-stdout"` gate (the mode
+    /// resolution itself, `resolveModes` renderer.ts:365-386, rides
+    /// the D1b-surface config enums; the toggle here is what they
+    /// will drive).
+    split_capture_active: bool,
+    /// `splitTailColumn` (renderer.ts:901) — where the last flushed
+    /// commit left the cursor inside the transcript's last row.
+    split_tail_column: u32,
+    /// `externalOutputQueue` — the FIFO between commit producers and
+    /// the render-loop flush (renderer.ts:403-441, fed at :2609).
+    external_output_queue: crate::scrollback::ExternalOutputQueue,
+    /// The headless transcript model — the byte stream the flush
+    /// adjudication has committed above the footer (the differential
+    /// harness's view; the live path writes the same bytes through the
+    /// session).
+    split_transcript: String,
+}
+
+/// `maxSplitCommitsPerFrame` (renderer.ts:909) — the flush bound: one
+/// render tick drains at most this many commits (a "modest frame";
+/// leftover work re-requests a render, renderer.ts:2817-2820).
+const MAX_SPLIT_COMMITS_PER_FRAME: usize = 8;
+
+/// The `flushPendingSplitCommits` outcome (renderer.ts:2730-2734's
+/// `"rendered" | "backpressured" | "failed"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SplitFlushStatus {
+    /// Commits were flushed (or nothing was queued).
+    Rendered,
+    /// Native backpressure — upstream's `SKIPPED` status reschedules
+    /// (renderer.ts:2758-2761). The port has no native split-append
+    /// gate, so this arm is unreachable for now and exists for the
+    /// decision-table parity.
+    Backpressured,
+    /// The live-session write failed (upstream's `FAILED` status,
+    /// renderer.ts:2763-2766).
+    Failed,
+}
+
+/// The `writeToScrollback` mode-gate failure (upstream throws,
+/// renderer.ts:2364-2366 — the port returns the error instead of
+/// unwinding).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollbackWriteError {
+    /// `screenMode "split-footer"` + `externalOutputMode
+    /// "capture-stdout"` not armed (renderer.ts:2364-2366).
+    CaptureNotActive,
+    /// The writer returned no snapshot rows (the `must return a
+    /// snapshot root renderable` guard, renderer.ts:2383-2385).
+    EmptySnapshot,
 }
 
 use std::collections::HashMap;
@@ -833,6 +894,10 @@ pub fn create_cli_renderer(config: CliRendererConfig) -> CliRenderer {
         terminal_title: String::new(),
         #[cfg(feature = "terminal-backend")]
         session: None,
+        split_capture_active: false,
+        split_tail_column: 0,
+        external_output_queue: crate::scrollback::ExternalOutputQueue::default(),
+        split_transcript: String::new(),
     }
 }
 
@@ -899,6 +964,13 @@ impl CliRenderer {
             return;
         }
         self.render_pending = false;
+        // The split-commit flush rides the frame head — upstream's
+        // loop() drains the ExternalOutputQueue before painting
+        // (renderer.ts:972-976), so one frame batches the queued
+        // commits and repaints the footer together.
+        if self.split_capture_active && self.external_output_queue.size() > 0 {
+            self.flush_pending_split_commits(false, false);
+        }
         let _ = self.render();
     }
 
@@ -932,6 +1004,12 @@ impl CliRenderer {
         self.destroyed = true; // renderer.ts:4412
         self.scheduler.stop(); // `_isRunning = false` (cleanupBeforeDestroy, renderer.ts:4486)
         self.render_pending = false;
+        // The destroy-path drain — upstream flushes pending split
+        // output before the transition with suspend/unsetup allowed
+        // (renderer.ts:4500, 4558), so no captured output is lost.
+        if self.split_capture_active && self.external_output_queue.size() > 0 {
+            self.flush_pending_split_commits(true, true);
+        }
         // theme waiters resolve with the current mode
         // (renderer-theme-mode.ts:89-100 `dispose`)
         let mode = self.theme_mode;
@@ -1128,6 +1206,249 @@ impl CliRenderer {
     #[must_use]
     pub fn terminal_session(&self) -> Option<&dyn RendererTerminalSession> {
         self.session.as_deref()
+    }
+
+    // -----------------------------------------------------------------
+    // Split-footer scrollback runtime base (D1b-core) —
+    // renderer.ts:2339-2826, 2894-2918
+    // -----------------------------------------------------------------
+
+    /// Arm / disarm the split-footer capture path — the runtime base
+    /// of the `screenMode "split-footer"` + `externalOutputMode
+    /// "capture-stdout"` gate every scrollback write/flush checks
+    /// (renderer.ts:2364-2366, 2603-2607). The config-enum resolution
+    /// (`resolveModes`, renderer.ts:365-386) rides D1b-surface; this
+    /// toggle is what it drives. Disarming mirrors upstream's
+    /// transition hygiene: pending commits flush first (the
+    /// `flushPendingSplitOutputBeforeTransition(true)` tail,
+    /// renderer.ts:1805/1884) and the queue clears.
+    pub fn set_split_footer_capture(&mut self, active: bool) {
+        if self.destroyed {
+            return;
+        }
+        if !active && self.split_capture_active {
+            self.flush_pending_split_output_before_transition(true);
+            self.external_output_queue.clear();
+        }
+        self.split_capture_active = active;
+        if !active {
+            // syncSplitScrollback's passthrough arm resets the tail
+            // (renderer.ts:2968-2972)
+            self.split_tail_column = 0;
+        }
+    }
+
+    /// Whether the split-footer capture path is armed.
+    #[must_use]
+    pub fn is_split_footer_capture_active(&self) -> bool {
+        self.split_capture_active
+    }
+
+    /// `writeToScrollback(write)` (renderer.ts:2363-2440) — the
+    /// "render to scrollback commit" API: the writer paints a
+    /// snapshot against the pending tail column, and the result is
+    /// enqueued as ONE [`crate::scrollback::ExternalOutputCommit`] in
+    /// the same FIFO as captured stdout (deterministic ordering,
+    /// renderer.ts:2341-2346), then a render is requested so the
+    /// flush can batch commits into one frame (renderer.ts:2614).
+    ///
+    /// Upstream hands the writer a `root: Renderable` and renders it
+    /// through an off-screen `OptimizedBuffer` (:2397-2402); the
+    /// port's producers paint through a scratch renderer (the
+    /// contract `opentui-solid`'s `createScrollbackWriter` already
+    /// feeds), so the snapshot arrives as painted rows and the
+    /// width/height clamps (`getSnapshotWidth`/`getSnapshotHeight`,
+    /// :2477-2499) apply to the row set. `teardown` is the scratch
+    /// renderer's drop — nothing to invoke.
+    pub fn write_to_scrollback(
+        &mut self,
+        writer: crate::scrollback::ScrollbackWriter<'_>,
+    ) -> Result<(), ScrollbackWriteError> {
+        if !self.split_capture_active {
+            return Err(ScrollbackWriteError::CaptureNotActive); // renderer.ts:2364-2366
+        }
+
+        // The writer context — width/widthMethod/tailColumn
+        // (renderer.ts:2368-2375); the tail column is the PENDING one
+        // (queued commits included, renderer.ts:2572-2583). The width
+        // method upstream comes from probe caps; the runtime base
+        // reports the zig default (terminal.zig:18) until the
+        // surface lane wires the live caps.
+        let ctx = crate::scrollback::ScrollbackRenderContext {
+            width: self.config.width.max(1),
+            width_method: WidthMethod::default(),
+            tail_column: self.get_pending_split_tail_column(),
+        };
+        let snapshot = writer(&ctx);
+        if snapshot.lines.is_empty() {
+            return Err(ScrollbackWriteError::EmptySnapshot); // renderer.ts:2383-2385
+        }
+
+        // enqueueRenderedScrollbackCommit (renderer.ts:2583-2614):
+        // clamp, default the newline flags, enqueue, request render.
+        let width = self.config.width.max(1);
+        let clamped = crate::scrollback::snapshot_width_clamp(
+            snapshot.row_columns.unwrap_or(width),
+            width,
+        );
+        let row_columns = if snapshot.row_columns.is_some() {
+            clamped
+        } else {
+            width
+        };
+        let commit = crate::scrollback::ExternalOutputCommit {
+            lines: snapshot.lines,
+            row_columns,
+            start_on_new_line: snapshot.start_on_new_line.unwrap_or(true), // :2612
+            trailing_newline: snapshot.trailing_newline.unwrap_or(true),   // :2613
+        };
+        self.enqueue_split_commit(commit);
+        self.request_render(); // renderer.ts:2614
+        Ok(())
+    }
+
+    /// `enqueueSplitCommit` (renderer.ts:2608-2613) — queue the
+    /// commit, then emit `EXTERNAL_OUTPUT` only when a listener is
+    /// registered (the `listenerCount > 0` gate, :2610).
+    fn enqueue_split_commit(&mut self, commit: crate::scrollback::ExternalOutputCommit) {
+        self.external_output_queue.write_snapshot(commit.clone());
+        if !self.event_listeners.is_empty() {
+            self.emit_event(CliRenderEvent::ExternalOutput(commit));
+        }
+    }
+
+    /// `getPendingSplitTailColumn` (renderer.ts:2572-2583) — the tail
+    /// column after every QUEUED commit replays: what the next writer
+    /// sees.
+    #[must_use]
+    pub fn get_pending_split_tail_column(&self) -> u32 {
+        let width = self.config.width.max(1);
+        let mut tail_column = self.split_tail_column;
+        for commit in self.external_output_queue.peek(usize::MAX) {
+            tail_column =
+                crate::scrollback::tail_column_after_commit(commit, tail_column, width);
+        }
+        tail_column
+    }
+
+    /// `flushPendingSplitCommits` (renderer.ts:2729-2826) — the flush
+    /// adjudication: when may external output be committed into the
+    /// transcript region. One render tick drains at most
+    /// [`MAX_SPLIT_COMMITS_PER_FRAME`] commits (the bounded peek,
+    /// :2737 — one modest frame per tick); leftover commits stay
+    /// queued and re-request a render (:2817-2820). Each accepted
+    /// commit appends its rows (newline intent per the flags) — to
+    /// the live session's output when one is attached, else to the
+    /// headless transcript model — then the accepted prefix drops and
+    /// its tail columns record (:2795-2797).
+    pub fn flush_pending_split_commits(
+        &mut self,
+        _force_footer_repaint: bool,
+        drain_all: bool,
+    ) -> SplitFlushStatus {
+        let limit = if drain_all {
+            usize::MAX
+        } else {
+            MAX_SPLIT_COMMITS_PER_FRAME
+        };
+        let commits: Vec<_> = self
+            .external_output_queue
+            .peek(limit)
+            .to_vec();
+        let mut accepted = 0usize;
+        let mut failed = false;
+        let mut pending_bytes = String::new();
+        let mut tail_column = self.split_tail_column;
+
+        for commit in &commits {
+            // the payload byte stream (newline intent per the flags —
+            // the commitSplitFooterSnapshot payload half,
+            // renderer.ts:2752-2760)
+            pending_bytes.push_str(&commit.transcript_bytes(tail_column));
+            // record the tail AFTER this commit (recordSplitCommit,
+            // renderer.ts:2568-2570 via :2796)
+            tail_column =
+                crate::scrollback::tail_column_after_commit(commit, tail_column, self.config.width.max(1));
+            accepted += 1;
+        }
+
+        if accepted > 0 {
+            #[cfg(feature = "terminal-backend")]
+            let write_result = self.write_split_bytes_live(&pending_bytes);
+            #[cfg(not(feature = "terminal-backend"))]
+            let write_result: Result<(), std::io::Error> = Ok(());
+            match write_result {
+                Ok(()) => {
+                    self.split_transcript.push_str(&pending_bytes);
+                }
+                Err(_) => failed = true,
+            }
+        }
+
+        if failed {
+            return SplitFlushStatus::Failed;
+        }
+
+        if accepted > 0 {
+            self.split_tail_column = tail_column;
+            self.external_output_queue.drop_commits(accepted);
+        }
+
+        if self.external_output_queue.size() > 0 {
+            // Preserve FIFO ordering without unbounded work in one
+            // tick (renderer.ts:2817-2820).
+            self.request_render();
+        }
+
+        SplitFlushStatus::Rendered
+    }
+
+    /// Write the flushed transcript bytes through the live session —
+    /// one `write_bytes` batch (the native frame envelope upstream is
+    /// begin/finalize around exactly this payload,
+    /// renderer.ts:2752-2760).
+    #[cfg(feature = "terminal-backend")]
+    fn write_split_bytes_live(&mut self, bytes: &str) -> std::io::Result<()> {
+        let Some(session) = self.session.as_mut() else {
+            return Ok(()); // headless: the transcript model absorbs it
+        };
+        session.write_bytes(bytes.as_bytes())
+    }
+
+    /// `flushPendingSplitOutputBeforeTransition` (renderer.ts:2894-2918)
+    /// — the pre-transition drain: before a mode/geometry transition
+    /// (or destroy), flush the whole queue (drainAll) so no captured
+    /// output is lost. Guards mirror upstream: inactive capture or an
+    /// empty queue without a forced repaint is a no-op (:2900-2917).
+    pub fn flush_pending_split_output_before_transition(&mut self, force_footer_repaint: bool) {
+        if !self.split_capture_active {
+            return; // renderer.ts:2900-2905
+        }
+        if self.external_output_queue.size() == 0 && !force_footer_repaint {
+            return; // renderer.ts:2907-2909
+        }
+        self.flush_pending_split_commits(force_footer_repaint, true); // drainAll, :2917
+    }
+
+    /// The headless transcript model — the bytes the flush
+    /// adjudication has committed above the footer (the differential
+    /// harness's view; the live path writes the same bytes through the
+    /// session).
+    #[must_use]
+    pub fn split_transcript(&self) -> &str {
+        &self.split_transcript
+    }
+
+    /// `externalOutputQueue.size` — the pending commit count.
+    #[must_use]
+    pub fn external_output_queue_size(&self) -> usize {
+        self.external_output_queue.size()
+    }
+
+    /// The committed tail column (`splitTailColumn`, renderer.ts:901).
+    #[must_use]
+    pub fn split_tail_column(&self) -> u32 {
+        self.split_tail_column
     }
 
     /// Allocate (or intern) the OSC 8 link id for `url` — the port of
@@ -4180,6 +4501,196 @@ fn wrapper_text_sources(wrapper: &Renderable) -> Vec<u32> {
                 .map_or(v.source_line, |s| s as u32)
         })
         .collect()
+}
+
+// ---- split-footer scrollback runtime base (D1b-core) protocol tests ----
+
+#[cfg(test)]
+mod scrollback_runtime_tests {
+    use super::*;
+    use crate::scrollback::{ExternalOutputCommit, ScrollbackSnapshot};
+
+    fn snapshot(lines: &[&str]) -> ScrollbackSnapshot {
+        ScrollbackSnapshot {
+            lines: lines.iter().map(|s| (*s).to_owned()).collect(),
+            row_columns: None,
+            start_on_new_line: None,
+            trailing_newline: None,
+        }
+    }
+
+    /// The mode gate: `writeToScrollback` outside the split-footer
+    /// capture mode errors instead of enqueueing (renderer.ts:2364-2366
+    /// upstream throws).
+    #[test]
+    fn write_to_scrollback_requires_capture_mode() {
+        let mut r = create_cli_renderer(CliRendererConfig::default());
+        assert_eq!(
+            r.write_to_scrollback(Box::new(|_| snapshot(&["hi"]))),
+            Err(ScrollbackWriteError::CaptureNotActive)
+        );
+        assert_eq!(r.external_output_queue_size(), 0);
+    }
+
+    /// The writer context carries the PENDING tail column — queued
+    /// commits replay before the writer sees its cursor
+    /// (getPendingSplitTailColumn, renderer.ts:2572-2583).
+    #[test]
+    fn writer_context_sees_pending_tail_column() {
+        let mut r = create_cli_renderer(CliRendererConfig::default());
+        r.set_split_footer_capture(true);
+        // first commit: mid-row content without trailingNewline
+        r.write_to_scrollback(Box::new(|_ctx| ScrollbackSnapshot {
+            lines: vec!["ab".to_owned()],
+            trailing_newline: Some(false),
+            ..snapshot(&[])
+        }))
+        .unwrap();
+        // second writer must observe tail 2 (queued, not committed)
+        let mut seen = None;
+        r.write_to_scrollback(Box::new(|ctx| {
+            seen = Some(ctx.tail_column);
+            snapshot(&["cd"])
+        }))
+        .unwrap();
+        assert_eq!(seen, Some(2));
+    }
+
+    /// The EXTERNAL_OUTPUT event shape: the payload IS the commit
+    /// (CliRendererExternalOutputEvent, renderer.ts:252-257), emitted
+    /// only when a listener is registered (renderer.ts:2610), exactly
+    /// once per enqueue.
+    #[test]
+    fn external_output_event_shape_and_listener_gate() {
+        use std::sync::{Arc, Mutex};
+        let mut r = create_cli_renderer(CliRendererConfig::default());
+        r.set_split_footer_capture(true);
+        // no listener → no emission, but the commit still queues
+        r.write_to_scrollback(Box::new(|_| {
+            ScrollbackSnapshot {
+                row_columns: Some(40),
+                start_on_new_line: Some(false),
+                trailing_newline: Some(true),
+                ..snapshot(&["payload"])
+            }
+        }))
+        .unwrap();
+        assert_eq!(r.external_output_queue_size(), 1);
+
+        let events: Arc<Mutex<Vec<CliRenderEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&events);
+        r.on_event(move |e| {
+            if matches!(e, CliRenderEvent::ExternalOutput(_)) {
+                sink.lock().unwrap().push(e.clone());
+            }
+        });
+        r.write_to_scrollback(Box::new(|_| snapshot(&["second"])))
+            .unwrap();
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            CliRenderEvent::ExternalOutput(commit) => {
+                assert_eq!(commit.lines, vec!["second".to_owned()]);
+                assert!(commit.start_on_new_line); // default true, renderer.ts:2612
+                assert!(commit.trailing_newline); // default true, renderer.ts:2613
+            }
+            other => panic!("wrong event: {other:?}"),
+        }
+    }
+
+    /// The flush adjudication decision table
+    /// (flushPendingSplitCommits, renderer.ts:2729-2826):
+    /// - one tick drains at most `maxSplitCommitsPerFrame` (8,
+    ///   renderer.ts:909/2737);
+    /// - the accepted prefix drops in FIFO order;
+    /// - leftover commits re-request a render (:2817-2820);
+    /// - drainAll flushes everything (:2737).
+    #[test]
+    fn flush_bounded_drain_decision_table() {
+        let mut r = create_cli_renderer(CliRendererConfig::default());
+        r.set_split_footer_capture(true);
+        for i in 0..10 {
+            let i = i.to_string();
+            r.write_to_scrollback(Box::new(move |_| snapshot(&[&i])))
+                .unwrap();
+        }
+        assert_eq!(r.external_output_queue_size(), 10);
+        // bounded flush: 8 of 10
+        assert_eq!(r.flush_pending_split_commits(false, false), SplitFlushStatus::Rendered);
+        assert_eq!(r.external_output_queue_size(), 2);
+        // transcript bytes landed in FIFO order with newline intent
+        assert_eq!(r.split_transcript(), "0\n1\n2\n3\n4\n5\n6\n7\n");
+        // the tail advanced row-by-row (8 rows flushed, each trailing)
+        assert_eq!(r.split_tail_column(), 0);
+        // the leftover re-armed the render request (:2819)
+        assert!(r.is_render_pending());
+        // the drain-all transition path flushes the rest (:2917)
+        r.flush_pending_split_output_before_transition(false);
+        assert_eq!(r.external_output_queue_size(), 0);
+        assert_eq!(&r.split_transcript()[16..], "8\n9\n");
+    }
+
+    /// `set_split_footer_capture(false)` — the transition hygiene:
+    /// pending commits flush first (renderer.ts:1805/1884), the queue
+    /// clears, and the tail resets (:2968-2972).
+    #[test]
+    fn disarm_flushes_and_clears() {
+        let mut r = create_cli_renderer(CliRendererConfig::default());
+        r.set_split_footer_capture(true);
+        r.write_to_scrollback(Box::new(|_| snapshot(&["tail"],)))
+            .unwrap();
+        assert_eq!(r.external_output_queue_size(), 1);
+        r.set_split_footer_capture(false);
+        assert_eq!(r.external_output_queue_size(), 0);
+        assert!(!r.is_split_footer_capture_active());
+        assert_eq!(r.split_transcript(), "tail\n"); // payload + trailing newline
+        // after disarm, writes are rejected again
+        assert_eq!(
+            r.write_to_scrollback(Box::new(|_| snapshot(&["x"]))),
+            Err(ScrollbackWriteError::CaptureNotActive)
+        );
+    }
+
+    /// `destroy()` drains the queue before teardown — no captured
+    /// output is lost (renderer.ts:4500, 4558).
+    #[test]
+    fn destroy_drains_pending_commits() {
+        let mut r = create_cli_renderer(CliRendererConfig::default());
+        r.set_split_footer_capture(true);
+        r.write_to_scrollback(Box::new(|_| snapshot(&["last words"])))
+            .unwrap();
+        r.destroy();
+        assert_eq!(r.external_output_queue_size(), 0);
+        assert_eq!(r.split_transcript(), "last words\n");
+    }
+
+    /// The commit payload keeps the writer's rowColumns budget and
+    /// newline flags verbatim (enqueueRenderedScrollbackCommit,
+    /// renderer.ts:2583-2607).
+    #[test]
+    fn commit_flags_pass_through() {
+        let mut r = create_cli_renderer(CliRendererConfig::default());
+        r.set_split_footer_capture(true);
+        let events: Arc<std::sync::Mutex<Vec<ExternalOutputCommit>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&events);
+        r.on_event(move |e| {
+            if let CliRenderEvent::ExternalOutput(c) = e {
+                sink.lock().unwrap().push(c.clone());
+            }
+        });
+        r.write_to_scrollback(Box::new(|_| ScrollbackSnapshot {
+            lines: vec!["row".to_owned()],
+            row_columns: Some(2),
+            start_on_new_line: Some(false),
+            trailing_newline: Some(false),
+        }))
+        .unwrap();
+        let c = &events.lock().unwrap()[0];
+        assert_eq!(c.row_columns, 2);
+        assert!(!c.start_on_new_line);
+        assert!(!c.trailing_newline);
+    }
 }
 
 #[cfg(test)]

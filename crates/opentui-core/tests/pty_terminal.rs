@@ -473,3 +473,90 @@ fn pty_pump_input_timeout_is_bounded() {
         "wait must be bounded at the timeout, waited {elapsed:?}"
     );
 }
+
+// ---- split-footer scrollback runtime base (lane D1b-core) ----
+
+/// The non-alt setup arm: `makeRoomForRendererOutput` (ansi.zig:418-425
+/// via renderer.zig:566-569) replaces `?1049h` with `height - 1`
+/// newlines — byte-visible on the master.
+#[test]
+fn pty_non_alt_setup_reserves_surface_via_make_room() {
+    let pty = open_pty();
+    let opts = SetupOptions {
+        use_alt_screen: false,
+        reserve_surface_height: 4,
+        ..SetupOptions::default()
+    };
+    {
+        let _term = Terminal::new(
+            UnixTty::from_fd(pty.slave.try_clone().unwrap()),
+            SlaveWriter {
+                fd: pty.slave.try_clone().unwrap(),
+            },
+            &opts,
+        )
+        .unwrap();
+        let master_fd = pty.master.as_fd();
+        let bytes = read_available(master_fd, Instant::now() + Duration::from_secs(1));
+        // \x1b[s + "\n\n\n" (height 4 → 3 newlines) + the mode tail
+        // (defaults: bracketed paste + focus, no mouse/kitty)
+        assert_eq!(
+            bytes,
+            b"\x1b[s\n\n\n\x1b[>4;1m\x1b[?2004h\x1b[?1004h".to_vec(),
+            "renderer.zig:563 + ansi.zig:418-425 + terminal.zig:409-430"
+        );
+    } // Drop → teardown (no alt-screen exit: alt_screen state is false)
+}
+
+/// The live split-footer write path end-to-end over the PTY: a
+/// `Terminal` session (non-alt, reserved surface) attached to a
+/// `CliRenderer` with capture armed — `writeToScrollback` enqueues the
+/// commit, the render-loop flush (renderer.ts:972-976 head) drains it
+/// through the session, and the transcript payload rows land on the
+/// master in order with their newline intent.
+#[test]
+fn pty_write_to_scrollback_flushes_through_session() {
+    let pty = open_pty();
+    let opts = SetupOptions {
+        use_alt_screen: false,
+        reserve_surface_height: 4,
+        ..SetupOptions::default()
+    };
+    let mut term = Terminal::new(
+        UnixTty::from_fd(pty.slave.try_clone().unwrap()),
+        SlaveWriter {
+            fd: pty.slave.try_clone().unwrap(),
+        },
+        &opts,
+    )
+    .unwrap();
+    let master_fd = pty.master.as_fd();
+    let _ = read_available(master_fd, Instant::now() + Duration::from_millis(300)); // setup
+
+    let mut r = renderer();
+    r.attach_terminal_session(Box::new(term));
+    r.set_split_footer_capture(true);
+    r.write_to_scrollback(Box::new(|_| opentui_core::scrollback::ScrollbackSnapshot {
+        lines: vec!["scrollback row one".to_owned(), "row two".to_owned()],
+        ..Default::default()
+    }))
+    .expect("writeToScrollback under armed capture");
+    assert_eq!(r.external_output_queue_size(), 1);
+
+    // The render loop drains the queue (the frame-head flush) and
+    // writes the payload through the session in one batch.
+    let frames = r.settle(8);
+    assert!(frames >= 1, "the write requested a render");
+    assert_eq!(r.external_output_queue_size(), 0);
+
+    let flushed = read_available(master_fd, Instant::now() + Duration::from_secs(1));
+    let text = String::from_utf8_lossy(&flushed);
+    assert!(
+        text.contains("scrollback row one\nrow two\n"),
+        "transcript rows in order with newline intent, got {text:?}"
+    );
+    assert_eq!(
+        r.split_transcript(),
+        "scrollback row one\nrow two\n"
+    );
+}
