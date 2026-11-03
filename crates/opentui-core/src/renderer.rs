@@ -340,6 +340,26 @@ pub struct TerminalCapabilities {
     /// The version half of the xtversion reply ("0.40.1" out of
     /// "kitty(0.40.1)", terminal.zig:1747-1766).
     pub terminal_version: Option<String>,
+    /// `multiplexer` — env-derived on the TS facade's capabilities
+    /// (types.ts:136; terminal.zig:207/655-663, default `.none`).
+    /// The tmux value gates the image-protocol fallback to blocks
+    /// (renderables/Image.ts:28).
+    pub multiplexer: TerminalMultiplexer,
+    /// `image_protocol` (types.ts:137; terminal.zig:212, default
+    /// `.auto`) — the configured override the image renderable's
+    /// `resolveImageRenderProtocol` defers to (Image.ts:26-27).
+    pub image_protocol: crate::renderables::image::ImageRenderProtocol,
+}
+
+/// `TerminalMultiplexer` (types.ts:136; terminal.zig:196-201) —
+/// which multiplexer the session runs under.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TerminalMultiplexer {
+    #[default]
+    None,
+    Tmux,
+    Zellij,
+    Screen,
 }
 
 /// `ThemeMode` (renderer.ts / types.ts:32) — the light/dark reduction

@@ -46,6 +46,9 @@ pub mod editor;
 mod editor_tests;
 pub mod embedded_terminal;
 pub mod events;
+pub mod image;
+#[cfg(test)]
+mod image_tests;
 pub mod input;
 pub mod keybinding;
 pub mod layout;
@@ -87,6 +90,10 @@ pub use editor::{
     EditBuffer, EditorView, SelectionBehavior, SelectionOccupancy, TextSelection, VisualCursor,
 };
 pub use events::{KeyEvent, KeyHandler, MouseButton, MouseEvent, PasteEvent};
+pub use image::{
+    image_info, ImageColorStatus, ImageError, ImageFormat, ImageInfo, ImageLoadError,
+    ImageLoadErrorCode, NativeImage, NativeImagePool, NativeImagePoolOptions,
+};
 pub use input::{InputAction, InputOptions, InputRenderableState, InputStateEvent};
 pub use keybinding::KeyBinding;
 pub use layout::{Dimension, LayoutOptions};
@@ -102,6 +109,10 @@ pub use renderables::box_::{BorderSpec, BorderStyle, BoxOptions, BoxRenderableSt
 pub use renderables::code::{
     add_markdown_link_highlights, detect_links, normalize_markdown_link_target, CodeDocument,
     CodeOptions,
+};
+pub use renderables::image::{
+    resolve_image_render_protocol, DrawImageRequest, ImageFit, ImageRenderCtx, ImageRenderProtocol,
+    ImageRenderableOptions, ImageRenderableState,
 };
 pub use renderables::markdown::{BlockSpec, ListItemSpec, MarkdownOptions, MarkdownTableOptions};
 pub use renderables::scrollbar::{

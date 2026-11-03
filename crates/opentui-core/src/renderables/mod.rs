@@ -4,6 +4,7 @@ pub mod box_;
 pub mod code;
 pub mod diff;
 pub mod embedded_terminal;
+pub mod image;
 pub mod line_number;
 pub mod markdown;
 pub mod markdown_parser;
