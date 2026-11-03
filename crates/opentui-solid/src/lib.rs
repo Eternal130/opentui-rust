@@ -84,8 +84,8 @@ pub use hooks::{EventData, EventHub, KeyEvent, KeyEventType, PasteEvent};
 pub use reactive::{Mapped, Reactive, Signal};
 pub use reconcile::{ShadowNode, SolidRenderer};
 pub use scrollback::{
-    create_scrollback_writer, ScrollbackRenderContext, ScrollbackSnapshot, ScrollbackWriter,
-    SolidScrollbackWriterOptions,
+    create_scrollback_writer, write_solid_to_scrollback, ScrollbackRenderContext,
+    ScrollbackSnapshot, ScrollbackWriter, SolidScrollbackWriterOptions,
 };
 pub use time_to_first_draw::{
     register_time_to_first_draw, time_to_first_draw, TIME_TO_FIRST_DRAW_TAG,
