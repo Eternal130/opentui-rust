@@ -794,11 +794,11 @@ pub struct CliRenderer {
     /// `externalOutputQueue` — the FIFO between commit producers and
     /// the render-loop flush (renderer.ts:403-441, fed at :2609).
     external_output_queue: crate::scrollback::ExternalOutputQueue,
-    /// The headless transcript model — the differential harness's
-    /// view of what the flush adjudication has committed above the
-    /// footer (the live path writes the same rows through the
-    /// `RendererTerminalSession`).
-    split_transcript: Vec<String>,
+    /// The headless transcript model — the byte stream the flush
+    /// adjudication has committed above the footer (the differential
+    /// harness's view; the live path writes the same bytes through the
+    /// session).
+    split_transcript: String,
 }
 
 /// `maxSplitCommitsPerFrame` (renderer.ts:909) — the flush bound: one
@@ -897,7 +897,7 @@ pub fn create_cli_renderer(config: CliRendererConfig) -> CliRenderer {
         split_capture_active: false,
         split_tail_column: 0,
         external_output_queue: crate::scrollback::ExternalOutputQueue::default(),
-        split_transcript: Vec::new(),
+        split_transcript: String::new(),
     }
 }
 
@@ -1357,30 +1357,29 @@ impl CliRenderer {
             .to_vec();
         let mut accepted = 0usize;
         let mut failed = false;
-        let mut pending_rows: Vec<String> = Vec::new();
+        let mut pending_bytes = String::new();
         let mut tail_column = self.split_tail_column;
 
         for commit in &commits {
-            let mut rows = commit.transcript_rows(tail_column);
+            // the payload byte stream (newline intent per the flags —
+            // the commitSplitFooterSnapshot payload half,
+            // renderer.ts:2752-2760)
+            pending_bytes.push_str(&commit.transcript_bytes(tail_column));
             // record the tail AFTER this commit (recordSplitCommit,
-            // renderer.ts:2796)
+            // renderer.ts:2568-2570 via :2796)
             tail_column =
                 crate::scrollback::tail_column_after_commit(commit, tail_column, self.config.width.max(1));
-            // The live write (the `commitSplitFooterSnapshot` payload
-            // half, renderer.ts:2752-2760): one batched write per
-            // flush.
-            pending_rows.append(&mut rows);
             accepted += 1;
         }
 
         if accepted > 0 {
             #[cfg(feature = "terminal-backend")]
-            let write_result = self.write_split_rows_live(&pending_rows);
+            let write_result = self.write_split_bytes_live(&pending_bytes);
             #[cfg(not(feature = "terminal-backend"))]
             let write_result: Result<(), std::io::Error> = Ok(());
             match write_result {
                 Ok(()) => {
-                    self.split_transcript.append(&mut pending_rows.clone());
+                    self.split_transcript.push_str(&pending_bytes);
                 }
                 Err(_) => failed = true,
             }
@@ -1404,21 +1403,16 @@ impl CliRenderer {
         SplitFlushStatus::Rendered
     }
 
-    /// Write the flushed transcript rows through the live session —
+    /// Write the flushed transcript bytes through the live session —
     /// one `write_bytes` batch (the native frame envelope upstream is
     /// begin/finalize around exactly this payload,
     /// renderer.ts:2752-2760).
     #[cfg(feature = "terminal-backend")]
-    fn write_split_rows_live(&mut self, rows: &[String]) -> std::io::Result<()> {
+    fn write_split_bytes_live(&mut self, bytes: &str) -> std::io::Result<()> {
         let Some(session) = self.session.as_mut() else {
             return Ok(()); // headless: the transcript model absorbs it
         };
-        let mut bytes = Vec::new();
-        for row in rows {
-            bytes.extend_from_slice(row.as_bytes());
-            bytes.push(b'\n'); // each transcript row ends on its own line
-        }
-        session.write_bytes(&bytes)
+        session.write_bytes(bytes.as_bytes())
     }
 
     /// `flushPendingSplitOutputBeforeTransition` (renderer.ts:2894-2918)
@@ -1436,12 +1430,12 @@ impl CliRenderer {
         self.flush_pending_split_commits(force_footer_repaint, true); // drainAll, :2917
     }
 
-    /// The headless transcript model — the rows the flush
+    /// The headless transcript model — the bytes the flush
     /// adjudication has committed above the footer (the differential
-    /// harness's view; the live path writes the same rows through the
+    /// harness's view; the live path writes the same bytes through the
     /// session).
     #[must_use]
-    pub fn split_transcript(&self) -> &[String] {
+    pub fn split_transcript(&self) -> &str {
         &self.split_transcript
     }
 
@@ -4546,7 +4540,7 @@ mod scrollback_runtime_tests {
         let mut r = create_cli_renderer(CliRendererConfig::default());
         r.set_split_footer_capture(true);
         // first commit: mid-row content without trailingNewline
-        r.write_to_scrollback(Box::new(|ctx| ScrollbackSnapshot {
+        r.write_to_scrollback(Box::new(|_ctx| ScrollbackSnapshot {
             lines: vec!["ab".to_owned()],
             trailing_newline: Some(false),
             ..snapshot(&[])
@@ -4624,9 +4618,8 @@ mod scrollback_runtime_tests {
         // bounded flush: 8 of 10
         assert_eq!(r.flush_pending_split_commits(false, false), SplitFlushStatus::Rendered);
         assert_eq!(r.external_output_queue_size(), 2);
-        // transcript rows landed in FIFO order with newline intent
-        let transcript: Vec<&str> = r.split_transcript().iter().map(String::as_str).collect();
-        assert_eq!(transcript, vec!["0", "", "1", "", "2", "", "3", "", "4", "", "5", "", "6", "", "7", ""]);
+        // transcript bytes landed in FIFO order with newline intent
+        assert_eq!(r.split_transcript(), "0\n1\n2\n3\n4\n5\n6\n7\n");
         // the tail advanced row-by-row (8 rows flushed, each trailing)
         assert_eq!(r.split_tail_column(), 0);
         // the leftover re-armed the render request (:2819)
@@ -4634,8 +4627,7 @@ mod scrollback_runtime_tests {
         // the drain-all transition path flushes the rest (:2917)
         r.flush_pending_split_output_before_transition(false);
         assert_eq!(r.external_output_queue_size(), 0);
-        let tail: Vec<&str> = r.split_transcript()[16..].iter().map(String::as_str).collect();
-        assert_eq!(tail, vec!["8", "", "9", ""]);
+        assert_eq!(&r.split_transcript()[16..], "8\n9\n");
     }
 
     /// `set_split_footer_capture(false)` — the transition hygiene:
@@ -4651,7 +4643,7 @@ mod scrollback_runtime_tests {
         r.set_split_footer_capture(false);
         assert_eq!(r.external_output_queue_size(), 0);
         assert!(!r.is_split_footer_capture_active());
-        assert_eq!(r.split_transcript().len(), 2); // "tail" + trailing row
+        assert_eq!(r.split_transcript(), "tail\n"); // payload + trailing newline
         // after disarm, writes are rejected again
         assert_eq!(
             r.write_to_scrollback(Box::new(|_| snapshot(&["x"]))),
@@ -4669,8 +4661,7 @@ mod scrollback_runtime_tests {
             .unwrap();
         r.destroy();
         assert_eq!(r.external_output_queue_size(), 0);
-        let transcript: Vec<&str> = r.split_transcript().iter().map(String::as_str).collect();
-        assert_eq!(transcript, vec!["last words", ""]);
+        assert_eq!(r.split_transcript(), "last words\n");
     }
 
     /// The commit payload keeps the writer's rowColumns budget and

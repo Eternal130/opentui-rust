@@ -123,40 +123,32 @@ impl ExternalOutputCommit {
 
     /// The append bytes one commit contributes to the transcript —
     /// the port's `commitSplitFooterSnapshot` payload half: newline
-    /// intent around the rows (`startOnNewLine` only when the cursor
-    /// sits mid-row, one newline between rows, `trailingNewline`
-    /// after the final row). The native split-append invariants live
-    /// upstream in renderer.zig; the port writes the same row
-    /// ordering through [`crate::renderer::CliRenderer`]'s flush.
+    /// intent around the rows (`startOnNewLine` terminates a previous
+    /// mid-row cursor with `\n`, rows are newline-separated,
+    /// `trailingNewline` closes the final row). The native
+    /// split-append invariants live upstream in renderer.zig; the
+    /// port writes the same byte stream through
+    /// [`crate::renderer::CliRenderer`]'s flush — no glued rows
+    /// (missing newline) and no double-advance gaps (extra newline),
+    /// exactly the contract renderer.ts:2349-2353 describes.
     #[must_use]
-    pub fn transcript_rows(&self, tail_column: u32) -> Vec<String> {
-        let mut rows: Vec<String> = Vec::new();
-        let mut mid_row = tail_column > 0;
-        if self.start_on_new_line && mid_row {
-            // newline before the payload — avoid glued rows
-            mid_row = false;
-            rows.push(String::new());
+    pub fn transcript_bytes(&self, tail_column: u32) -> String {
+        let mut out = String::new();
+        // newline before the payload only when the cursor sits
+        // mid-row (renderer.ts:2349-2351)
+        if self.start_on_new_line && tail_column > 0 {
+            out.push('\n');
         }
         for (index, line) in self.lines.iter().enumerate() {
             if index > 0 {
-                // between-row advance
-                mid_row = false;
-                rows.push(String::new());
+                out.push('\n'); // between-row advance
             }
-            if !line.is_empty() {
-                let width = row_display_width(line.trim_end_matches(' '));
-                mid_row = width > 0;
-                rows.push(line.clone());
-            } else if index == 0 && mid_row && !self.start_on_new_line {
-                // empty payload on a mid-row cursor stays put
-            } else {
-                rows.push(String::new());
-            }
+            out.push_str(line.trim_end_matches(' '));
         }
-        if self.trailing_newline && mid_row {
-            rows.push(String::new());
+        if self.trailing_newline && !self.lines.is_empty() {
+            out.push('\n'); // renderer.ts:2351-2353
         }
-        rows
+        out
     }
 }
 
@@ -397,26 +389,34 @@ mod tests {
         assert_eq!(c.row_widths(), vec![2, 0, 3]);
     }
 
-    /// The emitted rows carry the newline intent: no glued rows
-    /// (startOnNewLine on a mid-row tail), no double-advance gaps
-    /// (trailingNewline only when the tail is mid-row).
+    /// The emitted byte stream carries the newline intent: no glued
+    /// rows (`startOnNewLine` on a mid-row tail), no double-advance
+    /// gaps (`trailingNewline` closes the final row exactly once).
     #[test]
-    fn transcript_rows_newline_intent() {
-        // mid-row tail + startOnNewLine → leading blank row
+    fn transcript_bytes_newline_intent() {
+        // mid-row tail + startOnNewLine → leading newline
         let c = commit(&["ab"], 80, true, true);
-        assert_eq!(c.transcript_rows(5), vec!["", "ab", ""]);
-        // row-aligned tail → no leading blank (nothing glued)
-        let c = commit(&["ab"], 80, false, true);
-        assert_eq!(c.transcript_rows(0), vec!["ab", ""]);
+        assert_eq!(c.transcript_bytes(5), "\nab\n");
+        // row-aligned tail → no leading newline (nothing glued)
+        let c = commit(&["ab"], 80, true, true);
+        assert_eq!(c.transcript_bytes(0), "ab\n");
         // mid-row tail, no startOnNewLine → glued continuation
         let c = commit(&["ab"], 80, false, true);
-        assert_eq!(c.transcript_rows(5), vec!["ab", ""]);
-        // no trailingNewline → no trailing blank row
+        assert_eq!(c.transcript_bytes(5), "ab\n");
+        // no trailingNewline → cursor stays mid-row
         let c = commit(&["ab"], 80, true, false);
-        assert_eq!(c.transcript_rows(0), vec!["ab"]);
-        // two rows + trailingNewline
+        assert_eq!(c.transcript_bytes(0), "ab");
+        // two rows + trailingNewline — consecutive rows, one separator
         let c = commit(&["ab", "cd"], 80, true, true);
-        assert_eq!(c.transcript_rows(0), vec!["ab", "", "cd", ""]);
+        assert_eq!(c.transcript_bytes(0), "ab\ncd\n");
+        // empty-line write still advances (createStdoutSnapshotCommits
+        // keeps empty rows so scrollback state advances,
+        // renderer.ts:2720-2724)
+        let c = commit(&[""], 80, true, true);
+        assert_eq!(c.transcript_bytes(0), "\n");
+        // trailing blanks trim (the snapshot payload's occupied cells)
+        let c = commit(&["ab   "], 80, true, true);
+        assert_eq!(c.transcript_bytes(0), "ab\n");
     }
 
     // ---- snapshot clamps (renderer.ts:2477-2499) ----

@@ -153,10 +153,40 @@ pub const DEFAULT_CURSOR_STYLE: &[u8] = b"\x1b[0 q";
 /// empty title during resetState).
 pub const RESET_TERMINAL_TITLE: &[u8] = b"\x1b]0;\x07";
 
+/// `makeRoomForRendererOutput` (ansi.zig:418-425) — the non-alt
+/// surface reservation: `height - 1` newlines push the shell's
+/// scrollback up so the renderer owns the last `height` rows of the
+/// main screen (the split-footer / inline-viewport setup arm,
+/// renderer.zig:566-569 — the alt-screen arm is replaced by exactly
+/// this call when `useAlternateScreen` is false and the surface is
+/// reserved).
+pub fn make_room_for_renderer_output(out: &mut dyn io::Write, height: u32) -> io::Result<()> {
+    for _ in 1..height.max(1) {
+        out.write_all(b"\n")?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "terminal-backend")]
     use super::*;
+
+    /// `makeRoomForRendererOutput` (ansi.zig:418-425): `height - 1`
+    /// newlines — height 1/0 reserves nothing, height 24 pushes 23.
+    #[cfg(feature = "terminal-backend")]
+    #[test]
+    fn make_room_for_renderer_output_newline_count() {
+        let mut buf = Vec::new();
+        make_room_for_renderer_output(&mut buf, 1).unwrap();
+        assert_eq!(buf, b"");
+        let mut buf = Vec::new();
+        make_room_for_renderer_output(&mut buf, 0).unwrap();
+        assert_eq!(buf, b"");
+        let mut buf = Vec::new();
+        make_room_for_renderer_output(&mut buf, 24).unwrap();
+        assert_eq!(buf, b"\n".repeat(23));
+    }
 
     /// The enable set with movement is byte-identical to oc-tui's
     /// v2-parity `V2_MOUSE_ENABLE` (mouse_modes.rs:33).

@@ -51,17 +51,26 @@
 //! (terminal.zig:377), the tmux DCS passthrough wrappers, the
 //! LinkPool generation/refcount slot recycling (link.zig:7-10 — the
 //! port's renderer-side pool interns URLs but never retires ids), and
-//! the split-footer / inline-viewport / `ExternalOutputCommit` family
-//! (renderer.ts:2339+ — `Terminal::teardown_scrollback` is the
-//! alt-screen tail-jump only). The THEME_MODE / PALETTE events
+//! the split-footer SURFACE family (renderer.ts:2339+ surface half —
+//! `createScrollbackSurface`, mode/geometry enums; the RUNTIME base —
+//! `ExternalOutputCommit` queue, tail-column math, flush
+//! adjudication, `writeToScrollback` — landed with D1b-core in
+//! `opentui_core::scrollback`; `Terminal::teardown_scrollback`
+//! remains the alt-screen tail-jump only). The THEME_MODE / PALETTE events
 //! (renderer.ts:761-762) ride the theme-probe consumer lane;
 //! OSC 10/11 replies are captured (`CapabilityProbe::last_osc11_bg`)
 //! but not yet reduced to a theme mode.
 //!
-//! Scope guard (Phase A ruling): alt-screen ONLY. The inline viewport
-//! (`makeRoomForRendererOutput`), split-footer surface, and the
-//! `ExternalOutputCommit` family (renderer.ts:2339+) are deferred to
-//! Phase B4 — GAPS-registered, not silently approximated.
+//! Scope guard (Phase A ruling, widened by D1b-core): alt-screen by
+//! default, plus the non-alt `makeRoomForRendererOutput` reservation
+//! (ansi.zig:418-425) and the split-footer scrollback RUNTIME BASE —
+//! the `ExternalOutputCommit` queue / tail-column / flush
+//! adjudication family (renderer.ts:2339-2826, `opentui_core::
+//! scrollback` + `CliRenderer::write_to_scrollback`). The inline
+//! viewport surface and the split-footer SURFACE family
+//! (`createScrollbackSurface`, mode/geometry config enums,
+//! `resetSplitFooterForReplay`) remain deferred to lane D1b-surface —
+//! GAPS-registered, not silently approximated.
 pub mod modes;
 pub mod probe;
 pub mod pumps;
