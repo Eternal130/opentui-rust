@@ -57,10 +57,10 @@ recomputed state.
 
 | package | exports | done | partial | deferred | todo |
 |---|---|---|---|---|---|
-| @opentui/core | 279 | 118 | 10 | 0 | 151 |
+| @opentui/core | 279 | 122 | 13 | 0 | 148 |
 | @opentui/solid | 48 | 35 | 3 | 7 | 3 |
 | @opentui/keymap (+subpaths) | 12 | 12 | 0 | 0 | 0 |
-| **total** | **339** | **164 (48.4%)** | **13** | **7** | **155** |
+| **total** | **339** | **168 (49.6%)** | **16** | **7** | **148** |
 | tier-1 rows only (bold `**1**`) | 52 | 47 | 5 | 0 | 0 |
 
 Audio lane note (the tier-1 `partial` — last tier-1 row landed): the
@@ -90,6 +90,38 @@ grids, and `Audio` emits no cells; the decode/state-machine contract
 is pinned by the unit tests instead. Capture
 (`openCapture`/`startCapture`/…), icy streaming (`playStream*`), the
 recorder (`recordToFile`), device selection and stats stay **todo**.
+
+Image lane note (C3 — the `ImageRenderable` + image.ts family):
+observability ruling first (same shape as the audio lane): image
+transport (kitty APC / sixel DCS) and blocks rasterization live in
+the native `bufferDrawImage` (buffer.ts:383-432), which the Rust
+port's `OptimizedBuffer` does not have — so NOTHING here is
+cell-grid observable and the differential suite is unchanged (119
+IDENTICAL, no new scenario); the contract is pinned instead by 20
+unit tests (ports of image.test.ts / image-pool.test.ts /
+image-renderable.test.ts key cases). What is real: format sniffing
++ geometry, the error-code surface (status tables 1:1), the
+refcount/dispose lifecycle, pool slots, fit/aspect math, protocol
+resolution, the drawImage argument tuple, and raw-rgba pixels +
+their ops (resize kernels incl. Mitchell-Netravali, linear-light
+composite, transforms). Narrowed exactly: (1) compressed pixel
+decode and PNG re-encode report `unsupported-feature` (upstream
+defers decode too — image.test.ts:713); (2) http(s)/blob URL fetch
+is not ported (no network stack in a headless crate — surfaces as
+`unsupported-url-scheme`); (3) ICC/cICP color status is always
+`assumed-srgb` and JPEG EXIF orientation is always 1 (both ride the
+decode lane); (4) loading is synchronous, so AbortController /
+in-flight-abort semantics collapse; a disposed source still reports
+its error asynchronously-shaped (`onError` + `loadError` + no
+image). The lane also closes the A1-registered teardown gap:
+`Terminal::note_kitty_graphics()` arms a
+`\x1b_Ga=d,d=a\x1b\\` delete-all prologue in the teardown epilogue
+(image sessions only — default builds byte-identical; upstream's
+per-placement deletes at renderer.zig:602-618 /
+terminal-image.zig:234, delete-all spelling per the oc-tui consumer
+terminal_proto.rs:53). `TerminalCapabilities` gained the
+`multiplexer` + `image_protocol` fields (terminal.zig:207/212,
+types.ts:136-137) that `resolveImageRenderProtocol` reads.
 
 Terminal backend lane note (A1-A3, feature-gated — NOT part of the
 frozen 339): upstream owns terminal I/O in the Node host + zig native
@@ -215,9 +247,9 @@ tree-sitter styling, testing helpers.
 | `GREENSCALE_MATRIX` | 2 | core/src/post/matrices.ts:231 | opentui-core | todo |
 | `Generic` | 2 | core/src/renderables/composition/constructs.ts:28 | opentui-core | todo |
 | `INVERT_MATRIX` | 2 | core/src/post/matrices.ts:271 | opentui-core | todo |
-| `ImageError` | 2 | core/src/image.ts:173 | opentui-core | todo |
-| `ImageLoadError` | 2 | core/src/image.ts:16 | opentui-core | todo |
-| `ImageRenderable` | 2 | core/src/renderables/Image.ts:41 | opentui-core::renderables | todo |
+| `ImageError` | 2 | core/src/image.ts:173 | opentui-core | done (unified error surface: the native status payload with STATUS_MESSAGES/STATUS_CODES 1:1, image.ts:125-183; image.test.ts table arms pinned) |
+| `ImageLoadError` | 2 | core/src/image.ts:16 | opentui-core | done (code/source/status/cause; bytes + filesystem paths + `data:;base64` URLs load real, oversized files reject before reading (image.ts:323); http(s)/blob fetch = `unsupported-url-scheme` — the network lane's narrowing) |
+| `ImageRenderable` | 2 | core/src/renderables/Image.ts:41 | opentui-core::renderables | partial (source lifecycle/retain-dispose, fit geometry `getFittedSize`/`cellAspectRatio`, `effectiveProtocol`, and the exact `renderSelf` drawImage argument tuple (`draw_request`, Image.ts:174-219) 1:1 over `ImageRenderCtx`; SYNC port — `NativeImage` decodes at construction, so the async AbortController/fetch/abort-in-flight semantics (image-renderable.test.ts:636-785) collapse to generation no-ops; the buffer rasterization itself (`bufferDrawImage` → blocks/kitty/sixel bytes) stays with the native-render lane — NOT cell-grid observable here, pinned by image_tests.rs) |
 | `Input` | 2 | core/src/renderables/composition/constructs.ts:44 | opentui-core | todo |
 | `InputRenderable` | **1** | core/src/renderables/Input.ts:46 | opentui-core::input | done |
 | `InputRenderableEvents` | 2 | core/src/renderables/Input.ts:29 | opentui-core::input | done |
@@ -243,8 +275,8 @@ tree-sitter styling, testing helpers.
 | `NativeClipboardOperationStatus` | 2 | core/src/zig.ts:138 | opentui-core | todo |
 | `NativeClipboardShutdownStatus` | 2 | core/src/zig.ts:181 | opentui-core | todo |
 | `NativeClipboardStartStatus` | 2 | core/src/zig.ts:152 | opentui-core | todo |
-| `NativeImage` | 2 | core/src/image.ts:383 | opentui-core | todo |
-| `NativeImagePool` | 2 | core/src/image.ts:659 | opentui-core | todo |
+| `NativeImage` | 2 | core/src/image.ts:383 | opentui-core | partial (real: header sniff for png/gif/jpeg/webp geometry+format (incl. animated-WebP rejection), raw-rgba/from_pixels import (stride/bgra/opaque), retain/clone/dispose refcount lifecycle, take_raw's retained-by-buffers refusal, resize (all kernels incl. Mitchell-Netravali cubics), extract/extend/rotate/flip/flop, linear-light composite, encoded-payload retention (the kitty passthrough); NARROWED: compressed pixel decode reports `unsupported-feature` until the native-render lane (upstream defers decode too, image.test.ts:713), PNG re-encode likewise, ICC/cICP color status is always assumed-srgb, JPEG EXIF orientation stays 1) |
+| `NativeImagePool` | 2 | core/src/image.ts:659 | opentui-core | done (slot machine 1:1: busy = outstanding retains (status 12), in-place refresh, capacity growth 1-8 then drop, validate-before-busy-scan, dispose leaves outstanding frames alive; image-pool.test.ts:7/89/187/202 pinned) |
 | `NativeMeasureTargetKind` | 2 | core/src/zig.ts:2414 | opentui-core | todo |
 | `NativeSpanFeed` | 2 | core/src/NativeSpanFeed.ts:34 | opentui-core::buffer | todo |
 | `OptimizedBuffer` | **1** | core/src/buffer.ts:54 | opentui-core::buffer | done |
@@ -380,7 +412,7 @@ tree-sitter styling, testing helpers.
 | `hastToStyledText` | 2 | core/src/lib/hast-styled-text.ts:56 | opentui-core | todo |
 | `hexToRgb` | 2 | core/src/lib/RGBA.ts:222 | opentui-core::color | done |
 | `hsvToRgb` | 2 | core/src/lib/RGBA.ts:250 | opentui-core::color | done |
-| `imageInfo` | 2 | core/src/image.ts:375 | opentui-core | todo |
+| `imageInfo` | 2 | core/src/image.ts:375 | opentui-core | done (empty→TypeError, unknown→unsupported-format, truncated→malformed; PNG IHDR/GIF screen/JPEG SOF/WebP VP8·VP8L·VP8X header geometry real) |
 | `infoStringToFiletype` | **1** | core/src/lib/tree-sitter/resolve-ft.ts:173 | opentui-core::tree_sitter | done |
 | `instantiate` | 2 | core/src/renderables/composition/vnode.ts:187 | opentui-core | todo |
 | `isEditBufferRenderable` | 2 | core/src/renderables/EditBufferRenderable.ts:51 | opentui-core::renderables | todo |
@@ -424,7 +456,7 @@ tree-sitter styling, testing helpers.
 | `renderFontToFrameBuffer` | 2 | core/src/lib/ascii.font.ts:220 | opentui-core::buffer | todo |
 | `resolveBundledFilePath` | 2 | core/src/platform/runtime.ts:49 | opentui-core | todo |
 | `resolveCoreSlot` | 2 | core/src/plugins/core-slot.ts:193 | opentui-core | todo |
-| `resolveImageRenderProtocol` | 2 | core/src/renderables/Image.ts:20 | opentui-core | todo |
+| `resolveImageRenderProtocol` | 2 | core/src/renderables/Image.ts:20 | opentui-core | done (the exact Image.ts:20-32 gate ladder incl. sixel-without-resolution → blocks and tmux → blocks; image-renderable.test.ts:342-358 all five assertions pinned) |
 | `resolveRenderLib` | 2 | core/src/zig.ts:6938 | opentui-core | todo |
 | `reverse` | 2 | core/src/lib/styled-text.ts:116 | opentui-core::styled_text::styles | done |
 | `rgbToHex` | 2 | core/src/lib/RGBA.ts:244 | opentui-core | todo |
