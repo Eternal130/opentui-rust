@@ -26,6 +26,12 @@
 //! Callbacks (`onData`, `onTerminalResize`, `onScreenChange`) surface as
 //! drained records — the Rust renderer has no user-closure channel;
 //! consumers read them via the renderer accessors.
+//!
+//! Backend provenance (lane D3-3a): the [`Engine`] is the VT backend
+//! folded from oc-tui's `terminal_pane.rs` (vte grid/scroll/selection +
+//! OSC 4/10/11 theme injection) — mechanism != upstream's
+//! `libghostty-vt`, output == upstream (differential + PTY-parity
+//! pinned). The bounded-deviation register lives in ADR-0019.
 
 use crate::embedded_terminal::{
     Engine, KeyAction, KeyInput, LogicalKey, MouseAction, MouseButton, MouseInput, TerminalCursor,

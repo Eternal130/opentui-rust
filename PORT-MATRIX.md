@@ -171,11 +171,29 @@ the MIT source. Observable parity is pinned: 18 `et-*` differential
 scenarios (geometry, SGR/BCE styling, OSC 10/11, wrap+wide, cursor
 ops, scroll+scrollback incl. reflow-on-resize, alt screen,
 transparent bg, focus cursor, mouse-drag selection) + 31 unit tests
-porting `EmbeddedTerminal.test.ts` — all IDENTICAL vs the pinned
+porting `EmbeddedTerminal.test.ts` (35 with the D3-3a fold additions)
+— all IDENTICAL vs the pinned
 0.5.14. Narrowed vs ghostty: grapheme clustering is
 single-codepoint+width, tab stops are fixed at 8, the kitty key table
 covers `physicalKey`'s vocabulary, and unpinned VT corners (IRM,
 modifyOtherKeys state 2, DECSTBM interactions) are best-effort.
+
+**Fold (lane D3-3a).** The oc-tui `terminal_pane.rs` VT surface is
+folded into this engine (mechanism≠upstream, output==upstream): the
+`vt100::Parser` grid/scrollback/selection behavior and the
+`terminal_palette()` OSC 4/10/11 theme-injection bytes now resolve
+through `opentui-core::embedded_terminal` — OSC 4 redefines palette
+indices 0-255 (OSC 104 resets), and the existing OSC 10/11 default
+colors are the injection endpoint. Pinned by 4 new upstream-suite
+tests (OSC 4 index/256-color paths, OSC 104, the exact
+`terminal_palette()` burst, the renderable API-surface contract) plus
+4 PTY grid-parity tests in `tests/embedded_terminal_pty.rs`: a private
+`posix_openpt` writer's byte stream is parsed by BOTH the folded engine
+and the oc-tui `vt100` oracle, with per-cell text + cursor equality
+(text/SGR/wrap, wide cells, alt screen, scrollback viewport). The
+bounded deviation (vte-based engine instead of `libghostty-vt`;
+single-codepoint grapheme clustering; fixed tab stops) is registered in
+ADR-0019.
 
 \* The tier-1 size has two readings, both correct: **79** = distinct
 consumer import names parsed from opencode v2.0.24's TUI imports
@@ -238,7 +256,7 @@ tree-sitter styling, testing helpers.
 | `EditBufferRenderable` | 2 | core/src/renderables/EditBufferRenderable.ts:85 | opentui-core::renderables::textarea | done |
 | `EditBufferRenderableEvents` | 2 | core/src/renderables/EditBufferRenderable.ts:36 | opentui-core::renderables::textarea | partial |
 | `EditorView` | 2 | core/src/editor-view.ts:23 | opentui-core::editor | done |
-| `EmbeddedTerminalRenderable` | **1** | core/src/renderables/EmbeddedTerminal.ts:42 | opentui-core::renderables | partial (renderable 1:1 + a vte-based engine pinned by 18 differential scenarios + 31 ported upstream tests; NOT full ghostty-vt emulation — see note) |
+| `EmbeddedTerminalRenderable` | **1** | core/src/renderables/EmbeddedTerminal.ts:42 | opentui-core::renderables | partial (renderable 1:1 + the folded oc-tui `terminal_pane.rs` VT engine — vte grid/scroll/selection + OSC 4/10/11 theme injection — pinned by 18 differential scenarios + 35 ported upstream tests + 4 PTY grid-parity tests; NOT full ghostty-vt emulation — see note + ADR-0019) |
 | `ExtmarksController` | 2 | core/src/lib/extmarks.ts:33 | opentui-core | todo |
 | `FlamesEffect` | 2 | core/src/post/effects.ts:605 | opentui-core | todo |
 | `FrameBuffer` | 2 | core/src/renderables/composition/constructs.ts:56 | opentui-core::buffer | todo |
@@ -684,3 +702,22 @@ frozen rows touched by the lane (`TextBufferView`, `createHostClipboard`,
 | `TerminalColors` / `NormalizedTerminalPalette` / hex parse | core/src/lib/terminal-palette.ts:24-41 | opentui-core::terminal_palette | done (crate-root module — the `terminal` module is feature-gated and this is a pure data contract the ref theme layer consumes unconditionally; ref sites: context/theme.tsx:1,381 + mini/theme.ts:1,273,297) |
 | `HostCommandBackend` / `CommandHostClipboardBackend` / `HostCommandSpec` | — (port-side mechanism behind createHostClipboard) | opentui-core::clipboard | done (see the `createHostClipboard` frozen row) |
 | `ensureRuntimePluginSupport` (+`SolidRuntimePluginSupportOptions`, rewrite options) | solid/scripts/runtime-plugin-support-configure.ts:100-125 (via package.json:39-42 `./runtime-plugin-support/configure`) | opentui-solid::runtime_plugin_support | done (contract-level per Gate D0: mechanism≠upstream — no bun loader plugin / solid transform, a process-global install record instead; output==upstream — first install `true`, idempotent `false`, the three compat errors word-for-word (:75-97), defaultRuntimeModules :52-61 + `additional` form the installed specifier set) |
+
+### lane D3-3a additions (EmbeddedTerminal VT-engine fold — oc-tui `terminal_pane.rs`)
+
+Ported by lane `lane-d3.3a` (tui-full-convergence phase-D3 third lane,
+opentui-rust half). The upstream `EmbeddedTerminalRenderable` wraps a
+native `libghostty-vt` handle; this lane folds oc-tui's
+`terminal_pane.rs` VT surface into the port's vte-based
+`opentui-core::embedded_terminal` backend (`mechanism != upstream`,
+`output == upstream`). The renderable rows stay in the frozen table
+above; the new engine-side symbols ride this supplementary table.
+
+| symbol | upstream file:line | Rust target | status |
+|---|---|---|---|
+| OSC 4 palette redefinition (set) | native/src/embedded-terminal/main.zig:78-82 (VT stream) + core `terminal_palette()` injection | opentui-core::embedded_terminal::Engine::set_palette_color / palette_color | done (indices 0-255; ANSI + 256-color paths resolve through the override; frozen default untouched) |
+| OSC 104 palette reset | same VT stream | Engine::reset_palette_color | done (single index or whole palette) |
+| OSC 10/11 default fg/bg injection | same VT stream | Engine default_fg/default_bg + cursor().color | done (pre-existing; now covered by the exact `terminal_palette()` burst test) |
+| folded gate + scroll/selection/grid query | main.zig:95-114 (scroll/setSelection/clearSelection/selectedText) | Engine::scroll_viewport / set_selection / clear_selection / selected_text / screen_lines | done (vte grid; PTY-parity vs the oc-tui `vt100` oracle) |
+| PTY grid parity harness | — (port-side oracle) | tests/embedded_terminal_pty.rs (4 tests, `terminal-backend`) | done (private `posix_openpt`; same bytes through the folded Engine + the oc-tui `vt100` oracle; text + cursor equality) |
+| renderable API-surface contract | core/src/renderables/EmbeddedTerminal.ts:54-298 | tests/embedded_terminal.rs::upstream_api_surface_contract | done (constructor/screen/invalidate/transparent/selection/paste/cursor) |
