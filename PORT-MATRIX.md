@@ -162,9 +162,11 @@ directly rather than only the oc-tui seed:
   (3) sixel opacity dimming toward covered cell backgrounds
   (renderer.zig:2478+) is approximated by the encoder alpha; (4) the
   renderer's incremental image-dirty/sixel-cache machinery is replaced
-  by per-frame recomputation; (5) `refusesForcedSixel`
-  (terminal.zig:1829-1837) is not modelled — the TS sixel gate plus
-  the placement-size gate cover the observable cases.
+  by per-frame recomputation, and a vacated sixel rect is not actively
+  cleared (sixel has no delete; upstream repaints through the dirty
+  path); (5) `refusesForcedSixel` (terminal.zig:1829-1837) is not
+  modelled — the TS sixel gate plus the placement-size gate cover the
+  observable cases.
 
 Seed mapping (oc-tui → opentui-core): `image/mod.rs` protocol detect/
 resolve + kitty/delete/CUP + `emit_frame_images`/`emit_image_deletes`

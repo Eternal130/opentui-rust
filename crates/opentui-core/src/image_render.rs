@@ -37,6 +37,10 @@
 //!   protocols, overlapping placements, off-screen placements, or
 //!   overwritten reservation cells all flatten to the blocks fallback
 //!   (`renderer.zig:1404-1467`).
+//! * A sixel placement that leaves the frame is not actively cleared
+//!   (sixel has no delete command; upstream repaints the vacated rect
+//!   through its image-dirty path, renderer.zig:2395-2470). Kitty
+//!   removals DO emit `a=d` deletions.
 
 use std::io::{self, Write};
 
