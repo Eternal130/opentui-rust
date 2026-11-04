@@ -284,6 +284,78 @@ fn osc_default_colors() {
     assert_eq!((br, bg_, bb), (0x65, 0x43, 0x21));
 }
 
+/// OSC 4 palette redefinition (folded from oc-tui `terminal_pane.rs`
+/// `terminal_palette()`): both the ANSI index path (`31` → index 1)
+/// and the 256-color path (`38;5;1`) resolve through the override,
+/// while untouched indices keep the frozen default.
+#[test]
+fn osc4_palette_redefinition_recolors_cells() {
+    use opentui_core::buffer::OptimizedBuffer;
+    let mut t = EmbeddedFixture::with_options(8, 2);
+    t.write("\x1b]4;1;#112233\x1b\\");
+    t.write("\x1b[31mA\x1b[38;5;1mB\x1b[32mC");
+    let mut buf = OptimizedBuffer::new(8, 2);
+    t.state.engine.compose(&mut buf, 0, 0, false);
+    let overridden = (0x11, 0x22, 0x33);
+    let default_green = opentui_core::embedded_terminal::palette_rgb(2);
+    let fg_at = |x: u32| {
+        let [r, g, b, _] = buf.get(x, 0).expect("cell").fg.to_ints();
+        (r, g, b)
+    };
+    assert_eq!(fg_at(0), overridden, "SGR 31 uses the OSC 4 override");
+    assert_eq!(fg_at(1), overridden, "38;5;1 uses the OSC 4 override");
+    assert_eq!(fg_at(2), default_green, "index 2 is untouched");
+}
+
+/// OSC 104 resets entries (no params = the whole palette) back to the
+/// frozen oracle.
+#[test]
+fn osc104_resets_palette() {
+    use opentui_core::embedded_terminal::palette_rgb;
+    let mut engine = Engine::new(8, 2, 10_000);
+    engine.write(b"\x1b]4;1;#112233\x1b\\\x1b]4;2;#445566\x1b\\");
+    assert_eq!(engine.palette_color(1), (0x11, 0x22, 0x33));
+    assert_eq!(engine.palette_color(2), (0x44, 0x55, 0x66));
+    // Single-index reset.
+    engine.write(b"\x1b]104;1\x1b\\");
+    assert_eq!(engine.palette_color(1), palette_rgb(1));
+    assert_eq!(engine.palette_color(2), (0x44, 0x55, 0x66));
+    // Whole-palette reset.
+    engine.write(b"\x1b]104\x1b\\");
+    assert_eq!(engine.palette_color(2), palette_rgb(2));
+}
+
+/// The exact byte shape oc-tui's `terminal_palette()` emits: OSC 4 for
+/// indices 0..=15, then OSC 10 (foreground) and OSC 11 (background).
+/// This is the theme-injection contract the fold must carry.
+#[test]
+fn theme_palette_osc_burst_injection() {
+    use opentui_core::embedded_terminal::{palette_rgb, DEFAULT_BG, DEFAULT_FG};
+    let mut engine = Engine::new(16, 4, 10_000);
+    let mut burst = Vec::new();
+    for index in 0u8..16 {
+        burst.extend_from_slice(format!("\x1b]4;{index};#0102{:02x}\x1b\\", index).as_bytes());
+    }
+    burst.extend_from_slice(b"\x1b]10;#0a0b0c\x1b\\");
+    burst.extend_from_slice(b"\x1b]11;#0d0e0f\x1b\\");
+    engine.write(&burst);
+    for index in 0u8..16 {
+        assert_eq!(
+            engine.palette_color(index),
+            (0x01, 0x02, index),
+            "index {index} from the theme burst"
+        );
+    }
+    // The defaults surface through `cursor()`'s color and the composed
+    // background, the same accessors `terminal_pane.rs` maps to cells.
+    let cursor = engine.cursor();
+    assert_eq!(cursor.color, Some((0x0a, 0x0b, 0x0c)));
+    // 16..255 keep the frozen default until overridden.
+    assert_eq!(engine.palette_color(16), palette_rgb(16));
+    assert_ne!(DEFAULT_FG, (0x0a, 0x0b, 0x0c));
+    assert_ne!(DEFAULT_BG, (0x0d, 0x0e, 0x0f));
+}
+
 // ---------------------------------------------------------------------------
 // Responses (EmbeddedTerminal.test.ts:216-232, 334-346)
 // ---------------------------------------------------------------------------
@@ -774,4 +846,79 @@ fn engine_key_table_pins() {
         unshifted_codepoint: 0,
     };
     assert_eq!(e3.encode_key(&enter_release), b"\x1b[13;1:3u");
+}
+
+// ---------------------------------------------------------------------------
+// Upstream API-surface contract (EmbeddedTerminal.ts, one assertion group
+// per public member; behavioral parity lives in the tests above)
+// ---------------------------------------------------------------------------
+
+/// The renderable's public surface, cited line-by-line against
+/// `packages/core/src/renderables/EmbeddedTerminal.ts`:
+///
+/// * constructor / options `:54-78`
+/// * `screen()` `:117-140`
+/// * `invalidate()` `:152-156`
+/// * `transparentBackground` setter `:104-115`
+/// * `shouldStartSelection()` `:176-181`
+/// * `hasSelection()` / `getSelectedText()` `:218-225`
+/// * `handlePaste()` `:261-263`
+/// * `renderSelf` cursor half `:283-298`
+#[test]
+fn upstream_api_surface_contract() {
+    use opentui_core::events::PasteEvent;
+    use opentui_core::renderables::embedded_terminal::{
+        EmbeddedTerminalDataSource as Src, EmbeddedTerminalOptions, EmbeddedTerminalState,
+    };
+
+    // constructor / options (:54-78): cols/rows default from width/height,
+    // `selectable ?? true`.
+    let mut state = EmbeddedTerminalState::new(&EmbeddedTerminalOptions {
+        width: Some(12),
+        height: Some(3),
+        ..Default::default()
+    });
+    assert_eq!((state.engine.cols, state.engine.rows), (12, 3));
+    assert!(state.selectable);
+
+    // screen() (:117-140): columns/rows mirror the renderable size; an
+    // empty grid has no text and a hidden-by-value cursor is visible at 0,0.
+    let screen = state.screen(12, 3);
+    assert_eq!((screen.columns, screen.rows), (12, 3));
+    assert_eq!(screen.text, "");
+    assert_eq!((screen.cursor.x, screen.cursor.y), (0, 0));
+
+    // invalidate() (:152-156) is a repaint hint; the port composes eagerly.
+    state.invalidate();
+
+    // transparentBackground setter (:104-115): only a change requests a
+    // render (the return value is the requestRender signal).
+    assert!(state.set_transparent_background(true));
+    assert!(!state.set_transparent_background(true));
+
+    // shouldStartSelection() (:176-181): the point must be inside the box.
+    assert!(state.should_start_selection(15, 5, 10, 5, 10, 3));
+    assert!(!state.should_start_selection(9, 5, 10, 5, 10, 3));
+    assert!(!state.should_start_selection(15, 8, 10, 5, 10, 3));
+
+    // hasSelection()/getSelectedText() (:218-225): empty before any drag.
+    assert!(!state.has_selection());
+    assert_eq!(state.get_selected_text(), "");
+
+    // handlePaste() (:261-263): encodePaste output goes to onData as input
+    // (bracketed paste off — bytes pass through).
+    state.handle_paste(&PasteEvent::new(b"hi".to_vec(), None));
+    assert_eq!(
+        state
+            .on_data
+            .last()
+            .map(|(data, source)| (data.as_slice(), *source)),
+        Some((b"hi".as_slice(), Src::Input))
+    );
+
+    // renderSelf cursor half (:283-298): the focused cursor parks at
+    // (screenX + cursorX + 1, screenY + y + 1).
+    state.write(b"ab");
+    let cursor = state.render_cursor(10, 5).expect("cursor output");
+    assert_eq!(cursor.position, (13, 6, true));
 }

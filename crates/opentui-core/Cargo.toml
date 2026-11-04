@@ -35,6 +35,10 @@ rustix = { version = "1", features = ["termios", "system", "fs", "pty", "event"]
 # commands emit (opentui_keymap::textarea::EDIT_BUFFER_ACTIONS) must be
 # exactly the ids TextareaState::execute_action implements
 opentui-keymap = { workspace = true }
+# the oc-tui `terminal_pane.rs` grid oracle (the engine folded into
+# `opentui-core::embedded_terminal` in lane D3-3a) — PTY grid-parity
+# test only; already in the lockfile via the differential replay crate
+vt100 = { workspace = true }
 
 [features]
 # Real miniaudio playback-device output (the native `start` path,
