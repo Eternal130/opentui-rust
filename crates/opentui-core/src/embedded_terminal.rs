@@ -29,6 +29,33 @@
 //! clustering is single-codepoint + width, tab stops are fixed at 8, and
 //! the kitty key table covers the functional keys upstream's
 //! `physicalKey` can produce.
+//!
+//! Fold provenance (lane D3-3a, tui-full-convergence): this engine is
+//! the backend folded from oc-tui's `terminal_pane.rs` VT surface
+//! (`vt100::Parser` grid + scroll/selection/OSC theme injection) into
+//! the upstream `EmbeddedTerminalRenderable` contract. mechanism !=
+//! upstream (vte state machine here vs. Ghostty's `libghostty-vt`),
+//! output == upstream (pinned by the `et-*` differential scenarios and
+//! the PTY grid-parity suite). ADR-0019 carries the bounded-deviation
+//! register (orchestrator-owned); the OSC 4 palette redefinition added
+//! here completes the terminal_pane `terminal_palette()` OSC 4/10/11
+//! injection face.
+//!
+//! Source mapping (oc-tui `src/terminal_pane.rs`, TUI-4 / lane-tui2 —
+//! original module naming preserved):
+//! * `terminal_palette` + the OkLCh helpers `:27-157` → the OSC 4/10/11
+//!   receive path here ([`Engine::set_palette_color`],
+//!   [`Engine::reset_palette_color`], the `osc_dispatch` arms).
+//! * `render_terminal_pane` / `vt_color` grid paint `:455-517` →
+//!   [`Engine::compose`] + `resolve_fg`/`resolve_bg`/`palette_color`.
+//! * `TerminalPaneState`'s parser ops `:261-453` (`process`,
+//!   `set_size`, `screen`, scrollback) → [`Engine::write`],
+//!   [`Engine::resize`], [`Engine::screen_lines`],
+//!   [`Engine::scroll_viewport`], selection accessors.
+//! * `encode_stroke` `:177-259` → [`Engine::encode_key`] (the ghostty
+//!   encoder is the superset; the xterm sequences are covered).
+//! * `interaction_frame` `:159-175` and the attach stream machine are
+//!   oc-tui-specific and stay with the consumer (lane D3-3b).
 
 use crate::ansi::text_attributes;
 use crate::buffer::OptimizedBuffer;
@@ -492,6 +519,12 @@ pub struct Engine {
     pub(crate) default_fg: (u8, u8, u8),
     pub(crate) default_bg: (u8, u8, u8),
 
+    /// OSC 4 palette overrides (`index -> rgb`); `None` = the frozen
+    /// default palette ([`palette_rgb`]). Folded from oc-tui's
+    /// `terminal_pane.rs` theme-palette injection (OSC 4/10/11); see
+    /// ADR-0019 for the bounded-deviation registration.
+    palette_overrides: [Option<(u8, u8, u8)>; 256],
+
     /// cell selection in viewport coordinates (setSelection)
     selection: Option<((u16, u16), (u16, u16))>,
 
@@ -532,6 +565,7 @@ impl Engine {
             mouse_last_cell: None,
             default_fg: DEFAULT_FG,
             default_bg: DEFAULT_BG,
+            palette_overrides: [None; 256],
             selection: None,
             parser: vte::Parser::new(),
         }
@@ -771,6 +805,34 @@ impl Engine {
     /// `setTransparentBackground` (main.zig:124-127) — render-side only.
     pub fn set_transparent_background(&mut self, _transparent: bool) {}
 
+    /// OSC 4 — redefine palette index `index` for this session.
+    ///
+    /// This is the receiving half of the theme-palette injection that
+    /// oc-tui's `terminal_pane.rs` emits (`terminal_palette()`:
+    /// OSC 4;0..15 + OSC 10/11, folded here in lane D3-3a). Ghostty
+    /// applies the override to every subsequent cell that resolves
+    /// through the palette; the default 16/xterm palette is untouched
+    /// (`palette_rgb` stays the frozen oracle).
+    pub fn set_palette_color(&mut self, index: u8, rgb: (u8, u8, u8)) {
+        self.palette_overrides[index as usize] = Some(rgb);
+    }
+
+    /// OSC 104 — reset one palette entry (`Some`) or the whole palette
+    /// (`None`) back to the frozen default.
+    pub fn reset_palette_color(&mut self, index: Option<u8>) {
+        match index {
+            Some(index) => self.palette_overrides[index as usize] = None,
+            None => self.palette_overrides = [None; 256],
+        }
+    }
+
+    /// The effective palette color — an OSC 4 override when present,
+    /// else the frozen default ([`palette_rgb`]).
+    #[must_use]
+    pub fn palette_color(&self, index: u8) -> (u8, u8, u8) {
+        self.palette_overrides[index as usize].unwrap_or_else(|| palette_rgb(index))
+    }
+
     /// `cursor` (main.zig:143-162). `has_value` is false only before the
     /// first compose upstream; the port composes eagerly.
     pub fn cursor(&self) -> TerminalCursor {
@@ -973,7 +1035,7 @@ impl Engine {
                 Rgba::rgb(self.default_fg.0, self.default_fg.1, self.default_fg.2)
             }
             CellColor::Idx(i) => {
-                let (r, g, b) = palette_rgb(i);
+                let (r, g, b) = self.palette_color(i);
                 Rgba::rgb(r, g, b)
             }
             CellColor::Rgb(r, g, b) => Rgba::rgb(r, g, b),
@@ -984,7 +1046,7 @@ impl Engine {
         match color {
             CellColor::Default => default_bg,
             CellColor::Idx(i) => {
-                let (r, g, b) = palette_rgb(i);
+                let (r, g, b) = self.palette_color(i);
                 Rgba::rgb(r, g, b)
             }
             CellColor::Rgb(r, g, b) => Rgba::rgb(r, g, b),
@@ -1608,6 +1670,39 @@ impl vte::Perform for Engine {
         let joined: Vec<u8> = params[1..].concat();
         let text = String::from_utf8_lossy(&joined).to_string();
         match num {
+            // OSC 4 — palette redefinition, `OSC 4 ; index ; spec
+            // [; index ; spec ...]`. The theme-palette injection path
+            // (oc-tui terminal_pane.rs `terminal_palette()`); the `?`
+            // query form is unhandled here (no query response is part
+            // of the pinned contract).
+            Some(4) => {
+                if params.len() > 1 && params.len() % 2 == 1 {
+                    for chunk in params[1..].chunks(2) {
+                        let index = std::str::from_utf8(chunk[0])
+                            .ok()
+                            .and_then(|s| s.parse::<u8>().ok());
+                        let spec = String::from_utf8_lossy(chunk[1]);
+                        if let (Some(index), Some(rgb)) = (index, parse_osc_color(&spec)) {
+                            self.set_palette_color(index, rgb);
+                        }
+                    }
+                }
+            }
+            // OSC 104 — reset palette entries (no params = reset all).
+            Some(104) => {
+                if params.len() <= 1 {
+                    self.reset_palette_color(None);
+                } else {
+                    for param in &params[1..] {
+                        if let Some(index) = std::str::from_utf8(param)
+                            .ok()
+                            .and_then(|s| s.parse::<u8>().ok())
+                        {
+                            self.reset_palette_color(Some(index));
+                        }
+                    }
+                }
+            }
             // OSC 10/11 set the panel defaults (probe: retroactive — the
             // whole pane repaints with the new default colors)
             Some(10) => {
