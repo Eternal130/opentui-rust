@@ -171,7 +171,8 @@ the MIT source. Observable parity is pinned: 18 `et-*` differential
 scenarios (geometry, SGR/BCE styling, OSC 10/11, wrap+wide, cursor
 ops, scroll+scrollback incl. reflow-on-resize, alt screen,
 transparent bg, focus cursor, mouse-drag selection) + 31 unit tests
-porting `EmbeddedTerminal.test.ts` — all IDENTICAL vs the pinned
+porting `EmbeddedTerminal.test.ts` (35 with the D3-3a fold additions)
+— all IDENTICAL vs the pinned
 0.5.14. Narrowed vs ghostty: grapheme clustering is
 single-codepoint+width, tab stops are fixed at 8, the kitty key table
 covers `physicalKey`'s vocabulary, and unpinned VT corners (IRM,
