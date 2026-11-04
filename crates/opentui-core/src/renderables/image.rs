@@ -134,6 +134,32 @@ impl ImageRenderCtx<'_> {
             _ => None,
         }
     }
+
+    /// Build the context from a probed capability snapshot (the
+    /// capture now carries the pixel-resolution reply alongside the
+    /// live terminal grid). Legacy callers keep constructing the
+    /// fields directly.
+    #[must_use]
+    pub fn from_capabilities(
+        capabilities: &TerminalCapabilities,
+        terminal_width: u32,
+        terminal_height: u32,
+    ) -> ImageRenderCtx<'_> {
+        ImageRenderCtx {
+            capabilities: Some(capabilities),
+            terminal_width: Some(terminal_width),
+            terminal_height: Some(terminal_height),
+            resolution: capabilities.pixel_resolution,
+        }
+    }
+
+    /// The cell size derived from the resolution probe (`cellPx`).
+    #[must_use]
+    pub fn cell_px(&self) -> Option<crate::image_render::CellPx> {
+        let (width, height) = self.pixel_resolution()?;
+        crate::image_render::PixelResolution { width, height }
+            .cell_px(self.terminal_width?, self.terminal_height?)
+    }
 }
 
 /// The `onLoad` callback shape (Image.ts:16).

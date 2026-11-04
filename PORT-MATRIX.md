@@ -123,6 +123,72 @@ terminal_proto.rs:53). `TerminalCapabilities` gained the
 `multiplexer` + `image_protocol` fields (terminal.zig:207/212,
 types.ts:136-137) that `resolveImageRenderProtocol` reads.
 
+Native image rendering lane note (D3-4a — the `bufferDrawImage`
+family; none of these are runtime exports, so the frozen counts are
+unchanged). The native Zig source IS inspectable in
+`third_party/opentui/packages/native/src`, so the port follows it
+directly rather than only the oc-tui seed:
+
+* **buffer side** — `OptimizedBuffer.draw_image` ports buffer.zig:
+  2569-2644 exactly (TS `requireInteger`/range ladder at
+  buffer.ts:384-406 as `DrawImageError`, then the native non-throwing
+  guard, i64 clipping, source-crop/pixel-dim recomputation, image
+  reservation cells via `packImageCell`). `materialize_image_fallback(s)`
+  is buffer.zig:2648-2710 + `renderQuadrantBlock` :3069-3131 +
+  `quadrantChars` :2997-3015.
+* **protocol** — `resolve_emit_protocol` composes Image.ts:20-32 with
+  native `nextPlacementProtocol` (renderer.zig:1948-1954): sixel needs
+  a pixel resolution AND `dimensionsWithinLimits` (image.zig:297-300,
+  16 384² / 25M pixels / 100 MiB).
+* **cell px probe** — `parse_pixel_resolution`/`isPixelResolutionResponse`
+  port terminal-capability-detection.ts:81-99 (width ≤ 0x7fffffff;
+  oversized replies shape-match but parse to `None`);
+  `PIXEL_RESOLUTION_QUERY` is ansi.zig:249 (`\x1b[14t`),
+  `CapabilityProbe` now classifies the reply into
+  `TerminalCapabilities.pixel_resolution`, and
+  `ImageRenderCtx::from_capabilities`/`cell_px` consume it.
+* **emission** — kitty transmit/place/delete (terminal-image.zig:89-238),
+  the Wu-moment sixel quantizer + banded DCS (:240-629), and blocks.
+  `ImageFrameEmitter` owns the kitty `image_deletes` set and the
+  occlusion/placeholder ruling: mixed protocols, overlapping
+  placements, off-screen placements, or any overwritten reservation
+  cell flatten to blocks (renderer.zig:1404-1467); empty frames delete
+  every committed kitty id.
+* **bounded deviations** — (1) encoded PNG → sixel/blocks needs
+  materialized pixels; the C3-deferred compressed decode means
+  encoded-only images use kitty `f=100` or keep reservations (raw-rgba
+  images are fully real); (2) kitty zlib/file transport (`o=z`, `t=f`)
+  is not ported — raw `f=24/32` + PNG passthrough + tmux wrapping are;
+  (3) sixel opacity dimming toward covered cell backgrounds
+  (renderer.zig:2478+) is approximated by the encoder alpha; (4) the
+  renderer's incremental image-dirty/sixel-cache machinery is replaced
+  by per-frame recomputation; (5) `refusesForcedSixel`
+  (terminal.zig:1829-1837) is not modelled — the TS sixel gate plus
+  the placement-size gate cover the observable cases.
+
+Seed mapping (oc-tui → opentui-core): `image/mod.rs` protocol detect/
+resolve + kitty/delete/CUP + `emit_frame_images`/`emit_image_deletes`
+(oc-tui `image/mod.rs:60-311`) → `image_render.rs` kitty section +
+`ImageFrameEmitter`; `image/sixel.rs:1-396` → `image_render.rs` sixel
+section; `image_blocks.rs:110-400` (the measured quadrant table) →
+`buffer.rs` `materialize_image_fallback` + `image_render.rs`
+`render_quadrant_block`/`QUADRANT_CHARS` (now the exact Zig algorithm,
+not the reverse-engineered approximation). No `opencode-rust` consumer
+changes in this lane (D3-4b switches `<image protocol="auto">`).
+
+| symbol | upstream | port | status |
+|---|---|---|---|
+| `OptimizedBuffer.drawImage` | core/src/buffer.ts:383 | opentui-core::buffer::draw_image | done (contract + reservation) |
+| `bufferDrawImage` | native/src/buffer.zig:2569 | opentui-core::buffer::draw_image | done |
+| `materializeImageFallback(s)` | native/src/buffer.zig:2648/2702 | opentui-core::buffer | done |
+| `renderQuadrantBlock` / `quadrantChars` | native/src/buffer.zig:3069/2997 | opentui-core::image_render | done |
+| `parsePixelResolution` / `isPixelResolutionResponse` | core/src/lib/terminal-capability-detection.ts:89/81 | opentui-core::image_render | done |
+| `queryPixelResolution` | core/src/renderer.ts:3959 | opentui-core::image_render + terminal::probe | partial (query byte + reply capture; no resize-requery state machine) |
+| `queryPixelSize` | native/src/ansi.zig:249 | opentui-core::image_render | done |
+| `writeKittyTransmit` / `Placement` / `Delete` | native/src/terminal-image.zig:89/195/232 | opentui-core::image_render | done (raw+PNG+tmux) |
+| `quantizeSixel` / `writeSixel*` | native/src/terminal-image.zig:358/525/538/618 | opentui-core::image_render | done |
+| `ImageFrameEmitter` | port-only (oc-tui `image/mod.rs` seed) | opentui-core::image_render | done |
+
 Terminal backend lane note (A1-A3, feature-gated — NOT part of the
 frozen 339): upstream owns terminal I/O in the Node host + zig native
 lib (`terminal.zig`, `renderer.zig`, `renderer.ts`), none of which is
@@ -267,7 +333,7 @@ tree-sitter styling, testing helpers.
 | `INVERT_MATRIX` | 2 | core/src/post/matrices.ts:271 | opentui-core | todo |
 | `ImageError` | 2 | core/src/image.ts:173 | opentui-core | done (unified error surface: the native status payload with STATUS_MESSAGES/STATUS_CODES 1:1, image.ts:125-183; image.test.ts table arms pinned) |
 | `ImageLoadError` | 2 | core/src/image.ts:16 | opentui-core | done (code/source/status/cause; bytes + filesystem paths + `data:;base64` URLs load real, oversized files reject before reading (image.ts:323); http(s)/blob fetch = `unsupported-url-scheme` — the network lane's narrowing) |
-| `ImageRenderable` | 2 | core/src/renderables/Image.ts:41 | opentui-core::renderables | partial (source lifecycle/retain-dispose, fit geometry `getFittedSize`/`cellAspectRatio`, `effectiveProtocol`, and the exact `renderSelf` drawImage argument tuple (`draw_request`, Image.ts:174-219) 1:1 over `ImageRenderCtx`; SYNC port — `NativeImage` decodes at construction, so the async AbortController/fetch/abort-in-flight semantics (image-renderable.test.ts:636-785) collapse to generation no-ops; the buffer rasterization itself (`bufferDrawImage` → blocks/kitty/sixel bytes) stays with the native-render lane — NOT cell-grid observable here, pinned by image_tests.rs) |
+| `ImageRenderable` | 2 | core/src/renderables/Image.ts:41 | opentui-core::renderables | partial (source lifecycle/retain-dispose, fit geometry `getFittedSize`/`cellAspectRatio`, `effectiveProtocol`, and the exact `renderSelf` drawImage argument tuple (`draw_request`, Image.ts:174-219) 1:1 over `ImageRenderCtx`; the tuple now feeds the real `buffer.draw_image` + `ImageFrameEmitter` path (`DrawImageError` contract, kitty/sixel/blocks emission, occlusion fallback — see the D3-4a note); SYNC port — `NativeImage` decodes at construction, so async AbortController/fetch/abort-in-flight semantics (image-renderable.test.ts:636-785) collapse to generation no-ops; compressed decode stays C3-deferred, so encoded-only PNG rasterizes through kitty passthrough or keeps reservations; pinned by image_tests.rs + image_render.rs + the image_render_pty integration test) |
 | `Input` | 2 | core/src/renderables/composition/constructs.ts:44 | opentui-core | todo |
 | `InputRenderable` | **1** | core/src/renderables/Input.ts:46 | opentui-core::input | done |
 | `InputRenderableEvents` | 2 | core/src/renderables/Input.ts:29 | opentui-core::input | done |
@@ -297,7 +363,7 @@ tree-sitter styling, testing helpers.
 | `NativeImagePool` | 2 | core/src/image.ts:659 | opentui-core | done (slot machine 1:1: busy = outstanding retains (status 12), in-place refresh, capacity growth 1-8 then drop, validate-before-busy-scan, dispose leaves outstanding frames alive; image-pool.test.ts:7/89/187/202 pinned) |
 | `NativeMeasureTargetKind` | 2 | core/src/zig.ts:2414 | opentui-core | todo |
 | `NativeSpanFeed` | 2 | core/src/NativeSpanFeed.ts:34 | opentui-core::buffer | todo |
-| `OptimizedBuffer` | **1** | core/src/buffer.ts:54 | opentui-core::buffer | done |
+| `OptimizedBuffer` | **1** | core/src/buffer.ts:54 | opentui-core::buffer | done (includes the `drawImage` contract + native reservation family: requireInteger/range ladder (buffer.ts:383-410), scissor/source clipping + pixel-dim scaling (buffer.zig:2569-2644), `materializeImageFallback(s)` block raster (buffer.zig:2648-2710), opacity stack (buffer.zig:407-430); pinned by image_render.rs tests) |
 | `PROTANOPIA_COMP_MATRIX` | 2 | core/src/post/matrices.ts:106 | opentui-core | todo |
 | `PROTANOPIA_SIM_MATRIX` | 2 | core/src/post/matrices.ts:26 | opentui-core | todo |
 | `PasteEvent` | **1** | core/src/lib/KeyHandler.ts:64 | opentui-core::events | done |

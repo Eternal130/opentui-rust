@@ -137,6 +137,40 @@ fn csi_question_front(buf: &[u8]) -> Front {
     }
 }
 
+/// Pixel-resolution reply (`ESC [ 4 ; height ; width t`,
+/// renderer.ts:3579 / terminal-capability-detection.ts:81-99) — the
+/// complete-unit predicate. Exactly two numeric groups; anything else
+/// after `\x1b[4;` is not ours (e.g. a `\x1b[4~` End-key sequence).
+fn pixel_resolution_front(buf: &[u8]) -> Front {
+    let mut i = 4; // after "\x1b[4;"
+    let mut groups = 1;
+    let mut saw_digit = false;
+    loop {
+        match buf.get(i) {
+            None => return Front::Partial,
+            Some(byte) if byte.is_ascii_digit() => {
+                saw_digit = true;
+                i += 1;
+            }
+            Some(b';') => {
+                if !saw_digit || groups >= 2 {
+                    return Front::NotOurs;
+                }
+                groups += 1;
+                saw_digit = false;
+                i += 1;
+            }
+            Some(b't') => {
+                if groups == 2 && saw_digit {
+                    return Front::Complete { unit_len: i + 1 };
+                }
+                return Front::NotOurs;
+            }
+            Some(_) => return Front::NotOurs,
+        }
+    }
+}
+
 /// DCS replies: xtversion (`DCS >|…ST`, terminal.zig:1313-1321) and
 /// xtgettcap (`DCS 1+r…ST`, terminal.zig:1389-1412).
 fn dcs_front(buf: &[u8]) -> Front {
@@ -165,6 +199,8 @@ pub(super) fn osc_theme_front(buf: &[u8]) -> Front {
 fn front_kind(buf: &[u8]) -> Front {
     if buf.starts_with(b"\x1b[?") {
         csi_question_front(buf)
+    } else if buf.starts_with(b"\x1b[4;") {
+        pixel_resolution_front(buf)
     } else if buf.starts_with(b"\x1bP") || buf.starts_with(b"\x1b_G") {
         // DCS replies and the kitty graphics APC reply share the ST
         // terminator scan (parseKittyGraphicsResponse,
@@ -243,6 +279,16 @@ fn classify(unit: &[u8], caps: &mut TerminalCapabilities) -> bool {
             if param == "4" {
                 caps.sixel = true; // terminal.zig:1134-1136
             }
+        }
+    }
+
+    // Pixel resolution: `CSI 4;height;width t` (renderer.ts:3579,
+    // terminal-capability-detection.ts:89-99). A shape-valid reply with
+    // out-of-range dimensions parses to None and leaves the captured
+    // resolution untouched — the upstream "oversized → blocks" case.
+    if unit.starts_with(b"\x1b[4;") && unit.ends_with(b"t") {
+        if let Some(resolution) = crate::image_render::parse_pixel_resolution(&unit_str) {
+            caps.pixel_resolution = Some((resolution.width, resolution.height));
         }
     }
 
@@ -537,6 +583,36 @@ mod tests {
     /// never reads layout).
     fn renderer() -> CliRenderer {
         crate::renderer::create_cli_renderer(crate::renderer::CliRendererConfig::default())
+    }
+
+    /// The pixel-resolution query is a separate startup write
+    /// (renderer.ts:3343/3959-3965), not part of queryTerminalSend.
+    #[test]
+    fn pixel_resolution_query_and_reply() {
+        let mut query = Vec::new();
+        crate::image_render::write_pixel_resolution_query(&mut query).unwrap();
+        assert_eq!(query, b"\x1b[14t");
+
+        let mut caps = crate::renderer::TerminalCapabilities::default();
+        assert!(classify(b"\x1b[4;720;1280t", &mut caps));
+        assert_eq!(caps.pixel_resolution, Some((1280, 720)));
+        // Shape-valid but out of i32 range: the reply is consumed, the
+        // captured resolution keeps the last good value (upstream's
+        // "oversized resolution leaves images on blocks" when it is the
+        // first reply = None).
+        assert!(!classify(b"\x1b[4;4294967295;4294967295t", &mut caps));
+        assert_eq!(caps.pixel_resolution, Some((1280, 720)));
+        let mut fresh = crate::renderer::TerminalCapabilities::default();
+        assert!(!classify(b"\x1b[4;4294967295;4294967295t", &mut fresh));
+        assert_eq!(fresh.pixel_resolution, None);
+
+        assert_eq!(pixel_resolution_front(b"\x1b[4;80;80"), Front::Partial);
+        assert_eq!(
+            pixel_resolution_front(b"\x1b[4;80;80t"),
+            Front::Complete { unit_len: 10 }
+        );
+        assert_eq!(pixel_resolution_front(b"\x1b[4;~"), Front::NotOurs);
+        assert_eq!(pixel_resolution_front(b"\x1b[4;;t"), Front::NotOurs);
     }
 
     /// The burst is byte-exact vs queryTerminalSend's gated subset
