@@ -16,7 +16,12 @@
 //! `getSpanLines`) and the char frame.
 
 use crate::color::Rgba;
+use crate::image::{ImageError, NativeImage, PixelFormat};
+use crate::image_render::{
+    quadrant_index, render_quadrant_block, validate_draw_image_args, DrawImageError, QUADRANT_CHARS,
+};
 use crate::renderables::box_::{BorderCharSet, BorderSidesConfig};
+use crate::renderables::image::ImageRenderProtocol;
 
 // --- char word packing (grapheme.zig:17-19, 44-46, 675-696) ----------------
 
@@ -71,6 +76,58 @@ pub fn pack_continuation(left: u32, right: u32, gid: u32) -> u32 {
         | ((left & CHAR_EXT_MASK) << CHAR_EXT_LEFT_SHIFT)
         | ((right & CHAR_EXT_MASK) << CHAR_EXT_RIGHT_SHIFT)
         | (gid & GRAPHEME_ID_MASK)
+}
+
+// --- image cell packing (grapheme.zig:14-37) ------------------------------
+
+/// `IMAGE_ID_MASK` (grapheme.zig:21): the 22-bit placement-id payload.
+pub const IMAGE_ID_MASK: u32 = GRAPHEME_ID_MASK;
+
+/// `packImageCell` (grapheme.zig:23-26): image reservation marker with
+/// the fallback quadrant in the low nibble.
+#[must_use]
+pub fn pack_image_cell(id: u32, fallback: u8) -> u32 {
+    CHAR_FLAG_IMAGE | ((id & IMAGE_ID_MASK) << 4) | u32::from(fallback & 0xF)
+}
+
+/// `isImageChar` (grapheme.zig:28-30).
+#[must_use]
+pub fn is_image_char(c: u32) -> bool {
+    (c & CHAR_TYPE_MASK) == CHAR_FLAG_IMAGE
+}
+
+/// `imageIdFromChar` (grapheme.zig:32-35).
+#[must_use]
+pub fn image_id_from_char(c: u32) -> u32 {
+    (c >> 4) & IMAGE_ID_MASK
+}
+
+/// `imageFallbackFromChar` (grapheme.zig:37-40).
+#[must_use]
+pub fn image_fallback_from_char(c: u32) -> u8 {
+    (c & 0xF) as u8
+}
+
+/// `OptimizedBuffer.ImagePlacement` (buffer.zig:161-177) — one
+/// reserved image rect. The handle fields collapse into the
+/// [`NativeImage`] clone (its Rc is the native refcount, so dropping
+/// this placement is `placement.image.deinit()`).
+#[derive(Debug, Clone)]
+pub struct ImagePlacement {
+    pub placement_id: u32,
+    pub image: NativeImage,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub pixel_width: u32,
+    pub pixel_height: u32,
+    pub source_x: u32,
+    pub source_y: u32,
+    pub source_width: u32,
+    pub source_height: u32,
+    pub opacity: u8,
+    pub protocol: ImageRenderProtocol,
 }
 
 /// One cell — the four parallel arrays of upstream collapsed into a struct
@@ -163,10 +220,33 @@ pub struct OptimizedBuffer {
     /// against (renderer sets it from its background color made opaque,
     /// renderer.zig:495; default opaque black for a transparent bg).
     blend_backdrop: Option<Rgba>,
+    /// `image_placements` (buffer.zig:200) — the deferred graphics
+    /// reservations `draw_image` records.
+    image_placements: Vec<ImagePlacement>,
+    /// `opacity_stack` (buffer.zig:200) — the effective opacity is the
+    /// product of the stack (buffer.zig:408-430).
+    opacity_stack: Vec<f32>,
 }
 
 fn mul_div_255(a: u32, b: u32) -> u32 {
     (a * b + 127) / 255
+}
+
+/// `opacityToU8` (buffer.zig:145-147 + ansi.zig:62-67).
+fn opacity_to_u8(opacity: f32) -> u8 {
+    if !opacity.is_finite() {
+        return 0;
+    }
+    (opacity.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
+}
+
+/// `applyOpacity` (buffer.zig:149-156): scale the alpha channel,
+/// preserving the packed color-intent metadata.
+fn apply_opacity_color(color: Rgba, opacity: u8) -> Rgba {
+    let mut out = color;
+    let alpha = ((u32::from(color.alpha()) * u32::from(opacity) + 127) / 255) as u8;
+    out.0[3] = u16::from(alpha) | (color.0[3] & 0xFF00);
+    out
 }
 
 fn round_div(n: u32, d: u32) -> u8 {
@@ -241,6 +321,8 @@ impl OptimizedBuffer {
             grapheme_refs: std::collections::HashMap::new(),
             scissor_stack: Vec::new(),
             blend_backdrop: Some(Rgba::rgb(0, 0, 0)),
+            image_placements: Vec::new(),
+            opacity_stack: Vec::new(),
         };
         // mirror the renderer's frame-clear default: transparent black
         // (renderer.ts:819 backgroundColor = fromInts(0,0,0,0))
@@ -261,6 +343,303 @@ impl OptimizedBuffer {
         self.graphemes.clear();
         self.grapheme_refs.clear();
         self.scissor_stack.clear();
+        self.image_placements.clear();
+    }
+
+    // --- opacity stack (buffer.zig:407-430, exact) ------------------------
+
+    /// `getCurrentOpacity` (buffer.zig:408-411).
+    #[must_use]
+    pub fn current_opacity(&self) -> f32 {
+        self.opacity_stack.last().copied().unwrap_or(1.0)
+    }
+
+    /// `pushOpacity` (buffer.zig:413-418): the stack stores the
+    /// *effective* product, clamped.
+    pub fn push_opacity(&mut self, opacity: f32) {
+        let effective = self.current_opacity() * opacity.clamp(0.0, 1.0);
+        self.opacity_stack.push(effective);
+    }
+
+    /// `popOpacity` (buffer.zig:420-425).
+    pub fn pop_opacity(&mut self) {
+        self.opacity_stack.pop();
+    }
+
+    /// `clearOpacity` (buffer.zig:427-430).
+    pub fn clear_opacity(&mut self) {
+        self.opacity_stack.clear();
+    }
+
+    // --- image placements (buffer.zig:2569-2711) --------------------------
+
+    /// The deferred graphics reservations on this buffer.
+    #[must_use]
+    pub fn image_placements(&self) -> &[ImagePlacement] {
+        &self.image_placements
+    }
+
+    /// `clearImagePlacements` (buffer.zig:490-493) — drop the
+    /// reservations (and their retained image handles); cells untouched.
+    pub fn clear_image_placements(&mut self) {
+        self.image_placements.clear();
+    }
+
+    /// `drawImage` (buffer.zig:2569-2644) behind the TS contract
+    /// (buffer.ts:383-432): validate the `requireInteger` ladder
+    /// ([`DrawImageError`]), then reserve the clipped rect.
+    ///
+    /// Returns `Ok(false)` for the native guard's non-throwing
+    /// refusals (opacity 0, empty/out-of-source geometry, placement-id
+    /// exhaustion, fully clipped) and for a disposed image.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_image(
+        &mut self,
+        image: &NativeImage,
+        pos_x: i32,
+        pos_y: i32,
+        width: u32,
+        height: u32,
+        pixel_width: u32,
+        pixel_height: u32,
+        source_x: u32,
+        source_y: u32,
+        source_width: u32,
+        source_height: u32,
+        protocol: ImageRenderProtocol,
+    ) -> Result<bool, DrawImageError> {
+        validate_draw_image_args(
+            pos_x,
+            pos_y,
+            width,
+            height,
+            pixel_width,
+            pixel_height,
+            source_width,
+            source_height,
+        )?;
+        let opacity = opacity_to_u8(self.current_opacity());
+        if opacity == 0 {
+            return Ok(false);
+        }
+        let (Ok(image_width), Ok(image_height)) = (image.width(), image.height()) else {
+            return Ok(false);
+        };
+        if width == 0
+            || height == 0
+            || source_width == 0
+            || source_height == 0
+            || source_x >= image_width
+            || source_y >= image_height
+            || source_width > image_width - source_x
+            || source_height > image_height - source_y
+            || self.image_placements.len() >= IMAGE_ID_MASK as usize
+            || self.width > i32::MAX as u32
+            || self.height > i32::MAX as u32
+        {
+            return Ok(false);
+        }
+        let mut clip_x0 = i64::from(pos_x).max(0);
+        let mut clip_y0 = i64::from(pos_y).max(0);
+        let mut clip_x1 = (i64::from(pos_x) + i64::from(width)).min(i64::from(self.width));
+        let mut clip_y1 = (i64::from(pos_y) + i64::from(height)).min(i64::from(self.height));
+        if let Some(scissor) = self.current_scissor_rect() {
+            clip_x0 = clip_x0.max(i64::from(scissor.x));
+            clip_y0 = clip_y0.max(i64::from(scissor.y));
+            clip_x1 = clip_x1.min(i64::from(scissor.x) + i64::from(scissor.width));
+            clip_y1 = clip_y1.min(i64::from(scissor.y) + i64::from(scissor.height));
+        }
+        if clip_x0 >= clip_x1 || clip_y0 >= clip_y1 {
+            return Ok(false);
+        }
+        let left = (clip_x0 - i64::from(pos_x)) as u32;
+        let top = (clip_y0 - i64::from(pos_y)) as u32;
+        let right = (clip_x1 - i64::from(pos_x)) as u32;
+        let bottom = (clip_y1 - i64::from(pos_y)) as u32;
+        let clipped_source_x =
+            source_x + ((u64::from(left) * u64::from(source_width)) / u64::from(width)) as u32;
+        let clipped_source_y =
+            source_y + ((u64::from(top) * u64::from(source_height)) / u64::from(height)) as u32;
+        let source_end_x = source_x
+            + ((u64::from(right) * u64::from(source_width) + u64::from(width) - 1)
+                / u64::from(width)) as u32;
+        let source_end_y = source_y
+            + ((u64::from(bottom) * u64::from(source_height) + u64::from(height) - 1)
+                / u64::from(height)) as u32;
+        let clipped_width = (clip_x1 - clip_x0) as u32;
+        let clipped_height = (clip_y1 - clip_y0) as u32;
+        let clipped_pixel_width = if pixel_width == 0 {
+            0
+        } else {
+            ((u64::from(clipped_width) * u64::from(pixel_width) + u64::from(width) - 1)
+                / u64::from(width)) as u32
+        };
+        let clipped_pixel_height = if pixel_height == 0 {
+            0
+        } else {
+            ((u64::from(clipped_height) * u64::from(pixel_height) + u64::from(height) - 1)
+                / u64::from(height)) as u32
+        };
+        let placement_id = self.image_placements.len() as u32 + 1;
+        self.image_placements.push(ImagePlacement {
+            placement_id,
+            image: image.clone(),
+            x: clip_x0 as i32,
+            y: clip_y0 as i32,
+            width: clipped_width,
+            height: clipped_height,
+            pixel_width: clipped_pixel_width,
+            pixel_height: clipped_pixel_height,
+            source_x: clipped_source_x,
+            source_y: clipped_source_y,
+            source_width: source_end_x - clipped_source_x,
+            source_height: source_end_y - clipped_source_y,
+            opacity,
+            protocol,
+        });
+        for cell_y in 0..clipped_height {
+            let dest_y = clip_y0 as u32 + cell_y;
+            for cell_x in 0..clipped_width {
+                let dest_x = clip_x0 as u32 + cell_x;
+                let Some(current) = self.get(dest_x, dest_y) else {
+                    continue;
+                };
+                self.set(
+                    dest_x,
+                    dest_y,
+                    make_cell(
+                        pack_image_cell(placement_id, 0),
+                        current.fg,
+                        current.bg,
+                        current.attributes,
+                    ),
+                );
+            }
+        }
+        Ok(true)
+    }
+
+    /// `materializeImageFallback` (buffer.zig:2648-2699): rasterize one
+    /// placement into block cells. `ensurePixels` is `raw()` — encoded
+    /// PNGs without materialized pixels surface the C3-deferred
+    /// `unsupported-feature` error.
+    pub fn materialize_image_fallback(&mut self, placement_id: u32) -> Result<(), ImageError> {
+        if placement_id == 0 || placement_id as usize > self.image_placements.len() {
+            return Ok(());
+        }
+        let placement = self.image_placements[placement_id as usize - 1].clone();
+        let raw = placement.image.raw(PixelFormat::Rgba8)?;
+        for cell_y in 0..placement.height {
+            let dest_y = placement.y + cell_y as i32;
+            for cell_x in 0..placement.width {
+                let dest_x = placement.x + cell_x as i32;
+                let Some(current) = self.get(dest_x as u32, dest_y as u32) else {
+                    continue;
+                };
+                let current_placement_id = if is_image_char(current.char) {
+                    image_id_from_char(current.char)
+                } else {
+                    0
+                };
+                if current_placement_id < placement_id {
+                    continue;
+                }
+                let mut pixels = [Rgba::from_ints(0, 0, 0, 0); 4];
+                for (quadrant, pixel) in pixels.iter_mut().enumerate() {
+                    let sample_x = cell_x * 2 + (quadrant as u32 & 1);
+                    let sample_y = cell_y * 2 + (quadrant as u32 >> 1);
+                    let sx = placement.source_x
+                        + ((u64::from(sample_x) * u64::from(placement.source_width))
+                            / (u64::from(placement.width) * 2))
+                            .min(u64::from(placement.source_width - 1))
+                            as u32;
+                    let sy = placement.source_y
+                        + ((u64::from(sample_y) * u64::from(placement.source_height))
+                            / (u64::from(placement.height) * 2))
+                            .min(u64::from(placement.source_height - 1))
+                            as u32;
+                    let offset = sy as usize * raw.stride + sx as usize * 4;
+                    *pixel = Rgba::from_ints(
+                        raw.data[offset],
+                        raw.data[offset + 1],
+                        raw.data[offset + 2],
+                        raw.data[offset + 3],
+                    );
+                }
+                let rendered = render_quadrant_block(pixels);
+                let ch = if current_placement_id == placement_id {
+                    pack_image_cell(placement_id, quadrant_index(rendered.ch))
+                } else {
+                    current.char
+                };
+                let attributes = if current_placement_id == placement_id {
+                    0
+                } else {
+                    current.attributes
+                };
+                let fallback = make_cell(ch, rendered.fg, rendered.bg, attributes);
+                if placement.opacity == 255
+                    && !is_rgba_with_alpha(fallback.fg)
+                    && !is_rgba_with_alpha(fallback.bg)
+                {
+                    self.set_raw(dest_x as u32, dest_y as u32, fallback);
+                } else {
+                    let effective = make_cell(
+                        fallback.char,
+                        apply_opacity_color(fallback.fg, placement.opacity),
+                        apply_opacity_color(fallback.bg, placement.opacity),
+                        fallback.attributes,
+                    );
+                    let blended = self.blend_cells(effective, current);
+                    self.set_raw(dest_x as u32, dest_y as u32, blended);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// `materializeImageFallbacks` (buffer.zig:2702-2710): every
+    /// placement, then flatten remaining reservation markers to their
+    /// fallback glyphs and clear the placement list.
+    pub fn materialize_image_fallbacks(&mut self) -> Result<(), ImageError> {
+        if self.image_placements.is_empty() {
+            return Ok(());
+        }
+        let count = self.image_placements.len();
+        for placement_id in 1..=count {
+            self.materialize_image_fallback(placement_id as u32)?;
+        }
+        for cell in &mut self.cells {
+            if is_image_char(cell.char) {
+                let fallback = image_fallback_from_char(cell.char) as usize;
+                cell.char = QUADRANT_CHARS[fallback.min(QUADRANT_CHARS.len() - 1)];
+            }
+        }
+        self.image_placements.clear();
+        Ok(())
+    }
+
+    /// A convenience shim for the C3 [`DrawImageRequest`] tuple
+    /// ([`crate::renderables::image::DrawImageRequest`]).
+    pub fn draw_image_from_request(
+        &mut self,
+        image: &NativeImage,
+        request: &crate::renderables::image::DrawImageRequest,
+    ) -> Result<bool, DrawImageError> {
+        self.draw_image(
+            image,
+            request.x,
+            request.y,
+            request.width,
+            request.height,
+            request.pixel_width,
+            request.pixel_height,
+            request.source_x,
+            request.source_y,
+            request.source_width,
+            request.source_height,
+            request.protocol,
+        )
     }
 
     // --- scissor stack (buffer.zig:322-399, exact) -------------------------

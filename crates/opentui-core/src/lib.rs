@@ -47,6 +47,7 @@ mod editor_tests;
 pub mod embedded_terminal;
 pub mod events;
 pub mod image;
+pub mod image_render;
 #[cfg(test)]
 mod image_tests;
 pub mod input;
@@ -76,7 +77,10 @@ pub mod text_node;
 pub mod tree_sitter;
 
 pub use ansi::TextAttributes;
-pub use buffer::OptimizedBuffer;
+pub use buffer::{
+    image_fallback_from_char, image_id_from_char, is_image_char, pack_image_cell, ImagePlacement,
+    OptimizedBuffer, IMAGE_ID_MASK,
+};
 pub use clipboard::{
     create_clipboard, create_host_clipboard, create_host_clipboard_with_backend,
     create_renderer_clipboard_adapter, validate_clipboard_text, AbortSignal, ClipboardClearResult,
@@ -98,6 +102,15 @@ pub use events::{KeyEvent, KeyHandler, MouseButton, MouseEvent, PasteEvent};
 pub use image::{
     image_info, ImageColorStatus, ImageError, ImageFormat, ImageInfo, ImageLoadError,
     ImageLoadErrorCode, NativeImage, NativeImagePool, NativeImagePoolOptions,
+};
+pub use image_render::{
+    base64_encode, dimensions_within_limits, draw_image_request, emit_image_deletes,
+    is_pixel_resolution_response, kitty_placement_z, parse_pixel_resolution, quantize_sixel,
+    render_quadrant_block, resolve_emit_protocol, validate_draw_image_args, write_kitty_delete,
+    write_kitty_placement, write_kitty_transmit, write_pixel_resolution_query,
+    write_sixel_framed_payload, write_sixel_indexed_payload, CellPx, DrawImageError, EmitProtocol,
+    EmitReport, ImageEmitError, ImageFrameEmitter, PixelResolution, QuadrantResult, QuantizedSixel,
+    PIXEL_RESOLUTION_QUERY, QUADRANT_CHARS,
 };
 pub use input::{InputAction, InputOptions, InputRenderableState, InputStateEvent};
 pub use keybinding::KeyBinding;

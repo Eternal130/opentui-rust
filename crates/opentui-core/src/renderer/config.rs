@@ -3,7 +3,6 @@
 //! `ScreenMode`/`ExternalOutputMode` and the `resolveModes` chain.
 use super::*;
 
-
 /// `stdin?: NodeJS.ReadStream` (renderer.ts:126-128) reduced to the
 /// port's choice. Upstream duck-types any `Readable` (default
 /// `process.stdin`); the live runtime reads through the Phase A
@@ -590,6 +589,13 @@ pub struct TerminalCapabilities {
     /// `.auto`) — the configured override the image renderable's
     /// `resolveImageRenderProtocol` defers to (Image.ts:26-27).
     pub image_protocol: crate::renderables::image::ImageRenderProtocol,
+    /// The pixel-resolution reply (`CSI 4;height;width t`), the
+    /// renderer-level `_resolution` upstream (renderer.ts:3579-3582).
+    /// Captured by the probe's post-startup query
+    /// ([`crate::image_render::PIXEL_RESOLUTION_QUERY`]); `None` until
+    /// an in-bounds reply arrives. Oversized replies keep it `None`
+    /// (the upstream "oversized resolution stays on blocks" case).
+    pub pixel_resolution: Option<(u32, u32)>,
 }
 
 /// `TerminalMultiplexer` (types.ts:136; terminal.zig:196-201) —
