@@ -470,9 +470,9 @@ fn draw_gutter_text(buffer: &mut OptimizedBuffer, text: &str, x: i32, y: i32, fg
 
 /// `LineNumberRenderable.renderSelf` — :540-565: full-width content
 /// backgrounds, from after the gutter to the end of the wrapper.
-/// Bug-for-bug: the fills use `this.x`/`this.y` — the PARENT-RELATIVE
-/// layout position, not the screen cache (correct at root level,
-/// mispositioned when nested — same class as TimeToFirstDraw.ts:105).
+/// The fills use `this.x`/`this.y` — the ABSOLUTE getters
+/// (Renderable.ts:559-564, 610-615: `parent.x + _x + _translateX`,
+/// recursive to the root), i.e. screen coordinates.
 ///
 /// * `sources` — the target's line sources window
 ///   (`getLineSources(trunc(scrollY) + start, end - start)`, :549).
@@ -756,5 +756,29 @@ mod tests {
         // before the gutter untouched
         let before = buffer.get(3, 1).expect("gutter cell");
         assert_ne!(before.bg, parse_color("#1a4d1a"));
+    }
+
+    #[test]
+    fn wrapper_fills_stamp_at_absolute_coordinates_when_nested() {
+        // renderSelf :540-565 stamps at `this.x`/`this.y` — the ABSOLUTE
+        // getters (Renderable.ts:559-564, 610-615), not the parent-
+        // relative layout offset: a diff nested at (6, 3) fills rows
+        // 3.. at columns 6+gutter.. (the tree-diff-viewer divergence —
+        // layout-relative stamping misplaced every row background).
+        let mut state = LineNumberState::default();
+        state.line_colors_content.insert(0, parse_color("#4d1a1a"));
+        state.line_colors_content.insert(1, parse_color("#1a4d1a"));
+        let mut buffer = OptimizedBuffer::new(20, 6);
+        let sources = [0u32, 1];
+        paint_line_number_self(
+            &state, &mut buffer, 6, 3, 14, 2, true, 4, &sources, None, 0,
+        );
+        // row 3, after the gutter → removed bg at x=6+4
+        assert_eq!(buffer.get(10, 3).expect("row3").bg, parse_color("#4d1a1a"));
+        assert_eq!(buffer.get(10, 4).expect("row4").bg, parse_color("#1a4d1a"));
+        // outside the nested rect stays untouched (the old relative
+        // stamping landed at rows 0..1 instead)
+        assert_ne!(buffer.get(10, 0).expect("row0").bg, parse_color("#4d1a1a"));
+        assert_ne!(buffer.get(10, 1).expect("row1").bg, parse_color("#1a4d1a"));
     }
 }
