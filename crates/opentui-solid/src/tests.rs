@@ -764,3 +764,58 @@ fn ops_log_is_empty_for_noop_flush() {
     assert_eq!(s.ops_log().len(), after_mount);
     assert!(after_mount > before);
 }
+
+// ---------------------------------------------------------------------------
+// render()-into-root mount face (D4.1c-pre; index.ts:9-83)
+// ---------------------------------------------------------------------------
+
+/// `render(node, renderer)` (index.ts:70-83, the `rendererOrConfig
+/// instanceof CliRenderer` arm → `mountSolidRoot` → `_render(() =>
+/// createComponent(...), renderer.root)`, index.ts:56-64): mounting
+/// onto a LIVE renderer mounts under that renderer's root — here a
+/// split-footer renderer whose render surface is the footer band
+/// (render-geometry.ts:31-39) — and the mounted content paints inside
+/// the band. The renderer's geometry is untouched by the mount.
+#[test]
+fn render_into_mounts_on_live_renderer_root() {
+    use opentui_core::renderer::{create_cli_renderer, ExternalOutputMode, ScreenMode};
+    let renderer = create_cli_renderer(CliRendererConfig {
+        width: 30,
+        height: 12,
+        screen_mode: ScreenMode::SplitFooter,
+        footer_height: Some(4),
+        external_output_mode: Some(ExternalOutputMode::Passthrough),
+        ..Default::default()
+    });
+    assert_eq!((renderer.width(), renderer.height()), (30, 4));
+
+    let mut s = crate::render_into(
+        renderer,
+        text_! { key: "footer", content: "inband" }.into_element(),
+    );
+    assert_eq!(
+        (s.use_renderer().width(), s.use_renderer().height()),
+        (30, 4),
+        "the live renderer keeps its band geometry"
+    );
+    let frames = frame_of(&s);
+    assert!(frames.iter().any(|l| l.contains("inband")));
+}
+
+/// The mount's disposeFn (`mountSolidRoot` teardown, index.ts:12-46):
+/// [`SolidRenderer::dispose_root`] unmounts every root-mounted
+/// subtree — the live tree empties, the renderer survives.
+#[test]
+fn dispose_root_unmounts_but_keeps_renderer() {
+    let mut s = sr(20, 4);
+    s.render_root(text_! { key: "t", content: "bye" }.into_element());
+    assert!(frame_of(&s).iter().any(|l| l.contains("bye")));
+    s.dispose_root();
+    assert!(
+        !frame_of(&s).iter().any(|l| l.contains("bye")),
+        "unmount cleared the root"
+    );
+    // the renderer is still alive and renderable
+    s.render_root(text_! { key: "t2", content: "again" }.into_element());
+    assert!(frame_of(&s).iter().any(|l| l.contains("again")));
+}

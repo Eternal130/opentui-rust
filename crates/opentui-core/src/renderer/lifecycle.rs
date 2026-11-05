@@ -53,6 +53,75 @@ impl CliRenderer {
         self.external_output_mode
     }
 
+    /// `_terminalWidth`/`_terminalHeight` (renderer.ts:898-899) — the
+    /// raw terminal extents (config.width/height carry the RENDER
+    /// extents; see [`render_geometry`]).
+    #[must_use]
+    pub fn terminal_size(&self) -> (u32, u32) {
+        (self.terminal_width, self.terminal_height)
+    }
+
+    /// `renderOffset` (renderer.ts:900) — terminal rows above the
+    /// renderer surface; emission adds it to every row
+    /// (renderer.zig:2718).
+    #[must_use]
+    pub fn render_offset(&self) -> u32 {
+        self.render_offset
+    }
+
+    /// `set footerHeight` (renderer.ts:1768-1772): normalize, no-op on
+    /// an unchanged value, store, and — under split-footer — re-run
+    /// the geometry (`applyScreenMode("split-footer")`, renderer.ts
+    /// :1770-1772 → :3015-3019 `calculateRenderGeometry` → :3160-3161
+    /// `this.width/height = renderWidth/renderHeight` +
+    /// `root.resize` + requestRender). Errors mirror
+    /// `normalizeFooterHeight`'s throw (renderer.ts:359-360).
+    pub fn set_footer_height(&mut self, footer_height: u32) -> Result<(), RendererModeError> {
+        let normalized = normalize_footer_height(Some(footer_height))?; // renderer.ts:1769
+        if normalized == self.footer_height {
+            return Ok(()); // renderer.ts:1770-1771
+        }
+        self.footer_height = normalized;
+        if self.screen_mode == ScreenMode::SplitFooter {
+            self.apply_screen_mode(); // renderer.ts:1770-1772
+        }
+        Ok(())
+    }
+
+    /// The `applyScreenMode` geometry re-run (renderer.ts:3015-3019 +
+    /// :3160-3163) reduced to the port's render-surface slice:
+    /// recompute [`RenderGeometry`] from the CURRENT terminal size and
+    /// the (already-stored) new footer height, move the render
+    /// extents/offset, rebuild the buffers, re-style the root, and
+    /// render one frame (the requestRender tail, renderer.ts:3183).
+    /// The terminal-transition half (scroll regions, stale-row clears,
+    /// `writeOut` bursts) is terminal-backend territory and stays with
+    /// the live embedder.
+    fn apply_screen_mode(&mut self) {
+        let geometry = render_geometry::calculate_render_geometry(
+            self.screen_mode,
+            self.terminal_width,
+            self.terminal_height,
+            self.footer_height,
+        );
+        let (width, height) = (geometry.render_width, geometry.render_height);
+        if width == self.config.width && height == self.config.height {
+            return; // applyScreenMode's same-geometry early return, renderer.ts:3023-3025
+        }
+        self.render_offset = geometry.render_offset; // :3057/:3136-3137
+        self.config.width = width;  // renderer.ts:3160-3161
+        self.config.height = height;
+        self.next_render_buffer = OptimizedBuffer::new(width, height); // resizeRenderer
+        self.current_render_buffer = OptimizedBuffer::new(width, height);
+        let node = self.root.inner.node; // this.root.resize, renderer.ts:3163
+        let mut style = self.tree.style(node).expect("root style").clone();
+        style.size.width = tp::Dimension::length(width as f32);
+        style.size.height = tp::Dimension::length(height as f32);
+        let _ = self.tree.set_style(node, style);
+        let _ = self.tree.mark_dirty(node);
+        self.render(); // requestRender, renderer.ts:3183
+    }
+
     // -----------------------------------------------------------------
     // Lifecycle + render scheduling (D1a) — renderer.ts:1365-1366,
     // 1543-1619, 1707-1740, 1963-1971, 4078-4114, 4408-4470;

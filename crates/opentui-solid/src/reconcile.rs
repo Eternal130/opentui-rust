@@ -136,8 +136,25 @@ impl SolidRenderer {
     #[must_use]
     pub fn new(config: CliRendererConfig) -> Self {
         let dimensions = Signal::new((config.width, config.height));
+        Self::boot(create_cli_renderer(config), dimensions)
+    }
+
+    /// `render(node, renderer)`'s live-renderer arm (index.ts:70-83:
+    /// `rendererOrConfig instanceof CliRenderer ? rendererOrConfig :
+    /// await createCliRenderer(...)`) — mount the solid root onto an
+    /// EXISTING renderer (the `render(() => …, renderer)` top-level
+    /// mount face, e.g. a split-footer renderer the embedder owns).
+    /// The dimensions signal seeds from that renderer's render
+    /// extents.
+    #[must_use]
+    pub fn with_renderer(renderer: CliRenderer) -> Self {
+        let dimensions = Signal::new((renderer.width(), renderer.height()));
+        Self::boot(renderer, dimensions)
+    }
+
+    fn boot(renderer: CliRenderer, dimensions: DimensionsSignal) -> Self {
         SolidRenderer {
-            renderer: create_cli_renderer(config),
+            renderer,
             root: ShadowNode::new("__root__".into(), "__root__".into(), Tag::Group),
             inbox: Rc::new(RefCell::new(Vec::new())),
             ops: Vec::new(),
@@ -244,6 +261,21 @@ impl SolidRenderer {
     pub fn render_root(&mut self, element: Element) {
         self.mount_element("__root__", usize::MAX, element);
         self.flush();
+    }
+
+    /// The mount's `disposeFn` (index.ts:12-46's `runDispose` /
+    /// `mountSolidRoot` teardown): unmount every root-mounted subtree
+    /// (live removes + cleanup handlers), then flush one frame. The
+    /// solid `unmount()` face — after this the renderer root is empty
+    /// and the renderer itself stays alive (upstream ties disposal to
+    /// `renderer.destroy`; the port leaves destruction to the owner).
+    pub fn dispose_root(&mut self) {
+        let child_keys: Vec<String> = self.root.children.iter().map(|c| c.key.clone()).collect();
+        for key in child_keys {
+            self.unmount(&key);
+        }
+        self.flush();
+        self.renderer.render();
     }
 
     /// Host/driver seam: `createElement` + `spread` + `insertNode`

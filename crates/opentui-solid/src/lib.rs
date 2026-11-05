@@ -111,3 +111,17 @@ pub fn render(
     sr.render_root(tree);
     sr
 }
+
+/// `render(node, renderer)` (index.ts:70-83, the
+/// `rendererOrConfig instanceof CliRenderer` arm): mount the solid
+/// tree onto a LIVE renderer's root — `_render(() =>
+/// createComponent(...), renderer.root)` via `mountSolidRoot`
+/// (index.ts:9-68). This is the split-footer footer-mount face
+/// (upstream mounts the footer component with exactly this call
+/// shape). [`SolidRenderer::dispose_root`] is the disposeFn half.
+#[must_use]
+pub fn render_into(renderer: opentui_core::renderer::CliRenderer, tree: element::Element) -> SolidRenderer {
+    let mut sr = SolidRenderer::with_renderer(renderer);
+    sr.render_root(tree);
+    sr
+}

@@ -401,8 +401,10 @@ impl CursorOutputState {
 
     /// The cursor emission tail (renderer.zig:2932-3016) — appended to
     /// the frame's SGR stream. `frame_started` mirrors the cell-run
-    /// emission state.
-    pub(crate) fn emit(&mut self, out: &mut String, frame_started: bool) {
+    /// emission state; `row_offset` is the split-footer render offset
+    /// added to the cursor row (renderer.zig:2972
+    /// `cursorY = cursorPos.y + self.renderOffset`).
+    pub(crate) fn emit(&mut self, out: &mut String, frame_started: bool, row_offset: u32) {
         let style_tag: u8 = match self.style {
             crate::renderables::textarea::CursorStyle::Block => 1,
             crate::renderables::textarea::CursorStyle::Line => 3,
@@ -434,7 +436,7 @@ impl CursorOutputState {
                     self.last_style_tag = Some(style_tag);
                     self.last_blinking = Some(self.blinking);
                 }
-                out.push_str(&format!("\x1b[{};{}H", self.y, self.x));
+                out.push_str(&format!("\x1b[{};{}H", self.y + row_offset, self.x));
                 out.push_str("\x1b[?25h");
             }
             self.last_x = Some(self.x);

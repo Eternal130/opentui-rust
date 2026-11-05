@@ -29,6 +29,7 @@ mod config;
 mod events;
 mod frame;
 mod lifecycle;
+pub mod render_geometry;
 mod scrollback;
 
 pub use config::*;
@@ -249,6 +250,20 @@ pub struct CliRenderer {
     /// (renderer.ts:1468). Fed by the terminal probe lane via
     /// [`CliRenderer::set_capabilities`].
     capabilities: Option<TerminalCapabilities>,
+    // ----- split-footer render geometry (D4.1c-pre) -----
+    /// `_terminalWidth`/`_terminalHeight` (renderer.ts:898-899) — the
+    /// RAW terminal extents; `config.width`/`height` carry the RENDER
+    /// extents (`this.width = nextGeometry.renderWidth`,
+    /// renderer.ts:3160-3161), which differ exactly under
+    /// [`ScreenMode::SplitFooter`].
+    terminal_width: u32,
+    terminal_height: u32,
+    /// `renderOffset` (renderer.ts:900; set into the native emitter
+    /// via `lib.setRenderOffset`, renderer.ts:3136-3137) — terminal
+    /// rows above the renderer surface. Emission adds it to every
+    /// row (renderer.zig:2718: `moveToOutput(writer, x + 1, y + 1 +
+    /// self.renderOffset)`).
+    render_offset: u32,
 }
 
 
@@ -278,6 +293,24 @@ impl Default for CliRenderer {
 pub fn create_cli_renderer(config: CliRendererConfig) -> CliRenderer {
     let modes = resolve_modes(&config).unwrap_or_else(|e| panic!("{e}"));
     let split_capture_active = modes.external_output_mode == ExternalOutputMode::CaptureStdout;
+    // The initial geometry (renderer.ts:1075 `initialGeometry` via
+    // calculateRenderGeometry) — under split-footer the render
+    // surface collapses to the footer band and config carries the
+    // band extents (`this.width = renderWidth; this.height =
+    // renderHeight`, applyScreenMode renderer.ts:3160-3161). Every
+    // non-split mode is the identity, so the default headless build
+    // is byte-identical to before.
+    let geometry = render_geometry::calculate_render_geometry(
+        modes.screen_mode,
+        config.width,
+        config.height,
+        modes.footer_height,
+    );
+    let terminal_width = config.width;
+    let terminal_height = config.height;
+    let mut config = config;
+    config.width = geometry.render_width;
+    config.height = geometry.render_height;
     let mut tree: TaffyTree<MeasureCtx> = TaffyTree::new();
     // rounding enabled by default in taffy — yoga's point-scale-1 behavior
     let root = RootRenderable::new(&mut tree, config.width, config.height);
@@ -332,6 +365,9 @@ pub fn create_cli_renderer(config: CliRendererConfig) -> CliRenderer {
         footer_height: modes.footer_height,
         external_output_mode: modes.external_output_mode,
         capabilities: None,
+        terminal_width,
+        terminal_height,
+        render_offset: geometry.render_offset,
     }
 }
 
@@ -2712,6 +2748,127 @@ mod tests {
         assert_eq!(r.screen_mode(), ScreenMode::SplitFooter);
         assert_eq!(r.footer_height(), 8);
         assert_eq!(r.external_output_mode(), ExternalOutputMode::CaptureStdout);
+    }
+
+    // =================================================================
+    // Split-footer render geometry (D4.1c-pre) — render-geometry.ts,
+    // the constructor's initialGeometry (renderer.ts:1075),
+    // applyScreenMode (:3015-3019, :3160-3163), set footerHeight
+    // (:1768-1772), and the emission row offset (renderer.zig:2718).
+    // =================================================================
+
+    /// The constructor applies the initial geometry (renderer.ts:1075
+    /// via render-geometry.ts:31-39): under split-footer the render
+    /// surface is the footer band (renderWidth × effectiveFooterHeight)
+    /// and the offset is the rows above it; the terminal extents stay
+    /// recorded. Every non-split mode keeps the identity (render-
+    /// geometry.ts:22-29) — the headless default is unchanged.
+    #[test]
+    fn constructor_applies_render_geometry() {
+        // identity: default alternate-screen
+        let r = create_cli_renderer(CliRendererConfig {
+            width: 80,
+            height: 24,
+            ..Default::default()
+        });
+        assert_eq!((r.width(), r.height()), (80, 24));
+        assert_eq!(r.terminal_size(), (80, 24));
+        assert_eq!(r.render_offset(), 0);
+
+        // split-footer band: 80×24 terminal, footer 8 → 80×8 at row 17+
+        let r = create_cli_renderer(CliRendererConfig {
+            width: 80,
+            height: 24,
+            ..split_config()
+        });
+        assert_eq!((r.width(), r.height()), (80, 8), "render = band extents");
+        assert_eq!(r.terminal_size(), (80, 24), "terminal extents kept");
+        assert_eq!(r.render_offset(), 24 - 8);
+        // footer taller than the terminal clamps (render-geometry.ts:31)
+        let r = create_cli_renderer(CliRendererConfig {
+            width: 80,
+            height: 10,
+            screen_mode: ScreenMode::SplitFooter,
+            footer_height: Some(40),
+            external_output_mode: Some(ExternalOutputMode::Passthrough),
+            ..Default::default()
+        });
+        assert_eq!((r.width(), r.height()), (80, 10));
+        assert_eq!(r.render_offset(), 0);
+    }
+
+    /// `renderer.resize` re-derives the geometry (processResize →
+    /// applyScreenMode, renderer.ts:3015-3019): a split-footer
+    /// renderer tracks the terminal resize and keeps the band at the
+    /// bottom.
+    #[test]
+    fn resize_rederives_split_geometry() {
+        let mut r = create_cli_renderer(CliRendererConfig {
+            width: 80,
+            height: 24,
+            ..split_config()
+        });
+        r.resize(100, 30);
+        assert_eq!(r.terminal_size(), (100, 30));
+        assert_eq!((r.width(), r.height()), (100, 8));
+        assert_eq!(r.render_offset(), 30 - 8);
+    }
+
+    /// Emission carries the row offset (renderer.zig:2718
+    /// `moveToOutput(writer, x + 1, y + 1 + self.renderOffset)`): a
+    /// split-footer frame's first cell lands at row renderOffset+1 and
+    /// NO frame bytes address rows above the band.
+    #[test]
+    fn split_frame_emits_at_render_offset() {
+        let mut r = create_cli_renderer(CliRendererConfig {
+            width: 20,
+            height: 10,
+            ..split_config()
+        });
+        let offset = r.render_offset();
+        assert_eq!(offset, 2); // footer 8 of 10 rows
+        add_text(&mut r, "f1", "footer!");
+        r.render();
+        let sgr = r.last_frame_sgr().to_owned();
+        assert!(
+            sgr.contains("\x1b[3;1H"),
+            "first band row emits at renderOffset+1 (renderer.zig:2718): {sgr:?}"
+        );
+        assert!(sgr.contains("footer!"));
+        // no absolute row 1..=2 addressing anywhere in the frame
+        for row in 1..=offset {
+            assert!(
+                !sgr.contains(&format!("\x1b[{row};")),
+                "no emission above the band (row {row}): {sgr:?}"
+            );
+        }
+    }
+
+    /// `set footerHeight` (renderer.ts:1768-1772): normalize (error on
+    /// 0, renderer.ts:359-360), no-op on the same value, and under
+    /// split-footer re-run the geometry (applyScreenMode → :3160-3161
+    /// renderWidth/renderHeight + re-render).
+    #[test]
+    fn set_footer_height_reruns_geometry() {
+        let mut r = create_cli_renderer(CliRendererConfig {
+            width: 80,
+            height: 24,
+            ..split_config()
+        });
+        assert_eq!(r.set_footer_height(0), Err(RendererModeError::FooterHeightNotPositive));
+        assert_eq!(r.footer_height(), 8, "rejected value not stored");
+        r.set_footer_height(8).unwrap();
+        assert_eq!(r.render_offset(), 16, "same value is a no-op (:1770-1771)");
+        r.set_footer_height(6).unwrap();
+        assert_eq!(r.footer_height(), 6);
+        assert_eq!((r.width(), r.height()), (80, 6), "band re-derived (:3160-3161)");
+        assert_eq!(r.render_offset(), 18);
+        // non-split modes store without touching geometry (:1770-1772's
+        // split-footer-only applyScreenMode)
+        let mut r = create_cli_renderer(CliRendererConfig::default());
+        r.set_footer_height(5).unwrap();
+        assert_eq!((r.width(), r.height()), (80, 24));
+        assert_eq!(r.render_offset(), 0);
     }
 
     /// The surface mode gate (renderer.ts:1985-1989): constructing

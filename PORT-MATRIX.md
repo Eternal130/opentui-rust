@@ -58,9 +58,9 @@ recomputed state.
 | package | exports | done | partial | deferred | todo |
 |---|---|---|---|---|---|
 | @opentui/core | 279 | 124 | 15 | 0 | 140 |
-| @opentui/solid | 48 | 35 | 3 | 7 | 3 |
+| @opentui/solid | 49 | 36 | 3 | 7 | 3 |
 | @opentui/keymap (+subpaths) | 12 | 12 | 0 | 0 | 0 |
-| **total** | **339** | **171 (50.4%)** | **18** | **7** | **143** |
+| **total** | **340** | **172 (50.6%)** | **18** | **7** | **143** |
 | tier-1 rows only (bold `**1**`) | 52 | 45 | 7 | 0 | 0 |
 
 Audio lane note (the tier-1 `partial` — last tier-1 row landed): the
@@ -601,6 +601,7 @@ tree-sitter styling, testing helpers.
 | `onFocus` | 2 | solid/src/elements/hooks.ts:108 | opentui-solid | todo (focus infra = Input lane) |
 | `onResize` | 2 | solid/src/elements/hooks.ts:24 | SolidRenderer::on_resize | done |
 | `render` | **1** | — | opentui-solid::render | done |
+| `render(node, renderer)` live-renderer arm (D4.1c-pre) | 2 | solid/index.ts:70-83 (`mountSolidRoot` :9-68) | opentui-solid::render_into + SolidRenderer::with_renderer | done (mounts onto a live CliRenderer root — the split-footer footer-mount face; dispose_root is the disposeFn half) |
 | `setProp` | 2 | solid-js re-export | SolidRenderer::set_prop | done |
 | `spread` | 2 | solid-js re-export | mount/patch props (per-prop equality skip) | done (semantics) |
 | `testRender` | 2 | — | SolidRenderer::new (headless profile) | done |
@@ -746,6 +747,11 @@ members riding the supplementary tables like the D1b-core rows above.
 | `CliRendererConfig.externalOutputMode` | core/src/renderer.ts:208 | CliRendererConfig::external_output_mode | done (Option; defaulted per screenMode in resolve_modes) |
 | `normalizeFooterHeight` / `DEFAULT_FOOTER_HEIGHT` / `MAX_SCROLLBACK_SURFACE_HEIGHT_PASSES` | core/src/renderer.ts:341-342, 348-362 | opentui-core::renderer::normalize_footer_height / consts | done (non-finite arm structurally unreachable for u32) |
 | `resolveModes` (+ OTUI_USE_ALTERNATE_SCREEN/OTUI_OVERRIDE_STDOUT overrides) | core/src/renderer.ts:365-393 | opentui-core::renderer::resolve_modes -> ResolvedModes/RendererModeError | done (decision-table tested; constructor arms the capture runtime :1074/:1291 — panics where upstream throws, the Result seam is pub) |
+| `calculateRenderGeometry` / `RenderGeometry` (D4.1c-pre) | core/src/lib/render-geometry.ts:3-39 | opentui-core::renderer::render_geometry::calculate_render_geometry / RenderGeometry | done (split-footer band: renderWidth=terminalWidth, renderHeight=effectiveFooterHeight, renderOffset=bottom; identity for every other mode — headless default unchanged) |
+| constructor `initialGeometry` application (D4.1c-pre) | core/src/renderer.ts:1075 | create_cli_renderer (config.width/height = render extents; terminal_size kept raw) | done |
+| `applyScreenMode` geometry re-run (render-surface half, D4.1c-pre) | core/src/renderer.ts:3015-3019, 3160-3163 | CliRenderer::apply_screen_mode (private) + resize re-derivation | done (buffers + root re-style + re-render; terminal-transition half stays with the terminal-backend embedder) |
+| `set footerHeight` (D4.1c-pre) | core/src/renderer.ts:1768-1772 | CliRenderer::set_footer_height -> Result<(), RendererModeError> | done (normalize + no-op + split-footer geometry re-run) |
+| `renderOffset` emission row offset (D4.1c-pre) | native/src/renderer.zig:2718, 2972 | CliRenderer::render_offset + emit_frame_sgr/cursor emit row shift | done (footer-band frames address renderOffset+1…; zero for non-split modes) |
 | `renderer.widthMethod` (caps wiring — D1b-core divergence ④ closed) | core/src/renderer.ts:1468 | CliRenderer::width_method + set_capabilities | done (caps?.unicode ?? zig default) |
 | `enqueueRenderedScrollbackCommit` | core/src/renderer.ts:2583-2614 | CliRenderer::enqueue_rendered_scrollback_commit | done (shared by writeToScrollback + surface commitRows) |
 | `ScrollbackSurfaceOptions` / `ScrollbackSurfaceCommitOptions` | core/src/renderer.ts:316-323 | opentui-core::renderer::ScrollbackSurfaceOptions / ScrollbackSurfaceCommitOptions | done |
