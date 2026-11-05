@@ -685,6 +685,9 @@ impl Renderable {
             // the gutter paint (:246-351) — the wrapper paints both,
             // reading the target child's virtual lines. Render order:
             // wrapper fills → gutter → target (upstream's walk order).
+            // The fills stamp at `this.x`/`this.y` — the ABSOLUTE
+            // getters (Renderable.ts:559-564, 610-615) = screen coords
+            // (`screenX/screenY` mirror the same parent-sum).
             Content::LineNumber(state) => {
                 let gutter = self
                     .children
@@ -728,8 +731,8 @@ impl Renderable {
                 crate::renderables::line_number::paint_line_number_self(
                     state,
                     buffer,
-                    self.x as i64,
-                    self.y as i64,
+                    i64::from(self.screen_x),
+                    i64::from(self.screen_y),
                     self.w as u32,
                     self.h as u32,
                     gutter.is_some_and(|g| g.visible),

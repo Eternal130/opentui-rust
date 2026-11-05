@@ -343,7 +343,7 @@ tree-sitter styling, testing helpers.
 | `KeyEvent` | **1** | core/src/lib/KeyHandler.ts:5 | opentui-core::events | done |
 | `KeyHandler` | 2 | core/src/lib/KeyHandler.ts:99 | opentui-core::events | done |
 | `LayoutEvents` | 2 | core/src/Renderable.ts:39 | opentui-core | todo |
-| `LineNumberRenderable` | **1** | core/src/renderables/LineNumberRenderable.ts:365 | opentui-core::renderables | done (GutterRenderable incl. measure func + conceal source-map lineInfo; via Diff, 21 scenarios IDENTICAL) |
+| `LineNumberRenderable` | **1** | core/src/renderables/LineNumberRenderable.ts:365 | opentui-core::renderables | done (GutterRenderable incl. measure func + conceal source-map lineInfo; renderSelf content fills stamp at the ABSOLUTE `x`/`y` getters — Renderable.ts:559-564, 610-615; via Diff, 22 scenarios IDENTICAL incl. nested tree-diff-viewer) |
 | `LinearScrollAccel` | 2 | core/src/lib/scroll-acceleration.ts:6 | opentui-core | done |
 | `LogLevel` | 2 | core/src/zig.ts:2339 | opentui-core | todo |
 | `MAX_LINK_URL_BYTES` | 2 | core/src/zig.ts:105 | opentui-core::ansi | todo |
