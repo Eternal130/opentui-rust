@@ -280,14 +280,14 @@ mod tests {
         assert_eq!(steps[0]["id"], "n1");
         assert_eq!(steps[0]["parent"], "root");
         assert_eq!(steps[0]["options"]["position"], "absolute");
-        assert_eq!(steps[0]["options"]["left"], 0);
-        assert_eq!(steps[0]["options"]["top"], 0);
-        assert_eq!(steps[0]["options"]["width"], 10);
-        assert_eq!(steps[0]["options"]["height"], 3);
+        assert_eq!(steps[0]["options"]["left"].as_f64(), Some(0.0));
+        assert_eq!(steps[0]["options"]["top"].as_f64(), Some(0.0));
+        assert_eq!(steps[0]["options"]["width"].as_f64(), Some(10.0));
+        assert_eq!(steps[0]["options"]["height"].as_f64(), Some(3.0));
         assert_eq!(steps[0]["options"]["backgroundColor"], "#111111");
         assert_eq!(steps[0]["options"]["border"], true);
-        assert_eq!(steps[1]["options"]["left"], 5);
-        assert_eq!(steps[1]["options"]["top"], 1);
+        assert_eq!(steps[1]["options"]["left"].as_f64(), Some(5.0));
+        assert_eq!(steps[1]["options"]["top"].as_f64(), Some(1.0));
     }
 
     #[test]
@@ -326,7 +326,7 @@ mod tests {
         assert_eq!(steps.len(), 2);
         assert_eq!(steps[0]["op"], "box");
         assert_eq!(steps[0]["id"], "md-w");
-        assert_eq!(steps[0]["options"]["left"], 2);
+        assert_eq!(steps[0]["options"]["left"].as_f64(), Some(2.0));
         assert_eq!(steps[0]["options"]["shouldFill"], false);
         assert_eq!(steps[1]["op"], "markdown");
         assert_eq!(steps[1]["parent"], "md-w");
@@ -365,5 +365,41 @@ mod tests {
                       "style":{"bg":"#111111"},"options":{"backgroundColor":"#222222"}}]
         }));
         assert_eq!(steps[0]["options"]["backgroundColor"], "#222222");
+    }
+
+    /// The Rust-side rebuilder: a tree scenario desugars, loads, and
+    /// replays into a renderer holding every declared node (wrapper
+    /// boxes included) at the declared absolute rects/styles.
+    #[test]
+    fn rust_rebuild_nodes_rects_and_styles() {
+        let json = desugar_scenario(json!({
+            "name":"rebuild","width":24,"height":8,
+            "tree":[
+                { "id":"panel", "kind":"box",
+                  "rect":{"x":1,"y":1,"w":20,"h":6},
+                  "style":{"border":true,"borderColor":"#00FF00","bg":"#112233"},
+                  "children":[{"id":"lbl","kind":"text","content":"hi","style":{"fg":"#FFAA00"}}] },
+                { "id":"md", "kind":"markdown",
+                  "rect":{"x":2,"y":7,"w":20,"h":1}, "content":"x" }
+            ]
+        }))
+        .unwrap();
+        let sc: crate::scenario::Scenario = serde_json::from_value(json).unwrap();
+        let r = crate::scenario::replay(&sc).unwrap();
+
+        // node count: panel + its text child + md + md's wrapper box
+        assert!(r.has_node("panel"));
+        assert!(r.has_node("md"));
+        assert!(r.has_node("md-w"));
+        assert!(r.has_node("lbl")); // the flow text child
+
+        // rect assertions from the settled frame: the border lands at
+        // (1,1) and spans 20x6; the md wrapper occupies row 7
+        let frame = r.current_render_buffer.char_frame();
+        let lines: Vec<&str> = frame.lines().collect();
+        assert_eq!(lines.len(), 8);
+        assert!(lines[1].starts_with(" ┌"), "panel border top at row 1");
+        assert!(lines[6].starts_with(" └"), "panel border bottom at row 6");
+        assert!(lines[2].contains("hi"), "flow text child rendered inside panel");
     }
 }

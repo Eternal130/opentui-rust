@@ -228,6 +228,78 @@ synchronous highlight-at-construction:
   compare is scoped to scenarios with focus/key/input ops
   (`compare_filtered` in `src/compare.rs`).
 
+## Tree scenarios (tree mode)
+
+A tree scenario describes a **whole renderable tree in one JSON value**
+instead of a step script — the shape a tree capturer (e.g. oc-tui's,
+Lane B) emits as its serialized frame description. The TS oracle and
+the Rust port each rebuild the tree and compare the settle frame
+cell-for-cell through the standard capture pipeline.
+
+```json
+{
+  "$schema": "opentui-diff tree scenario v1",
+  "name": "tree-overlap-z", "width": 30, "height": 10,
+  "tree": [
+    { "id": "bottom", "kind": "box",
+      "rect": { "x": 1, "y": 1, "w": 26, "h": 7 },
+      "style": { "bg": "#001133", "border": true, "borderColor": "#FFFFFF" },
+      "children": [
+        { "kind": "text", "content": "bottom layer text", "style": { "fg": "#FFFFFF" } }
+      ] },
+    { "id": "top", "kind": "text",
+      "rect": { "x": 14, "y": 4, "w": 14, "h": 2 },
+      "content": "top text over",
+      "style": { "fg": "#00FF00", "attributes": ["inverse"] } }
+  ]
+}
+```
+
+**Format contract (v1):**
+
+* Top level: `name`/`width`/`height` plus `tree` — a single node or an
+  array of nodes (a forest; `steps` and `tree` are mutually exclusive).
+* Node: `{ id?, kind, rect?, style?, content?, diff?, options?, children? }`.
+* `kind`: `"box" | "text" | "code" | "markdown" | "diff"` — the factory
+  surface both drivers already mount (`make_box`/`make_text`/…).
+* `rect {x,y,w,h}` — an **absolute screen rectangle**. Every node that
+  carries one mounts under `root` with
+  `position:"absolute", left:x, top:y, width:w, height:h` (yoga/taffy
+  absolute placement, Renderable.ts:38-43). `box`/`text` mount
+  directly; `code`/`markdown`/`diff` mount inside a transparent
+  absolute **wrapper box** at the same rect (id `<id>-w`) and size
+  themselves `"100%"×"100%"` — those renderables carry no layout
+  options.
+* **z-order = document order**: top-level nodes are mounted in array
+  order, so a later node paints over an earlier overlapping one.
+* `children` — flow-mounted INSIDE the parent (in order, standard
+  flex layout, like the step DSL's `parent` field). A child may NOT
+  carry `rect` (nesting is flow, not absolute — a deliberate contract
+  simplification); text nodes take no children (use `content`).
+* `style` — per-kind mapping: `fg`/`bg`/`attributes` (text, code,
+  markdown, diff; `bg` → `backgroundColor` on box), `border`,
+  `borderColor`, `borderStyle`, `shouldFill`, `title`,
+  `titleAlignment` (box). `content` is the text/code/markdown source
+  (string or styled-chunk array for text); `diff` is the diff source.
+* `options` — raw passthrough merged LAST (highest precedence) into
+  the desugared step options: the full per-kind option vocabulary
+  above (`wrapMode`, `textAlign`, `filetype`, `view`, `styles`,
+  diff color overrides, …).
+
+**How it runs:** both drivers desugar `tree` into the ordinary step
+script before execution — `desugarTree` in `js/driver.ts` and
+`desugar_scenario` in `src/tree.rs`, which must stay byte-for-byte
+equivalent in behavior (same generated ids `n1, n2, …` in DFS preorder,
+same option spellings, same mount order). Everything downstream
+(staging, settle, capture, oracle fingerprint + always-refresh) is
+reused unchanged, so tree scenarios run in `run-all.sh` like any other
+(name them `tree-*.json`; the oracle fingerprint covers the raw file,
+so edits refresh oracles automatically).
+
+Adding a scenario: drop a `tree-*.json` into `scenarios/` and run
+`tools/dev-gate.sh 'tools/diff/run-all.sh -k tree-'`. Keep every
+absolutely-positioned rect inside `width`×`height`.
+
 ## Full-suite refresh — the final gate
 
 Cached oracles are for ITERATION. The FINAL gate for a lane (and the
