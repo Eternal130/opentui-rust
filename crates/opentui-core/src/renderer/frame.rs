@@ -134,6 +134,15 @@ impl CliRenderer {
         self.frame_id
     }
 
+    /// `applyScreenMode`'s layout band (renderer.ts:3160-3163:
+    /// `this.width = nextGeometry.renderWidth; this.height =
+    /// nextGeometry.renderHeight` then `this.root.resize(...)`) — the
+    /// root tree lays out against the RENDER extents, which under
+    /// split-footer is the footer band height
+    /// (render-geometry.ts:31-39), never the full terminal. The port
+    /// keeps the render extents in `config.width`/`height`
+    /// (constructor renderer.ts:1075; [`Self::resize`]), so the pass
+    /// reads them directly.
     fn layout_pass(&mut self) {
         let root_node = self.root.inner.node;
         let available = tp::Size {
@@ -366,14 +375,32 @@ impl CliRenderer {
         self.render();
     }
 
-    /// `renderer.resize(w, h)` (renderer.ts:4073-4076 → processResize):
-    /// new buffers, root re-sized; cached node sizes PERSIST (upstream
+    /// `renderer.resize(w, h)` (renderer.ts:4073-4076 → processResize →
+    /// applyScreenMode's geometry re-run, renderer.ts:3015-3019): new
+    /// buffers, root re-sized; cached node sizes PERSIST (upstream
     /// `_widthValue` keeps the last size across resizes, Renderable.ts:1096-1119)
     /// so only genuinely-resized nodes fire their size hooks.
+    ///
+    /// `w`/`h` are TERMINAL extents: under split-footer the render
+    /// surface re-derives from
+    /// [`render_geometry::calculate_render_geometry`] (renderWidth/
+    /// renderHeight/ renderOffset, render-geometry.ts:31-39) exactly
+    /// like `applyScreenMode`'s `this.width = nextGeometry.renderWidth`
+    /// (renderer.ts:3160-3161); every other mode is the identity.
     pub fn resize(&mut self, width: u32, height: u32) {
-        if self.config.width == width && self.config.height == height {
+        if self.terminal_width == width && self.terminal_height == height {
             return;
         }
+        self.terminal_width = width;
+        self.terminal_height = height;
+        let geometry = render_geometry::calculate_render_geometry(
+            self.screen_mode,
+            width,
+            height,
+            self.footer_height,
+        );
+        self.render_offset = geometry.render_offset;
+        let (width, height) = (geometry.render_width, geometry.render_height);
         self.config.width = width;
         self.config.height = height;
         self.next_render_buffer = OptimizedBuffer::new(width, height);
@@ -500,6 +527,14 @@ impl CliRenderer {
     fn emit_frame_sgr(&mut self, out: &mut String) {
         let width = self.config.width;
         let height = self.config.height;
+        // The split-footer row offset: every emitted row moves down by
+        // `renderOffset` terminal rows so the footer-band tree paints
+        // into the bottom live region (renderer.zig:2718:
+        // `moveToOutput(writer, x + 1, y + 1 + self.renderOffset)` —
+        // the native emitter holds the offset set via
+        // `lib.setRenderOffset`, renderer.ts:3136-3137). Zero for every
+        // non-split mode — byte-identical headless frames.
+        let row_offset = self.render_offset;
         let force = self.frame_id == 0;
         let mut current_fg: Option<Rgba> = None;
         let mut current_bg: Option<Rgba> = None;
@@ -588,7 +623,7 @@ impl CliRenderer {
                     current_fg = Some(next.fg);
                     current_bg = Some(next.bg);
                     current_attrs = Some(next.attributes);
-                    crate::ansi::move_to(out, x + 1, y + 1);
+                    crate::ansi::move_to(out, x + 1, y + 1 + row_offset);
                     crate::ansi::emit_color(out, next.fg, false);
                     crate::ansi::emit_color(out, next.bg, true);
                     crate::ansi::TextAttributes::apply_attributes(out, next.attributes);
@@ -621,7 +656,9 @@ impl CliRenderer {
         // the cursor emission tail (renderer.zig:2932-3016) — `frame_
         // started` mirrors whether any cell bytes were written
         let frame_started = run_length > 0 || link_tail;
-        self.cursor_state.emit(out, frame_started);
+        // cursor rows shift by the same renderOffset (renderer.zig:2972:
+        // `const cursorY = cursorPos.y + self.renderOffset`)
+        self.cursor_state.emit(out, frame_started, row_offset);
     }
 
     /// SGR bytes of the last rendered frame (harness observability).
