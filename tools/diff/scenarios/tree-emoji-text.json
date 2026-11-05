@@ -1,0 +1,31 @@
+{
+  "$schema": "opentui-diff tree scenario v1",
+  "name": "tree-emoji-text",
+  "width": 28,
+  "height": 12,
+  "tree": [
+    {
+      "id": "t1",
+      "kind": "text",
+      "rect": { "x": 0, "y": 0, "w": 13, "h": 12 },
+      "content": [
+        { "text": "❤️fire\n" },
+        { "text": "family 👨‍👩‍👧‍👦 ok\n" },
+        { "text": "flags 🇺🇸🇯🇵 done\n" },
+        { "text": "combining e\u0301nd", "fg": "#FFAA00" }
+      ],
+      "options": { "wrapMode": "char" }
+    },
+    {
+      "id": "t2",
+      "kind": "text",
+      "rect": { "x": 14, "y": 0, "w": 13, "h": 12 },
+      "content": [
+        { "text": "emoji ❤️ wrap\n", "fg": "#00FFAA" },
+        { "text": "👨‍👩‍👧‍👦 words\n", "bg": "#223344" },
+        { "text": "e\u0301x wide 端末 test", "attributes": ["underline"] }
+      ],
+      "options": { "wrapMode": "word" }
+    }
+  ]
+}

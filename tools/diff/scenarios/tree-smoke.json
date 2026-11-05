@@ -1,0 +1,17 @@
+{
+  "$schema": "opentui-diff tree scenario v1",
+  "name": "tree-smoke",
+  "width": 24,
+  "height": 8,
+  "tree": [
+    {
+      "id": "panel",
+      "kind": "box",
+      "rect": { "x": 1, "y": 1, "w": 20, "h": 6 },
+      "style": { "border": true, "borderColor": "#00FF00", "bg": "#112233" },
+      "children": [
+        { "kind": "text", "content": "hi opentui", "style": { "fg": "#FFAA00" } }
+      ]
+    }
+  ]
+}

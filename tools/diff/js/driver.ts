@@ -270,7 +270,110 @@ if (!scenarioPath || !outPath) {
   console.error("usage: bun js/driver.ts <scenario.json> <out.json>")
   process.exit(2)
 }
-const scenario = await Bun.file(scenarioPath).json()
+let scenario = await Bun.file(scenarioPath).json()
+
+// ---------------------------------------------------------------------------
+// Tree scenarios — `scenario.tree` describes a WHOLE renderable tree in
+// one JSON value (the oc-tui capture format). Desugar it into the step
+// script here, EXACTLY mirroring src/tree.rs on the Rust side: same
+// generated ids, same option spellings, same DFS preorder mount order
+// (z-order: later nodes paint over earlier ones). See tools/diff/README
+// "tree scenarios" for the format contract.
+// ---------------------------------------------------------------------------
+function mergeInto(target, source) {
+  for (const [k, v] of Object.entries(source ?? {})) target[k] = v
+  return target
+}
+function styleToBoxOptions(style, opts) {
+  const map = {
+    bg: "backgroundColor",
+    border: "border",
+    borderColor: "borderColor",
+    borderStyle: "borderStyle",
+    shouldFill: "shouldFill",
+    title: "title",
+    titleAlignment: "titleAlignment",
+  }
+  for (const [from, to] of Object.entries(map)) {
+    if (style?.[from] !== undefined) opts[to] = style[from]
+  }
+  return opts
+}
+function styleToTextOptions(style, opts) {
+  for (const key of ["fg", "bg", "attributes"]) {
+    if (style?.[key] !== undefined) opts[key] = style[key]
+  }
+  return opts
+}
+function rectOptions(node, absolute, opts) {
+  if (absolute) {
+    const r = node.rect
+    if (!r || [r.x, r.y, r.w, r.h].some((n) => typeof n !== "number")) {
+      throw new Error(`tree node ${node.id ?? "(auto)"} needs rect {x,y,w,h}`)
+    }
+    opts.position = "absolute"
+    opts.left = r.x
+    opts.top = r.y
+    opts.width = r.w
+    opts.height = r.h
+  } else {
+    if (node.rect !== undefined) {
+      throw new Error(`tree child ${node.id ?? "(auto)"} carries rect — nesting is flow, not absolute`)
+    }
+    if (node.width !== undefined) opts.width = node.width
+    if (node.height !== undefined) opts.height = node.height
+  }
+  return opts
+}
+function emitTreeNode(node, parentId, steps, counter, absolute) {
+  const id = node.id ?? `n${++counter.n}`
+  const kind = node.kind
+  if (!kind) throw new Error(`tree node ${id} needs kind`)
+  const emit = (op, nid, parent, opts) => steps.push({ op, id: nid, parent, options: opts })
+  if (kind === "box") {
+    const opts = mergeInto(rectOptions(node, absolute, {}), mergeInto(styleToBoxOptions(node.style, {}), node.options))
+    emit("box", id, parentId, opts)
+    for (const child of node.children ?? []) emitTreeNode(child, id, steps, counter, false)
+  } else if (kind === "text") {
+    const opts = rectOptions(node, absolute, {})
+    if (node.content !== undefined) opts.content = node.content
+    mergeInto(opts, styleToTextOptions(node.style, {}))
+    mergeInto(opts, node.options)
+    if ((node.children ?? []).length) throw new Error(`tree node ${id}: text nodes take no children (use content)`)
+    emit("text", id, parentId, opts)
+  } else if (kind === "code" || kind === "markdown" || kind === "diff") {
+    // no layout options on these renderables — wrap in an absolute
+    // transparent box at the same rect
+    const wrapper = `${id}-w`
+    const wopts = rectOptions(node, absolute, {})
+    wopts.shouldFill = false
+    if (node.style?.bg !== undefined) wopts.backgroundColor = node.style.bg
+    emit("box", wrapper, parentId, wopts)
+    const opts = { width: "100%", height: "100%" }
+    if (node.content !== undefined) opts.content = node.content
+    if (node.diff !== undefined) opts.diff = node.diff
+    if (node.style?.fg !== undefined) opts.fg = node.style.fg
+    if (node.style?.bg !== undefined) opts.bg = node.style.bg
+    mergeInto(opts, node.options)
+    emit(kind, id, wrapper, opts)
+    for (const child of node.children ?? []) emitTreeNode(child, wrapper, steps, counter, false)
+  } else {
+    throw new Error(`tree node ${id}: unknown kind ${kind}`)
+  }
+  return { counter }
+}
+function desugarTree(scenario) {
+  if (scenario.tree === undefined) return scenario
+  const forest = Array.isArray(scenario.tree) ? scenario.tree : [scenario.tree]
+  const steps = []
+  const counter = { n: 0 }
+  for (const node of forest) emitTreeNode(node, "root", steps, counter, true)
+  const out = { ...scenario }
+  delete out.tree
+  out.steps = steps
+  return out
+}
+scenario = desugarTree(scenario)
 
 // capture fingerprint (see the block at the top of this file): the
 // rust harness recomputes driver+scenario hashes and REFUSES a cached
@@ -772,6 +875,9 @@ for (const step of scenario.steps) {
       ...(o.tabIndicatorColor !== undefined ? { tabIndicatorColor: o.tabIndicatorColor } : {}),
       ...(o.truncate !== undefined ? { truncate: o.truncate } : {}),
       ...(o.overflow !== undefined ? { overflow: o.overflow } : {}),
+      ...(o.position !== undefined ? { position: o.position } : {}),
+      ...(o.left !== undefined ? { left: o.left } : {}),
+      ...(o.top !== undefined ? { top: o.top } : {}),
     }
     r = new TextRenderable(renderer, options)
     if (o.nodeContent !== undefined) {
@@ -792,6 +898,9 @@ for (const step of scenario.steps) {
       ...(o.flexDirection !== undefined ? { flexDirection: o.flexDirection } : {}),
       ...(o.padding !== undefined ? { padding: o.padding } : {}),
       ...(o.overflow !== undefined ? { overflow: o.overflow } : {}),
+      ...(o.position !== undefined ? { position: o.position } : {}),
+      ...(o.left !== undefined ? { left: o.left } : {}),
+      ...(o.top !== undefined ? { top: o.top } : {}),
     })
   } else if (step.op === "scrollbox") {
     const o = step.options ?? {}

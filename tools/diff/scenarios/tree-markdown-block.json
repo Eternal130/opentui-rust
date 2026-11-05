@@ -1,0 +1,22 @@
+{
+  "$schema": "opentui-diff tree scenario v1",
+  "name": "tree-markdown-block",
+  "width": 40,
+  "height": 14,
+  "tree": [
+    {
+      "id": "md",
+      "kind": "markdown",
+      "rect": { "x": 1, "y": 0, "w": 36, "h": 14 },
+      "content": "# Title\n\nSome *emph* and `code` span.\n\n- item one\n- item two\n\n> quoted line\n\n```ts\nconst x: number = 42\n```",
+      "options": { "conceal": false }
+    },
+    {
+      "id": "footer",
+      "kind": "text",
+      "rect": { "x": 1, "y": 13, "w": 36, "h": 1 },
+      "content": "footer strip under the markdown",
+      "style": { "fg": "#00FF00", "attributes": ["inverse"] }
+    }
+  ]
+}
