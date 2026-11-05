@@ -1,0 +1,33 @@
+{
+  "$schema": "opentui-diff tree scenario v1",
+  "name": "tree-overlap-z",
+  "width": 30,
+  "height": 10,
+  "tree": [
+    {
+      "id": "bottom",
+      "kind": "box",
+      "rect": { "x": 1, "y": 1, "w": 26, "h": 7 },
+      "style": { "bg": "#001133", "border": true, "borderColor": "#FFFFFF" },
+      "children": [
+        { "kind": "text", "content": "bottom layer text", "style": { "fg": "#FFFFFF" } }
+      ]
+    },
+    {
+      "id": "middle",
+      "kind": "box",
+      "rect": { "x": 8, "y": 2, "w": 18, "h": 5 },
+      "style": { "bg": "#330044", "shouldFill": true },
+      "children": [
+        { "kind": "text", "content": "middle covers", "style": { "fg": "#FFFF00" } }
+      ]
+    },
+    {
+      "id": "top",
+      "kind": "text",
+      "rect": { "x": 14, "y": 4, "w": 14, "h": 2 },
+      "content": "top text over",
+      "style": { "fg": "#00FF00", "attributes": ["inverse"] }
+    }
+  ]
+}

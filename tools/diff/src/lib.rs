@@ -6,4 +6,5 @@
 pub mod compare;
 pub mod scenario;
 pub mod solid;
+pub mod tree;
 pub mod vt;

@@ -1,0 +1,36 @@
+{
+  "$schema": "opentui-diff tree scenario v1",
+  "name": "tree-nested-borders",
+  "width": 30,
+  "height": 12,
+  "tree": [
+    {
+      "id": "outer",
+      "kind": "box",
+      "rect": { "x": 1, "y": 1, "w": 26, "h": 10 },
+      "style": { "border": true, "borderColor": "#00FF00", "bg": "#0A0F14" },
+      "children": [
+        {
+          "id": "mid",
+          "kind": "box",
+          "width": 20,
+          "height": 6,
+          "style": { "border": true, "borderColor": "#FFAA00", "borderStyle": "round", "bg": "#141020" },
+          "children": [
+            { "kind": "text", "content": "mid box title", "style": { "fg": "#FFAA00", "attributes": ["bold"] } },
+            {
+              "id": "inner",
+              "kind": "box",
+              "width": 14,
+              "height": 3,
+              "style": { "border": true, "borderColor": "#00AAFF" },
+              "children": [
+                { "kind": "text", "content": "innermost", "style": { "fg": "#00AAFF" } }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

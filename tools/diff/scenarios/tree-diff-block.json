@@ -1,0 +1,30 @@
+{
+  "$schema": "opentui-diff tree scenario v1",
+  "name": "tree-diff-block",
+  "width": 56,
+  "height": 14,
+  "tree": [
+    {
+      "id": "d",
+      "kind": "diff",
+      "rect": { "x": 0, "y": 0, "w": 56, "h": 10 },
+      "diff": "--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,4 +1,5 @@\n fn main() {\n-    println!(\"hello\");\n+    println!(\"hello, tree\");\n+    render_tree();\n }\n ",
+      "options": {
+        "view": "unified",
+        "filetype": "rust",
+        "addedBg": "#0a3d0a",
+        "removedBg": "#3d0a0a",
+        "lineNumberFg": "#aaaaaa"
+      }
+    },
+    {
+      "id": "bar",
+      "kind": "box",
+      "rect": { "x": 0, "y": 11, "w": 56, "h": 2 },
+      "style": { "border": true, "borderColor": "#00AAFF" },
+      "children": [
+        { "kind": "text", "content": "diff block footer", "style": { "fg": "#00AAFF" } }
+      ]
+    }
+  ]
+}

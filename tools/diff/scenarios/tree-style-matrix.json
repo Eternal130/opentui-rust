@@ -1,0 +1,63 @@
+{
+  "$schema": "opentui-diff tree scenario v1",
+  "name": "tree-style-matrix",
+  "width": 46,
+  "height": 12,
+  "tree": [
+    {
+      "id": "frame",
+      "kind": "box",
+      "rect": { "x": 0, "y": 0, "w": 46, "h": 12 },
+      "style": { "border": true, "borderColor": "#888888", "bg": "#101010" }
+    },
+    {
+      "id": "a1",
+      "kind": "text",
+      "rect": { "x": 2, "y": 1, "w": 42, "h": 2 },
+      "content": [
+        { "text": "bold ", "fg": "#FF0000", "bg": "#002000", "attributes": ["bold"] },
+        { "text": "dim ", "fg": "#00FF00", "attributes": ["dim"] },
+        { "text": "italic ", "attributes": ["italic"] },
+        { "text": "underline ", "attributes": ["underline"] }
+      ]
+    },
+    {
+      "id": "a2",
+      "kind": "text",
+      "rect": { "x": 2, "y": 3, "w": 42, "h": 2 },
+      "content": [
+        { "text": "blink ", "fg": "#FF00FF", "attributes": ["blink"] },
+        { "text": "inverse ", "bg": "#0000FF", "attributes": ["inverse"] },
+        { "text": "hidden ", "attributes": ["hidden"] },
+        { "text": "strike", "attributes": ["strikethrough"] }
+      ]
+    },
+    {
+      "id": "a3",
+      "kind": "text",
+      "rect": { "x": 2, "y": 5, "w": 42, "h": 2 },
+      "content": [
+        { "text": "combo ", "fg": "#FFFFFF", "bg": "#AA0000", "attributes": ["bold", "underline", "italic"] },
+        { "text": "raw-bits ", "attributes": 153 },
+        { "text": "plain tail" }
+      ]
+    },
+    {
+      "id": "panel",
+      "kind": "box",
+      "rect": { "x": 2, "y": 8, "w": 20, "h": 3 },
+      "style": { "border": true, "borderStyle": "round", "borderColor": "#00AAFF", "bg": "#001A22", "title": "t", "titleAlignment": "center" },
+      "children": [
+        { "kind": "text", "content": "titled panel", "style": { "fg": "#00AAFF" } }
+      ]
+    },
+    {
+      "id": "right",
+      "kind": "text",
+      "rect": { "x": 24, "y": 8, "w": 20, "h": 3 },
+      "content": "right aligned text",
+      "style": { "fg": "#FFAA00", "bg": "#202000" },
+      "options": { "textAlign": "center" }
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 //! Scenario loading + the Rust-side capture (mirrors js/driver.ts).
 
 use anyhow::{Context, Result};
+use crate::tree;
 use opentui_core::color::parse_color;
 use opentui_core::editor::SelectionBehavior;
 use opentui_core::events::KeyEvent;
@@ -175,7 +176,13 @@ pub struct TextOp {
 pub fn load(path: &std::path::Path) -> Result<Scenario> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("reading scenario {}", path.display()))?;
-    serde_json::from_str(&text).with_context(|| format!("parsing scenario {}", path.display()))
+    let json: serde_json::Value = serde_json::from_str(&text)
+        .with_context(|| format!("parsing scenario {}", path.display()))?;
+    // `tree` scenarios desugar into the step form first (mirrored in
+    // js/driver.ts `desugarTree` — same ids, same order)
+    let json = tree::desugar_scenario(json)
+        .with_context(|| format!("desugaring tree scenario {}", path.display()))?;
+    serde_json::from_value(json).with_context(|| format!("parsing scenario {}", path.display()))
 }
 
 fn opt_f32(v: &serde_json::Value, key: &str) -> Option<opentui_core::layout::Dimension> {
@@ -312,6 +319,16 @@ fn apply_props(layout: &mut opentui_core::layout::LayoutOptions, o: &serde_json:
     if let Some(p) = o.get("paddingRight").and_then(|v| v.as_f64()) {
         layout.padding_right = Some(Dimension::Points(p as f32));
     }
+    // absolute placement (tree scenarios): Renderable.ts:38-43
+    if let Some(p) = o.get("position").and_then(|v| v.as_str()) {
+        layout.position = Some(p.to_owned());
+    }
+    if let Some(d) = o.get("left").and_then(parse_dimension_json) {
+        layout.left = Some(d);
+    }
+    if let Some(d) = o.get("top").and_then(parse_dimension_json) {
+        layout.top = Some(d);
+    }
 }
 
 /// One scenario node pending mount (kind + options + children). The id
@@ -403,6 +420,16 @@ fn text_options_from_json(o: &serde_json::Value) -> Result<TextOptions> {
     // scissor push around children (1425-1432)
     if let Some(ov) = o.get("overflow").and_then(|v| v.as_str()) {
         opts.layout.overflow = Some(ov.to_owned());
+    }
+    // absolute placement (tree scenarios): Renderable.ts:38-43
+    if let Some(p) = o.get("position").and_then(|v| v.as_str()) {
+        opts.layout.position = Some(p.to_owned());
+    }
+    if let Some(d) = o.get("left").and_then(parse_dimension_json) {
+        opts.layout.left = Some(d);
+    }
+    if let Some(d) = o.get("top").and_then(parse_dimension_json) {
+        opts.layout.top = Some(d);
     }
     Ok(opts)
 }
@@ -1485,6 +1512,16 @@ fn box_options_from_json(o: &serde_json::Value) -> Result<BoxOptions> {
     // `overflow` (Renderable.ts:71/762-764) — non-visible clips children
     if let Some(ov) = o.get("overflow").and_then(|v| v.as_str()) {
         opts.layout.overflow = Some(ov.to_owned());
+    }
+    // absolute placement (tree scenarios): Renderable.ts:38-43
+    if let Some(p) = o.get("position").and_then(|v| v.as_str()) {
+        opts.layout.position = Some(p.to_owned());
+    }
+    if let Some(d) = o.get("left").and_then(parse_dimension_json) {
+        opts.layout.left = Some(d);
+    }
+    if let Some(d) = o.get("top").and_then(parse_dimension_json) {
+        opts.layout.top = Some(d);
     }
     Ok(opts)
 }
