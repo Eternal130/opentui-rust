@@ -151,7 +151,9 @@ impl ExternalOutputCommit {
                 .iter()
                 .map(|line| {
                     let text: String = line.spans.iter().map(|s| s.text.as_str()).collect();
-                    row_display_width(text.trim_end_matches(' ')).min(limit)
+                    // trailing '\r' (the raw-mode row terminator mini
+                    // appends) is not a cell either
+                    row_display_width(text.trim_end_matches([' ', '\r'])).min(limit)
                 })
                 .collect();
         }
@@ -595,6 +597,20 @@ mod tests {
         assert_eq!(c.row_widths(), vec![2, 2]);
         assert_eq!(c.transcript_bytes(5), "\nab\ncd\n");
         assert_eq!(tail_column_after_commit(&c, 5, 80), 0);
+    }
+
+    /// A trailing raw-mode CR (mini's row terminator) is not a cell:
+    /// excluded from the row width, kept in the transcript bytes.
+    #[test]
+    fn styled_trailing_cr_is_not_a_cell() {
+        let white = [255_u8, 255, 255];
+        let mut tail = span("hi", white);
+        tail.text.push('\r');
+        let c = styled_commit(vec![crate::buffer::CapturedLine { spans: vec![tail] }]);
+        assert_eq!(c.row_widths(), vec![2]);
+        let bytes = c.transcript_bytes(0);
+        assert!(bytes.contains("hi\r"), "the CR rides the payload: {bytes:?}");
+        assert!(bytes.ends_with("\x1b[0m\n") || bytes.ends_with("hi\r\x1b[0m\n"), "{bytes:?}");
     }
 
     // ---- snapshot clamps (renderer.ts:2477-2499) ----
