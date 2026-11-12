@@ -53,7 +53,7 @@ recomputed state.
 | @opentui/keymap (+subpaths) | 12 | 14* | 4 | 2 | 6 |
 | **total** | **339** | **79** | **35** | **18** | **286** |
 
-### Current (recounted 2026-11-04 via `tools/recount-matrix.sh` — run it after every lane that edits rows)
+### Current (recounted 2026-11-12 via `tools/recount-matrix.sh` — run it after every lane that edits rows)
 
 | package | exports | done | partial | deferred | todo |
 |---|---|---|---|---|---|
@@ -721,7 +721,7 @@ additions above.
 | `ScrollbackSnapshot` | core/src/renderer.ts:304 | opentui-core::scrollback::ScrollbackSnapshot | done (painted-rows payload — the opentui-solid `createScrollbackWriter` consumption contract; `teardown` is the scratch renderer's drop) |
 | `ScrollbackWriter` | core/src/renderer.ts:314 | opentui-core::scrollback::ScrollbackWriter | done (`FnOnce(&ctx) -> ScrollbackSnapshot`) |
 | `CliRenderer.writeToScrollback` | core/src/renderer.ts:2363 | opentui-core::renderer::CliRenderer::write_to_scrollback | done (mode gate returns `ScrollbackWriteError` instead of throwing; clamps per :2477-2499) |
-| `ExternalOutputCommit` | core/src/renderer.ts:395 | opentui-core::scrollback::ExternalOutputCommit | done (payload = painted rows; no native OptimizedBuffer — bounded divergence) |
+| `ExternalOutputCommit` | core/src/renderer.ts:395 | opentui-core::scrollback::ExternalOutputCommit | done (payload = painted rows; no native OptimizedBuffer — bounded divergence; G-272⑩ styled arm `styled: Option<Vec<CapturedLine>>` — span rows, width math on span text) |
 | `ExternalOutputQueue` | core/src/renderer.ts:403 | opentui-core::scrollback::ExternalOutputQueue | done (writeSnapshot/peek/claim/drop/clear, :405-441) |
 | `CliRendererExternalOutputEvent` | core/src/renderer.ts:252 | opentui-core::scrollback::CliRendererExternalOutputEvent | done (= the commit; emitted only with listeners, :2610) |
 | `CliRenderEvents.EXTERNAL_OUTPUT` | core/src/renderer.ts:755 | opentui-core::renderer::CliRenderEvent::ExternalOutput | done (enum parity — the row-221 partial note updated) |
@@ -759,6 +759,25 @@ members riding the supplementary tables like the D1b-core rows above.
 | `ScrollbackSnapshotRenderContext` / `claimFirstLineOffset` | core/src/renderer.ts:1994-2013 | ScrollbackSurface::render_context (the scratch renderer IS the context face) | done (port shape; first-line splice owned by the tail-column math) |
 | `resetSplitFooterForReplay` | core/src/renderer.ts:2442-2475 | CliRenderer::reset_split_footer_for_replay | done (clearSavedLines empties the transcript model; control burst live-only) |
 | `CliRendererExternalOutputEvent` peek access | — | CliRenderer::external_output_queue | done (read-only peek for host assertions) |
+
+### lane G-272⑩ additions (styled scrollback write-back — mini scrollback bodies)
+
+Ported by gap-burndown-13 lane K. The styled payload family for the
+mini scrollback write-back surface: commits whose rows carry theme
+colors + syntax highlighting instead of mono plain text. The upstream
+commit shape carries an `OptimizedBuffer` snapshot natively; the port
+adds the span-set arm (`CapturedLine` rows, the same capture unit
+`OptimizedBuffer::get_span_lines` produces) as the bounded-divergence
+twin — widths count SPAN text (SGR bytes are not cells), and the
+transcript serializer emits SGR runs from the spans.
+
+| symbol | upstream file:line | Rust target | status |
+|---|---|---|---|
+| styled commit payload arm | core/src/renderer.ts:395 (snapshot OptimizedBuffer) | ExternalOutputCommit::styled (Option<Vec<CapturedLine>>) | done (None keeps the plain `lines` behavior byte-identical — the pre-G-272⑩ contract) |
+| `StyledScrollbackSnapshot` / `StyledScrollbackWriter` | core/src/renderer.ts:304-314 (styled twin) | opentui-core::scrollback::StyledScrollbackSnapshot / StyledScrollbackWriter | done (same knobs as the plain snapshot; span-row payload) |
+| `CliRenderer.writeStyledToScrollback` | core/src/renderer.ts:2363 (styled twin) | CliRenderer::write_styled_to_scrollback | done (same mode gate + pending-tail-column ctx; enqueues the styled commit) |
+| `enqueueStyledScrollbackCommit` | core/src/renderer.ts:2583-2614 (styled twin) | CliRenderer::enqueue_styled_scrollback_commit | done (same clamps + newline-flag defaults) |
+| `ScrollbackSurface.commitRowsStyled` | core/src/renderer.ts:2242-2272 (styled twin) | ScrollbackSurface::commit_rows_styled | done (same guards + rolling newline ownership; extracts via `get_span_lines`) |
 
 ### lane D1c additions (six small API gaps — Gate D0 approved)
 
