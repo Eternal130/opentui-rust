@@ -24,6 +24,7 @@
 //!   (renderer.ts:2497-2519), `advanceSplitTailColumn` (:2521-2532),
 //!   `getSplitTailColumnAfterCommit` (:2546-2566).
 
+use crate::buffer::CapturedLine;
 use crate::text_buffer::cluster_width;
 
 /// Display width of a painted row (grapheme clusters summed) — the
@@ -75,6 +76,28 @@ pub struct ScrollbackSnapshot {
 pub type ScrollbackWriter<'a> =
     Box<dyn FnOnce(&ScrollbackRenderContext) -> ScrollbackSnapshot + 'a>;
 
+/// G-272⑩ — the styled twin of [`ScrollbackSnapshot`]: the payload
+/// rows arrive as [`CapturedLine`] span sets (the capture unit
+/// `OptimizedBuffer::get_span_lines` produces) so the commit's
+/// row-width math and transcript serialization run on SPANS (SGR
+/// bytes are not cells). The plain [`ScrollbackSnapshot`] contract is
+/// unchanged — producers opt into the styled arm.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StyledScrollbackSnapshot {
+    /// The painted rows as span sets.
+    pub lines: Vec<CapturedLine>,
+    /// `rowColumns` — same meaning as the plain snapshot's.
+    pub row_columns: Option<u32>,
+    /// `startOnNewLine` — default `true`, like the plain snapshot's.
+    pub start_on_new_line: Option<bool>,
+    /// `trailingNewline` — default `true`, like the plain snapshot's.
+    pub trailing_newline: Option<bool>,
+}
+
+/// G-272⑩ — the styled twin of [`ScrollbackWriter`].
+pub type StyledScrollbackWriter<'a> =
+    Box<dyn FnOnce(&ScrollbackRenderContext) -> StyledScrollbackSnapshot + 'a>;
+
 /// `ExternalOutputCommit` (renderer.ts:395-400) — one scrollback
 /// append step, shared by `writeToScrollback` and captured stdout
 /// (renderer.ts:2615-2618: one commit shape keeps split-append
@@ -85,6 +108,15 @@ pub type ScrollbackWriter<'a> =
 pub struct ExternalOutputCommit {
     /// The painted payload rows.
     pub lines: Vec<String>,
+    /// G-272⑩ — the styled payload arm: when set, the commit's rows
+    /// are [`CapturedLine`] span sets (the same capture unit
+    /// `OptimizedBuffer::get_span_lines` produces) and every
+    /// row-width / transcript consumer dispatches on the SPANS:
+    /// widths count span text graphemes (SGR bytes are not cells) and
+    /// `transcript_bytes` serializes the spans to SGR runs. `None`
+    /// (the default) keeps the plain `lines` behavior byte-identical
+    /// — the pre-G-272⑩ contract every existing producer relies on.
+    pub styled: Option<Vec<CapturedLine>>,
     /// `rowColumns` (renderer.ts:397) — the column budget the
     /// tail-column math reads (trailing blanks past it do not count).
     pub row_columns: u32,
@@ -106,9 +138,23 @@ impl ExternalOutputCommit {
     /// skip trailing blank cells (upstream's `cp === 0` walk-back;
     /// the port's rows are text, so trailing spaces/blanks trim the
     /// same way — a row's width is what it occupies, not its budget).
+    ///
+    /// G-272⑩ styled arm: a row's width is the SPAN TEXT's grapheme
+    /// width (trailing blanks trimmed, clamped to the budget) — SGR
+    /// styling bytes are not cells and must not advance the tail
+    /// column arithmetic.
     #[must_use]
     pub fn row_widths(&self) -> Vec<u32> {
         let limit = self.row_columns;
+        if let Some(styled) = &self.styled {
+            return styled
+                .iter()
+                .map(|line| {
+                    let text: String = line.spans.iter().map(|s| s.text.as_str()).collect();
+                    row_display_width(text.trim_end_matches(' ')).min(limit)
+                })
+                .collect();
+        }
         self.lines
             .iter()
             .map(|line| {
@@ -131,6 +177,11 @@ impl ExternalOutputCommit {
     /// [`crate::renderer::CliRenderer`]'s flush — no glued rows
     /// (missing newline) and no double-advance gaps (extra newline),
     /// exactly the contract renderer.ts:2349-2353 describes.
+    ///
+    /// G-272⑩ styled arm: rows serialize from their spans — one SGR
+    /// run per style boundary (reset → fg → bg → attributes, the
+    /// renderer frame writer's run shape), a final reset closing each
+    /// styled row, trailing blank cells trimmed before serialization.
     #[must_use]
     pub fn transcript_bytes(&self, tail_column: u32) -> String {
         let mut out = String::new();
@@ -138,6 +189,18 @@ impl ExternalOutputCommit {
         // mid-row (renderer.ts:2349-2351)
         if self.start_on_new_line && tail_column > 0 {
             out.push('\n');
+        }
+        if let Some(styled) = &self.styled {
+            for (index, line) in styled.iter().enumerate() {
+                if index > 0 {
+                    out.push('\n'); // between-row advance
+                }
+                out.push_str(&styled_line_bytes(line));
+            }
+            if self.trailing_newline && !styled.is_empty() {
+                out.push('\n'); // renderer.ts:2351-2353
+            }
+            return out;
         }
         for (index, line) in self.lines.iter().enumerate() {
             if index > 0 {
@@ -150,6 +213,49 @@ impl ExternalOutputCommit {
         }
         out
     }
+}
+
+/// One styled row's transcript bytes (G-272⑩) — the span run shape:
+/// each (fg, bg, attributes) boundary re-opens SGR from reset, the
+/// row closes with a final reset, and trailing blank cells are
+/// trimmed off the span texts first (the plain arm's
+/// `trim_end_matches(' ')` semantics applied across span boundaries).
+fn styled_line_bytes(line: &CapturedLine) -> String {
+    // Owned span copies so the row tail can trim trailing blanks
+    // across span boundaries (the plain arm's `trim_end_matches(' ')`
+    // semantics): pure-blank tail spans drop, the last text span
+    // trims its trailing spaces.
+    let mut spans: Vec<(crate::color::Rgba, crate::color::Rgba, u8, String)> = line
+        .spans
+        .iter()
+        .map(|s| (s.fg, s.bg, s.attributes, s.text.clone()))
+        .collect();
+    while let Some(last) = spans.last_mut() {
+        if last.3.chars().all(|c| c == ' ') && !last.3.is_empty() {
+            spans.pop();
+        } else {
+            let trimmed = last.3.trim_end_matches(' ').to_owned();
+            last.3 = trimmed;
+            break;
+        }
+    }
+    let mut out = String::new();
+    let mut last_style: Option<(crate::color::Rgba, crate::color::Rgba, u8)> = None;
+    for (fg, bg, attributes, text) in &spans {
+        let style = (*fg, *bg, *attributes);
+        if last_style != Some(style) {
+            out.push_str("\x1b[0m");
+            crate::ansi::emit_color(&mut out, *fg, false);
+            crate::ansi::emit_color(&mut out, *bg, true);
+            crate::ansi::TextAttributes::apply_attributes(&mut out, u32::from(*attributes));
+            last_style = Some(style);
+        }
+        out.push_str(text);
+    }
+    if last_style.is_some() {
+        out.push_str("\x1b[0m");
+    }
+    out
 }
 
 /// `ExternalOutputQueue` (renderer.ts:403-441) — the FIFO between
@@ -286,6 +392,7 @@ mod tests {
     fn commit(lines: &[&str], row_columns: u32, start: bool, trailing: bool) -> ExternalOutputCommit {
         ExternalOutputCommit {
             lines: lines.iter().map(|s| (*s).to_owned()).collect(),
+            styled: None,
             row_columns,
             start_on_new_line: start,
             trailing_newline: trailing,
@@ -417,6 +524,77 @@ mod tests {
         // trailing blanks trim (the snapshot payload's occupied cells)
         let c = commit(&["ab   "], 80, true, true);
         assert_eq!(c.transcript_bytes(0), "ab\n");
+    }
+
+    // ---- G-272⑩ styled payload ----
+
+    fn span(text: &str, rgb: [u8; 3]) -> crate::buffer::CapturedSpan {
+        crate::buffer::CapturedSpan {
+            text: text.to_owned(),
+            fg: crate::color::Rgba::rgb(rgb[0], rgb[1], rgb[2]),
+            bg: crate::color::Rgba::from_ints(0, 0, 0, 0),
+            attributes: 0,
+            width: text.chars().count() as u32,
+        }
+    }
+
+    fn styled_commit(rows: Vec<crate::buffer::CapturedLine>) -> ExternalOutputCommit {
+        ExternalOutputCommit {
+            lines: Vec::new(),
+            styled: Some(rows),
+            row_columns: 80,
+            start_on_new_line: true,
+            trailing_newline: true,
+        }
+    }
+
+    /// Styled round-trip: transcript bytes carry one SGR run per style
+    /// boundary and close each row with a reset; row widths count
+    /// ONLY span text (SGR bytes are not cells).
+    #[test]
+    fn styled_round_trip_and_width_excludes_sgr() {
+        let red = [255_u8, 0, 0];
+        let white = [255_u8, 255, 255];
+        let c = styled_commit(vec![crate::buffer::CapturedLine {
+            spans: vec![span("hi ", red), span("there", white)],
+        }]);
+        // width = 8 ("hi there"), NOT inflated by any SGR bytes
+        assert_eq!(c.row_widths(), vec![8]);
+        let bytes = c.transcript_bytes(0);
+        assert_eq!(
+            bytes,
+            concat!(
+                "\x1b[0m\x1b[38;2;255;0;0m\x1b[49mhi ",
+                "\x1b[0m\x1b[38;2;255;255;255m\x1b[49mthere",
+                "\x1b[0m\n"
+            )
+        );
+        // tail math on the styled arm: full trailing newline → 0
+        assert_eq!(tail_column_after_commit(&c, 0, 80), 0);
+    }
+
+    /// Styled trailing-blank trim across span boundaries: pure-blank
+    /// tail spans drop, the last text span trims its trailing spaces
+    /// (the plain arm's `trim_end_matches(' ')` semantics).
+    #[test]
+    fn styled_trailing_blank_trim() {
+        let white = [255_u8, 255, 255];
+        let c = styled_commit(vec![crate::buffer::CapturedLine {
+            spans: vec![span("ab  ", white), span("  ", white)],
+        }]);
+        assert_eq!(c.row_widths(), vec![2]);
+        let bytes = c.transcript_bytes(0);
+        assert_eq!(bytes, "\x1b[0m\x1b[38;2;255;255;255m\x1b[49mab\x1b[0m\n");
+    }
+
+    /// The plain path is byte-identical when `styled` is `None`
+    /// (golden asserts against the pre-G-272⑩ behavior).
+    #[test]
+    fn plain_payload_unchanged_golden() {
+        let c = commit(&["ab", "cd"], 3, true, true);
+        assert_eq!(c.row_widths(), vec![2, 2]);
+        assert_eq!(c.transcript_bytes(5), "\nab\ncd\n");
+        assert_eq!(tail_column_after_commit(&c, 5, 80), 0);
     }
 
     // ---- snapshot clamps (renderer.ts:2477-2499) ----

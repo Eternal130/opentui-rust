@@ -296,20 +296,15 @@ impl ScrollbackSurface {
         self.render();
     }
 
-    /// `surface.commitRows(startRow, endRowExclusive, options)`
-    /// (renderer.ts:2242-2272) — copy the painted row range out of
-    /// the backing buffer and enqueue it into `renderer`'s scrollback
-    /// FIFO with the surface's rolling newline ownership
-    /// (`nextCommitStartOnNewLine` → false after the first commit,
-    /// :2270). The parent renderer is the explicit enqueue target
-    /// (upstream closes over `renderer`, :2243).
-    pub fn commit_rows(
-        &mut self,
-        renderer: &mut CliRenderer,
+    /// The shared `commitRows` preconditions (renderer.ts:2062-2101):
+    /// not destroyed, rendered at least once, geometry current, and a
+    /// sane row range. Returns early (`Ok(())`) for an empty range.
+    fn commit_rows_guards(
+        &self,
+        renderer: &CliRenderer,
         start_row: u32,
         end_row_exclusive: u32,
-        options: ScrollbackSurfaceCommitOptions,
-    ) -> Result<(), ScrollbackSurfaceError> {
+    ) -> Result<bool, ScrollbackSurfaceError> {
         if self.destroyed {
             return Err(ScrollbackSurfaceError::Destroyed); // :2062-2064
         }
@@ -328,8 +323,25 @@ impl ScrollbackSurface {
         if end_row_exclusive < start_row || end_row_exclusive > self.surface_height {
             return Err(ScrollbackSurfaceError::InvalidRowRange);
         }
-        if start_row == end_row_exclusive {
-            return Ok(()); // :2265-2267
+        Ok(start_row != end_row_exclusive) // :2265-2267 — empty range no-ops
+    }
+
+    /// `surface.commitRows(startRow, endRowExclusive, options)`
+    /// (renderer.ts:2242-2272) — copy the painted row range out of
+    /// the backing buffer and enqueue it into `renderer`'s scrollback
+    /// FIFO with the surface's rolling newline ownership
+    /// (`nextCommitStartOnNewLine` → false after the first commit,
+    /// :2270). The parent renderer is the explicit enqueue target
+    /// (upstream closes over `renderer`, :2243).
+    pub fn commit_rows(
+        &mut self,
+        renderer: &mut CliRenderer,
+        start_row: u32,
+        end_row_exclusive: u32,
+        options: ScrollbackSurfaceCommitOptions,
+    ) -> Result<(), ScrollbackSurfaceError> {
+        if !self.commit_rows_guards(renderer, start_row, end_row_exclusive)? {
+            return Ok(());
         }
 
         // drawFrameBuffer (:2250-2253) — the port's payload is the
@@ -345,6 +357,41 @@ impl ScrollbackSurface {
         let start_on_new_line = self.next_commit_start_on_new_line;
         renderer.enqueue_rendered_scrollback_commit(
             lines,
+            options.row_columns,
+            Some(start_on_new_line),
+            options.trailing_newline,
+        );
+        self.next_commit_start_on_new_line = false; // :2270
+        Ok(())
+    }
+
+    /// G-272⑩ — the styled sibling of [`Self::commit_rows`]: same
+    /// preconditions and newline-ownership rolling, but the payload
+    /// extracts through `OptimizedBuffer::get_span_lines` (the
+    /// differential harness's own capture seam) so the commit carries
+    /// [`crate::buffer::CapturedLine`] span rows — the flush emits SGR
+    /// runs and the tail-column math counts span text only.
+    pub fn commit_rows_styled(
+        &mut self,
+        renderer: &mut CliRenderer,
+        start_row: u32,
+        end_row_exclusive: u32,
+        options: ScrollbackSurfaceCommitOptions,
+    ) -> Result<(), ScrollbackSurfaceError> {
+        if !self.commit_rows_guards(renderer, start_row, end_row_exclusive)? {
+            return Ok(());
+        }
+
+        let span_lines = self.scratch.current_render_buffer.get_span_lines();
+        let styled: Vec<crate::buffer::CapturedLine> = span_lines
+            .into_iter()
+            .skip(start_row as usize)
+            .take((end_row_exclusive - start_row) as usize)
+            .collect();
+
+        let start_on_new_line = self.next_commit_start_on_new_line;
+        renderer.enqueue_styled_scrollback_commit(
+            styled,
             options.row_columns,
             Some(start_on_new_line),
             options.trailing_newline,
@@ -445,6 +492,37 @@ impl CliRenderer {
         Ok(())
     }
 
+    /// G-272⑩ — the styled twin of [`Self::write_to_scrollback`]:
+    /// same mode gate, same pending-tail-column writer context, but
+    /// the writer returns a [`crate::scrollback::StyledScrollbackSnapshot`]
+    /// and the commit carries span rows (width math + transcript
+    /// serialization on spans, SGR bytes excluded from the tail
+    /// column arithmetic).
+    pub fn write_styled_to_scrollback(
+        &mut self,
+        writer: crate::scrollback::StyledScrollbackWriter<'_>,
+    ) -> Result<(), ScrollbackWriteError> {
+        if !self.split_capture_active {
+            return Err(ScrollbackWriteError::CaptureNotActive); // renderer.ts:2364-2366
+        }
+        let ctx = crate::scrollback::ScrollbackRenderContext {
+            width: self.config.width.max(1),
+            width_method: self.width_method(),
+            tail_column: self.get_pending_split_tail_column(),
+        };
+        let snapshot = writer(&ctx);
+        if snapshot.lines.is_empty() {
+            return Err(ScrollbackWriteError::EmptySnapshot); // renderer.ts:2383-2385
+        }
+        self.enqueue_styled_scrollback_commit(
+            snapshot.lines,
+            snapshot.row_columns,
+            snapshot.start_on_new_line,
+            snapshot.trailing_newline,
+        );
+        Ok(())
+    }
+
     /// `enqueueRenderedScrollbackCommit` (renderer.ts:2583-2614) —
     /// clamp the rowColumns budget, default the newline flags,
     /// enqueue ONE commit in the FIFO, and request a render so the
@@ -468,6 +546,40 @@ impl CliRenderer {
         };
         let commit = crate::scrollback::ExternalOutputCommit {
             lines,
+            styled: None,
+            row_columns,
+            start_on_new_line: start_on_new_line.unwrap_or(true), // :2612
+            trailing_newline: trailing_newline.unwrap_or(true),   // :2613
+        };
+        self.enqueue_split_commit(commit);
+        self.request_render(); // renderer.ts:2614
+    }
+
+    /// G-272⑩ — the styled sibling of
+    /// [`Self::enqueue_rendered_scrollback_commit`]: the payload rows
+    /// arrive as [`crate::buffer::CapturedLine`] span sets and enqueue
+    /// as a `styled` commit, so the tail-column arithmetic counts
+    /// span text (not SGR bytes) and the flush serializes the spans
+    /// to SGR runs. Same clamps and newline-flag defaults as the
+    /// plain enqueue.
+    pub fn enqueue_styled_scrollback_commit(
+        &mut self,
+        styled: Vec<crate::buffer::CapturedLine>,
+        row_columns: Option<u32>,
+        start_on_new_line: Option<bool>,
+        trailing_newline: Option<bool>,
+    ) {
+        let width = self.config.width.max(1);
+        let clamped =
+            crate::scrollback::snapshot_width_clamp(row_columns.unwrap_or(width), width);
+        let row_columns = if row_columns.is_some() {
+            clamped
+        } else {
+            width
+        };
+        let commit = crate::scrollback::ExternalOutputCommit {
+            lines: Vec::new(),
+            styled: Some(styled),
             row_columns,
             start_on_new_line: start_on_new_line.unwrap_or(true), // :2612
             trailing_newline: trailing_newline.unwrap_or(true),   // :2613

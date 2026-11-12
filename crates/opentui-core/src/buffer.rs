@@ -163,7 +163,7 @@ pub(crate) fn make_cell(char: u32, fg: Rgba, bg: Rgba, attributes: u32) -> Cell 
 
 /// A span of same-style cells — the capture unit (`CapturedSpan`,
 /// core/src/types.ts).
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct CapturedSpan {
     pub text: String,
     #[serde(with = "rgba_serde")]
@@ -174,7 +174,7 @@ pub struct CapturedSpan {
     pub width: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct CapturedLine {
     pub spans: Vec<CapturedSpan>,
 }
