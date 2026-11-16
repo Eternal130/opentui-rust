@@ -1124,3 +1124,168 @@ pub fn markdown_code_styled(
 ) -> crate::styled_text::StyledText {
     build_code_document(options, style).to_styled()
 }
+
+// -- top-level block model (internalBlockMode="top-level") --------------------
+
+/// One settled top-level block: the renderable spec plus the gap (in
+/// rows) the reference inserts BEFORE it.
+pub struct TopLevelBlock {
+    pub spec: BlockSpec,
+    /// rows of margin above this block (0 for the first block)
+    pub margin_top: usize,
+}
+
+/// `isSeparatedTopLevelBlock` (index.bun.js, the 0.5.14 top-level
+/// margin model): heading/list plus `shouldRenderSeparately`'s
+/// code/table/blockquote/hr.
+fn is_separated_top_level(token: &Token) -> bool {
+    matches!(
+        token,
+        Token::Heading { .. }
+            | Token::List { .. }
+            | Token::Code { .. }
+            | Token::Table { .. }
+            | Token::Blockquote { .. }
+            | Token::Hr { .. }
+    )
+}
+
+/// `shouldAddTopLevelMargin(prev, current, gapBefore)` (index.bun.js
+/// `buildTopLevelRenderBlocks`): the reference inserts one margin row
+/// when either neighbor is a separated block (heading/list/code/table/
+/// blockquote/hr), or — paragraph→paragraph only — when the source has
+/// a blank line between them (`TRAILING_MARKDOWN_BLOCK_BREAKS_RE` on
+/// `prev.raw + gapBefore`). This predicate SUBSUMES
+/// `getInterBlockMargin` (every inter-block margin case has a separated
+/// neighbor), so the top-level mode renders gaps from this alone.
+fn should_add_top_level_margin(prev: &Token, current: &Token, gap_before: &str) -> bool {
+    if is_separated_top_level(prev) || is_separated_top_level(current) {
+        return true;
+    }
+    if !matches!(prev, Token::Paragraph { .. }) || !matches!(current, Token::Paragraph { .. }) {
+        return false;
+    }
+    // TRAILING_MARKDOWN_BLOCK_BREAKS_RE = /(?:\r?\n){2,}$/ on
+    // prev.raw + gapBefore
+    let combined = format!("{}{}", prev.raw(), gap_before);
+    let trimmed = combined.trim_end_matches('\n');
+    combined.len() > trimmed.len() && combined.len() - trimmed.len() >= 2
+}
+
+/// The top-level spec for one lex token (the per-token arms of
+/// `build_markdown_blocks`, margin_bottom folded away — the top-level
+/// model renders gaps as margin_top only).
+fn top_level_spec(
+    token: &Token,
+    options: &MarkdownOptions,
+    style: &SyntaxStyle,
+) -> Option<BlockSpec> {
+    let conceal = options.conceal.unwrap_or(true);
+    match token {
+        Token::Code { text, lang, .. } => Some(BlockSpec::CodeBlock {
+            options: CodeOptions {
+                content: text.clone(),
+                filetype: lang
+                    .as_ref()
+                    .and_then(|l| crate::tree_sitter::info_string_to_filetype(l)),
+                conceal: options.conceal_code,
+                fg: options.fg,
+                bg: options.bg,
+                ..Default::default()
+            },
+            margin_bottom: 0,
+        }),
+        Token::Blockquote { text, .. } => Some(BlockSpec::Blockquote {
+            content: Box::new(BlockSpec::MarkdownText {
+                options: CodeOptions {
+                    content: if text.is_empty() {
+                        " ".to_owned()
+                    } else {
+                        text.clone()
+                    },
+                    filetype: Some("markdown".into()),
+                    conceal: Some(conceal),
+                    base_highlight: Some("markup.quote".into()),
+                    fg: options.fg,
+                    bg: options.bg,
+                    detect_links: true,
+                    hyperlinks_supported: options.hyperlinks_supported,
+                    ..Default::default()
+                },
+                margin_bottom: 0,
+            }),
+            border_color: blockquote_border_color(style, &options.fg),
+            margin_bottom: 0,
+        }),
+        Token::List { .. } => Some(build_list_spec(token, style, options, 0)),
+        Token::Hr { .. } => Some(BlockSpec::HorizontalRule {
+            border_color: hr_border_color(style, &options.fg),
+            margin_bottom: 0,
+        }),
+        Token::Table { .. } => Some(build_table_spec(token, style, options, 0)),
+        _ => {
+            // heading/paragraph/text/html/def — the markdown-text
+            // CodeRenderable over token.raw (createDefaultRenderable's
+            // getTopLevelBlockRaw fallback arm). The block's trailing
+            // newline is margin, not content: the reference's gap comes
+            // from shouldAddTopLevelMargin (a content trailing \n would
+            // render a blank row AND double the margin).
+            let raw = token.raw().trim_end_matches('\n').to_owned();
+            if raw.is_empty() {
+                return None;
+            }
+            Some(BlockSpec::MarkdownText {
+                options: CodeOptions {
+                    content: raw,
+                    filetype: Some("markdown".into()),
+                    conceal: Some(conceal),
+                    fg: options.fg,
+                    bg: options.bg,
+                    detect_links: true,
+                    markdown_link_highlights: true,
+                    hyperlinks_supported: options.hyperlinks_supported,
+                    ..Default::default()
+                },
+                margin_bottom: 0,
+            })
+        }
+    }
+}
+
+/// `updateTopLevelRenderBlocks` settled shape for
+/// `internalBlockMode="top-level"`: every top-level lex token is its
+/// own block (NO scrollback coalescing — that is the internal/scroll
+/// mode's `buildRenderableTokens`), and the gap before block i is
+/// `shouldAddTopLevelMargin(block[i-1], block[i], gapBefore)`.
+pub fn build_markdown_blocks_top_level(
+    options: &MarkdownOptions,
+    style: &SyntaxStyle,
+) -> Vec<TopLevelBlock> {
+    let tokens = markdown_parser::lex(&options.content);
+    let mut blocks: Vec<TopLevelBlock> = Vec::new();
+    let mut prev: Option<&Token> = None;
+    let mut gap_before = String::new();
+    for token in &tokens {
+        if matches!(token, Token::Space { .. }) {
+            gap_before.push_str(token.raw());
+            continue;
+        }
+        let Some(spec) = top_level_spec(token, options, style) else {
+            continue;
+        };
+        let margin_top = match prev {
+            Some(prev) => {
+                if should_add_top_level_margin(prev, token, &gap_before) {
+                    1
+                } else {
+                    0
+                }
+            }
+            None => 0,
+        };
+        blocks.push(TopLevelBlock { spec, margin_top });
+        prev = Some(token);
+        gap_before.clear();
+    }
+    blocks
+}
