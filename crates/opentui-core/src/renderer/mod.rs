@@ -57,8 +57,8 @@ pub(crate) use crate::renderables::scrollbox;
 pub(crate) use crate::renderables::text::{TextOptions, TextRenderableState};
 pub(crate) use crate::renderables::textarea::{TextareaOptions, TextareaState};
 pub(crate) use std::sync::Arc;
-pub(crate) use taffy::tree::TaffyTree;
 pub(crate) use taffy::prelude as tp;
+pub(crate) use taffy::tree::TaffyTree;
 
 pub trait RendererTerminalSession {
     /// Write raw escape bytes to the session's output and flush
@@ -265,7 +265,6 @@ pub struct CliRenderer {
     /// self.renderOffset)`).
     render_offset: u32,
 }
-
 
 pub(crate) use std::collections::HashMap;
 
@@ -1585,7 +1584,6 @@ impl CliRenderer {
             let _ = self.tree.mark_dirty(n);
         }
     }
-
 }
 
 /// The length of the first complete protocol unit in `data`, or
@@ -1726,7 +1724,6 @@ fn wrapper_text_sources(wrapper: &Renderable) -> Vec<u32> {
         .collect()
 }
 
-
 // ---- split-footer scrollback runtime base (D1b-core) protocol tests ----
 
 #[cfg(test)]
@@ -1790,13 +1787,11 @@ mod scrollback_runtime_tests {
         let mut r = create_cli_renderer(CliRendererConfig::default());
         r.set_split_footer_capture(true);
         // no listener → no emission, but the commit still queues
-        r.write_to_scrollback(Box::new(|_| {
-            ScrollbackSnapshot {
-                row_columns: Some(40),
-                start_on_new_line: Some(false),
-                trailing_newline: Some(true),
-                ..snapshot(&["payload"])
-            }
+        r.write_to_scrollback(Box::new(|_| ScrollbackSnapshot {
+            row_columns: Some(40),
+            start_on_new_line: Some(false),
+            trailing_newline: Some(true),
+            ..snapshot(&["payload"])
         }))
         .unwrap();
         assert_eq!(r.external_output_queue_size(), 1);
@@ -1840,7 +1835,10 @@ mod scrollback_runtime_tests {
         }
         assert_eq!(r.external_output_queue_size(), 10);
         // bounded flush: 8 of 10
-        assert_eq!(r.flush_pending_split_commits(false, false), SplitFlushStatus::Rendered);
+        assert_eq!(
+            r.flush_pending_split_commits(false, false),
+            SplitFlushStatus::Rendered
+        );
         assert_eq!(r.external_output_queue_size(), 2);
         // transcript bytes landed in FIFO order with newline intent
         assert_eq!(r.split_transcript(), "0\n1\n2\n3\n4\n5\n6\n7\n");
@@ -1861,14 +1859,14 @@ mod scrollback_runtime_tests {
     fn disarm_flushes_and_clears() {
         let mut r = create_cli_renderer(CliRendererConfig::default());
         r.set_split_footer_capture(true);
-        r.write_to_scrollback(Box::new(|_| snapshot(&["tail"],)))
+        r.write_to_scrollback(Box::new(|_| snapshot(&["tail"])))
             .unwrap();
         assert_eq!(r.external_output_queue_size(), 1);
         r.set_split_footer_capture(false);
         assert_eq!(r.external_output_queue_size(), 0);
         assert!(!r.is_split_footer_capture_active());
         assert_eq!(r.split_transcript(), "tail\n"); // payload + trailing newline
-        // after disarm, writes are rejected again
+                                                    // after disarm, writes are rejected again
         assert_eq!(
             r.write_to_scrollback(Box::new(|_| snapshot(&["x"]))),
             Err(ScrollbackWriteError::CaptureNotActive)
@@ -2674,7 +2672,10 @@ mod tests {
         assert_eq!(m.external_output_mode, ExternalOutputMode::CaptureStdout);
         let mut c = split_config();
         c.footer_height = None;
-        assert_eq!(resolve_modes(&c).unwrap().footer_height, DEFAULT_FOOTER_HEIGHT);
+        assert_eq!(
+            resolve_modes(&c).unwrap().footer_height,
+            DEFAULT_FOOTER_HEIGHT
+        );
 
         // non-split modes keep DEFAULT_FOOTER_HEIGHT regardless
         // (:375-376)
@@ -2694,8 +2695,10 @@ mod tests {
         );
 
         // capture-stdout requires split-footer (:384-386)
-        let mut c = CliRendererConfig::default();
-        c.external_output_mode = Some(ExternalOutputMode::CaptureStdout);
+        let c = CliRendererConfig {
+            external_output_mode: Some(ExternalOutputMode::CaptureStdout),
+            ..Default::default()
+        };
         assert_eq!(
             resolve_modes(&c),
             Err(RendererModeError::CaptureRequiresSplitFooter)
@@ -2855,13 +2858,20 @@ mod tests {
             height: 24,
             ..split_config()
         });
-        assert_eq!(r.set_footer_height(0), Err(RendererModeError::FooterHeightNotPositive));
+        assert_eq!(
+            r.set_footer_height(0),
+            Err(RendererModeError::FooterHeightNotPositive)
+        );
         assert_eq!(r.footer_height(), 8, "rejected value not stored");
         r.set_footer_height(8).unwrap();
         assert_eq!(r.render_offset(), 16, "same value is a no-op (:1770-1771)");
         r.set_footer_height(6).unwrap();
         assert_eq!(r.footer_height(), 6);
-        assert_eq!((r.width(), r.height()), (80, 6), "band re-derived (:3160-3161)");
+        assert_eq!(
+            (r.width(), r.height()),
+            (80, 6),
+            "band re-derived (:3160-3161)"
+        );
         assert_eq!(r.render_offset(), 18);
         // non-split modes store without touching geometry (:1770-1772's
         // split-footer-only applyScreenMode)
@@ -2956,7 +2966,10 @@ mod tests {
         assert!(commit.start_on_new_line);
         assert!(commit.trailing_newline);
         assert!(
-            commit.lines.iter().any(|l| l.trim_end().starts_with("hello surface")),
+            commit
+                .lines
+                .iter()
+                .any(|l| l.trim_end().starts_with("hello surface")),
             "painted rows carry the entry text: {:?}",
             commit.lines
         );
@@ -3027,8 +3040,10 @@ mod tests {
         .unwrap();
         r.flush_pending_split_commits(false, true);
 
-        let mut caps = TerminalCapabilities::default();
-        caps.unicode = WidthMethod::UnicodeWide;
+        let caps = TerminalCapabilities {
+            unicode: WidthMethod::UnicodeWide,
+            ..Default::default()
+        };
         r.set_capabilities(caps);
         assert_eq!(r.width_method(), WidthMethod::UnicodeWide);
         r.write_to_scrollback(Box::new(|ctx| {
@@ -3041,4 +3056,3 @@ mod tests {
         .unwrap();
     }
 }
-

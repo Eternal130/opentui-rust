@@ -243,7 +243,6 @@ impl std::error::Error for RendererModeError {}
 /// `normalizeFooterHeight` (renderer.ts:348-362) — `None` →
 /// [`DEFAULT_FOOTER_HEIGHT`]; a value must be ≥ 1 (upstream's
 /// non-finite check is impossible for `u32`).
-#[must_use]
 pub fn normalize_footer_height(footer_height: Option<u32>) -> Result<u32, RendererModeError> {
     match footer_height {
         None => Ok(DEFAULT_FOOTER_HEIGHT), // renderer.ts:349-351

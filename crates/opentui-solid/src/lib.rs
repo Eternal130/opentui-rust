@@ -120,7 +120,10 @@ pub fn render(
 /// (upstream mounts the footer component with exactly this call
 /// shape). [`SolidRenderer::dispose_root`] is the disposeFn half.
 #[must_use]
-pub fn render_into(renderer: opentui_core::renderer::CliRenderer, tree: element::Element) -> SolidRenderer {
+pub fn render_into(
+    renderer: opentui_core::renderer::CliRenderer,
+    tree: element::Element,
+) -> SolidRenderer {
     let mut sr = SolidRenderer::with_renderer(renderer);
     sr.render_root(tree);
     sr

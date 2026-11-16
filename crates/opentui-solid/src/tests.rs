@@ -789,7 +789,7 @@ fn render_into_mounts_on_live_renderer_root() {
     });
     assert_eq!((renderer.width(), renderer.height()), (30, 4));
 
-    let mut s = crate::render_into(
+    let s = crate::render_into(
         renderer,
         text_! { key: "footer", content: "inband" }.into_element(),
     );

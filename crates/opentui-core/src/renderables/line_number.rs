@@ -770,9 +770,7 @@ mod tests {
         state.line_colors_content.insert(1, parse_color("#1a4d1a"));
         let mut buffer = OptimizedBuffer::new(20, 6);
         let sources = [0u32, 1];
-        paint_line_number_self(
-            &state, &mut buffer, 6, 3, 14, 2, true, 4, &sources, None, 0,
-        );
+        paint_line_number_self(&state, &mut buffer, 6, 3, 14, 2, true, 4, &sources, None, 0);
         // row 3, after the gutter → removed bg at x=6+4
         assert_eq!(buffer.get(10, 3).expect("row3").bg, parse_color("#4d1a1a"));
         assert_eq!(buffer.get(10, 4).expect("row4").bg, parse_color("#1a4d1a"));

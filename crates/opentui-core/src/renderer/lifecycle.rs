@@ -24,7 +24,8 @@ impl CliRenderer {
         self.capabilities
             .as_ref()
             .map(|caps| caps.unicode)
-            .unwrap_or_default()    }
+            .unwrap_or_default()
+    }
 
     /// Store the probe's capability snapshot (`_capabilities`,
     /// renderer.ts:925) — feeds [`CliRenderer::width_method`] and the
@@ -109,7 +110,7 @@ impl CliRenderer {
             return; // applyScreenMode's same-geometry early return, renderer.ts:3023-3025
         }
         self.render_offset = geometry.render_offset; // :3057/:3136-3137
-        self.config.width = width;  // renderer.ts:3160-3161
+        self.config.width = width; // renderer.ts:3160-3161
         self.config.height = height;
         self.next_render_buffer = OptimizedBuffer::new(width, height); // resizeRenderer
         self.current_render_buffer = OptimizedBuffer::new(width, height);
@@ -310,11 +311,14 @@ impl CliRenderer {
             resolve_with = Some(self.theme_mode);
         } else {
             let now = self.performance_now();
-            if let Some((_, deadline)) = self.theme_waiters.iter().find(|(wid, _)| *wid == id) {
-                if let Some(deadline) = *deadline {
-                    if now >= deadline {
-                        resolve_with = Some(self.theme_mode); // timeout → current (possibly null)
-                    }
+            if let Some((_, Some(deadline))) = self
+                .theme_waiters
+                .iter()
+                .find(|(wid, _)| *wid == id)
+                .copied()
+            {
+                if now >= deadline {
+                    resolve_with = Some(self.theme_mode); // timeout → current (possibly null)
                 }
             }
         }

@@ -60,20 +60,12 @@ pub type OnChunksCallback<'a> =
 /// built-ins ride as the `detect_links`/`markdown_link_highlights`
 /// flags on [`CodeOptions`]; these hooks run BEFORE the built-ins,
 /// matching upstream's single-hook call sites.
+#[derive(Default)]
 pub struct CodePipelineHooks<'a> {
     /// `onHighlight` (Code.ts:354-357 — after the worker highlights).
     pub on_highlight: Option<Box<OnHighlightCallback<'a>>>,
     /// `onChunks` (Code.ts:411-417 — after `treeSitterToTextChunks`).
     pub on_chunks: Option<Box<OnChunksCallback<'a>>>,
-}
-
-impl Default for CodePipelineHooks<'_> {
-    fn default() -> Self {
-        CodePipelineHooks {
-            on_highlight: None,
-            on_chunks: None,
-        }
-    }
 }
 
 impl CodePipelineHooks<'_> {

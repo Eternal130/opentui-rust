@@ -227,6 +227,9 @@ impl TextBufferView {
     /// expands the endpoints (`SelectionBehavior`,
     /// text-buffer-view.zig:46-51). Returns whether a non-empty
     /// selection resulted.
+    // Mirrors the 7-arg upstream signature (text-buffer-view.ts);
+    // restructuring the API just for lint parity is not worth it.
+    #[allow(clippy::too_many_arguments)]
     pub fn set_local_selection(
         &mut self,
         anchor_x: u32,
@@ -251,6 +254,8 @@ impl TextBufferView {
 
     /// `updateLocalSelection(...)` (text-buffer-view.ts:96-114) — keeps
     /// the anchor cell, moves the focus cell.
+    // See set_local_selection: upstream-mirrored 7-arg signature.
+    #[allow(clippy::too_many_arguments)]
     pub fn update_local_selection(
         &mut self,
         _anchor_x: u32,

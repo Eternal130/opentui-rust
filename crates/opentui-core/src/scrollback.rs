@@ -391,7 +391,12 @@ pub fn snapshot_height_clamp(value: u32) -> u32 {
 mod tests {
     use super::*;
 
-    fn commit(lines: &[&str], row_columns: u32, start: bool, trailing: bool) -> ExternalOutputCommit {
+    fn commit(
+        lines: &[&str],
+        row_columns: u32,
+        start: bool,
+        trailing: bool,
+    ) -> ExternalOutputCommit {
         ExternalOutputCommit {
             lines: lines.iter().map(|s| (*s).to_owned()).collect(),
             styled: None,
@@ -467,25 +472,52 @@ mod tests {
     #[test]
     fn tail_column_after_commit_newline_ownership() {
         // single row, trailingNewline → 0 (renderer.ts:2560-2561)
-        assert_eq!(tail_column_after_commit(&commit(&["hello"], 80, true, true), 4, 80), 0);
+        assert_eq!(
+            tail_column_after_commit(&commit(&["hello"], 80, true, true), 4, 80),
+            0
+        );
         // single row, NO trailingNewline → tail advanced by row width
         // (startOnNewLine reset the mid-row cursor first)
-        assert_eq!(tail_column_after_commit(&commit(&["hello"], 80, true, false), 4, 80), 5);
+        assert_eq!(
+            tail_column_after_commit(&commit(&["hello"], 80, true, false), 4, 80),
+            5
+        );
         // startOnNewLine resets a mid-row cursor (renderer.ts:2553-2555)
-        assert_eq!(tail_column_after_commit(&commit(&["hi"], 80, true, false), 40, 80), 2);
+        assert_eq!(
+            tail_column_after_commit(&commit(&["hi"], 80, true, false), 40, 80),
+            2
+        );
         // startOnNewLine=false on a mid-row cursor keeps appending
-        assert_eq!(tail_column_after_commit(&commit(&["hi"], 80, false, false), 40, 80), 42);
+        assert_eq!(
+            tail_column_after_commit(&commit(&["hi"], 80, false, false), 40, 80),
+            42
+        );
         // two rows: between-row reset (renderer.ts:2559-2560)
-        assert_eq!(tail_column_after_commit(&commit(&["ab", "cd"], 80, true, false), 0, 80), 2);
-        assert_eq!(tail_column_after_commit(&commit(&["ab", "cd"], 80, true, true), 0, 80), 0);
+        assert_eq!(
+            tail_column_after_commit(&commit(&["ab", "cd"], 80, true, false), 0, 80),
+            2
+        );
+        assert_eq!(
+            tail_column_after_commit(&commit(&["ab", "cd"], 80, true, true), 0, 80),
+            0
+        );
         // empty payload: zero rows iterate → no advance, but the
         // startOnNewLine reset still applies (renderer.ts:2553-2555
         // runs before the row loop)
-        assert_eq!(tail_column_after_commit(&commit(&[], 80, true, true), 7, 80), 0);
-        assert_eq!(tail_column_after_commit(&commit(&[], 80, false, true), 7, 80), 7);
+        assert_eq!(
+            tail_column_after_commit(&commit(&[], 80, true, true), 7, 80),
+            0
+        );
+        assert_eq!(
+            tail_column_after_commit(&commit(&[], 80, false, true), 7, 80),
+            7
+        );
         // rowColumns budget trims trailing blanks (renderer.ts:2497-2519):
         // "ab   " under a budget of 3 occupies 2 columns
-        assert_eq!(tail_column_after_commit(&commit(&["ab   "], 3, true, false), 0, 80), 2);
+        assert_eq!(
+            tail_column_after_commit(&commit(&["ab   "], 3, true, false), 0, 80),
+            2
+        );
     }
 
     // ---- row widths + transcript rows ----
@@ -609,8 +641,14 @@ mod tests {
         let c = styled_commit(vec![crate::buffer::CapturedLine { spans: vec![tail] }]);
         assert_eq!(c.row_widths(), vec![2]);
         let bytes = c.transcript_bytes(0);
-        assert!(bytes.contains("hi\r"), "the CR rides the payload: {bytes:?}");
-        assert!(bytes.ends_with("\x1b[0m\n") || bytes.ends_with("hi\r\x1b[0m\n"), "{bytes:?}");
+        assert!(
+            bytes.contains("hi\r"),
+            "the CR rides the payload: {bytes:?}"
+        );
+        assert!(
+            bytes.ends_with("\x1b[0m\n") || bytes.ends_with("hi\r\x1b[0m\n"),
+            "{bytes:?}"
+        );
     }
 
     // ---- snapshot clamps (renderer.ts:2477-2499) ----

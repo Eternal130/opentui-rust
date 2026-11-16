@@ -146,14 +146,17 @@ impl ScrollbackSurface {
     /// build the scratch renderer at width×1, and mount the public
     /// box root (position absolute at 0,0, full width, auto height,
     /// no border/fill, column flow — renderer.ts:2016-2029).
-    fn new(parent: &CliRenderer, options: ScrollbackSurfaceOptions) -> Result<Self, ScrollbackSurfaceError> {
+    fn new(
+        parent: &CliRenderer,
+        options: ScrollbackSurfaceOptions,
+    ) -> Result<Self, ScrollbackSurfaceError> {
         static SURFACE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let surface_id = SURFACE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         let start_on_new_line = options.start_on_new_line.unwrap_or(true); // :1992
-        // firstLineOffset (:1993-1994) — the port's paint is
-        // full-width (the tail-column math owns the splice), so the
-        // offset only feeds the first commit's startOnNewLine default.
+                                                                           // firstLineOffset (:1993-1994) — the port's paint is
+                                                                           // full-width (the tail-column math owns the splice), so the
+                                                                           // offset only feeds the first commit's startOnNewLine default.
         let tail_column = parent.get_pending_split_tail_column();
         let _first_line_offset =
             !start_on_new_line && tail_column > 0 && tail_column < parent.width().max(1);
@@ -537,8 +540,7 @@ impl CliRenderer {
         trailing_newline: Option<bool>,
     ) {
         let width = self.config.width.max(1);
-        let clamped =
-            crate::scrollback::snapshot_width_clamp(row_columns.unwrap_or(width), width);
+        let clamped = crate::scrollback::snapshot_width_clamp(row_columns.unwrap_or(width), width);
         let row_columns = if row_columns.is_some() {
             clamped
         } else {
@@ -570,8 +572,7 @@ impl CliRenderer {
         trailing_newline: Option<bool>,
     ) {
         let width = self.config.width.max(1);
-        let clamped =
-            crate::scrollback::snapshot_width_clamp(row_columns.unwrap_or(width), width);
+        let clamped = crate::scrollback::snapshot_width_clamp(row_columns.unwrap_or(width), width);
         let row_columns = if row_columns.is_some() {
             clamped
         } else {
@@ -606,8 +607,7 @@ impl CliRenderer {
         let width = self.config.width.max(1);
         let mut tail_column = self.split_tail_column;
         for commit in self.external_output_queue.peek(usize::MAX) {
-            tail_column =
-                crate::scrollback::tail_column_after_commit(commit, tail_column, width);
+            tail_column = crate::scrollback::tail_column_after_commit(commit, tail_column, width);
         }
         tail_column
     }
@@ -632,10 +632,7 @@ impl CliRenderer {
         } else {
             MAX_SPLIT_COMMITS_PER_FRAME
         };
-        let commits: Vec<_> = self
-            .external_output_queue
-            .peek(limit)
-            .to_vec();
+        let commits: Vec<_> = self.external_output_queue.peek(limit).to_vec();
         let mut accepted = 0usize;
         let mut failed = false;
         let mut pending_bytes = String::new();
@@ -648,8 +645,11 @@ impl CliRenderer {
             pending_bytes.push_str(&commit.transcript_bytes(tail_column));
             // record the tail AFTER this commit (recordSplitCommit,
             // renderer.ts:2568-2570 via :2796)
-            tail_column =
-                crate::scrollback::tail_column_after_commit(commit, tail_column, self.config.width.max(1));
+            tail_column = crate::scrollback::tail_column_after_commit(
+                commit,
+                tail_column,
+                self.config.width.max(1),
+            );
             accepted += 1;
         }
 
@@ -785,7 +785,10 @@ impl CliRenderer {
     /// `_terminalIsSetup`; the port treats a headless renderer (no
     /// attached session) as active too, since the headless transcript
     /// model IS its terminal (bounded divergence).
-    pub fn reset_split_footer_for_replay(&mut self, clear_saved_lines: bool) -> Result<(), ScrollbackSurfaceError> {
+    pub fn reset_split_footer_for_replay(
+        &mut self,
+        clear_saved_lines: bool,
+    ) -> Result<(), ScrollbackSurfaceError> {
         if self.destroyed {
             return Ok(()); // renderer.ts:2448
         }
@@ -796,9 +799,9 @@ impl CliRenderer {
         }
         self.flush_pending_split_output_before_transition(true); // :2460
         self.external_output_queue.clear(); // :2461
-        // resetSplitScrollback (:2462 → :2921-2924): the native
-        // transcript cursor resets; the port's tracked tail resets
-        // with it.
+                                            // resetSplitScrollback (:2462 → :2921-2924): the native
+                                            // transcript cursor resets; the port's tracked tail resets
+                                            // with it.
         self.split_tail_column = 0;
         // clearSavedLines (:2471) — the transcript model is the port's
         // saved-lines view.
@@ -829,5 +832,4 @@ impl CliRenderer {
         self.request_render(); // :2474
         Ok(())
     }
-
 }

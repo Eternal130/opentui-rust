@@ -112,7 +112,6 @@ pub(crate) type RendererEventListener = Box<dyn FnMut(&CliRenderEvent) + Send>;
 /// [`crate::terminal::Terminal`] the lifecycle methods need. The
 /// renderer "holds the Phase A Terminal session" through this trait so
 /// mock ttys and PTY slaves substitute exactly like the pump tests.
-
 impl CliRenderer {
     /// `notifySelectablesOfSelectionChange` (renderer.ts:5054-5077) —
     /// deliver the global selection (or its absence) to the anchor
@@ -172,7 +171,10 @@ impl CliRenderer {
         root.children.iter().find_map(|c| self.find_node(c, id))
     }
 
-    pub(crate) fn find_node_mut<'a>(root: &'a mut Renderable, id: &str) -> Option<&'a mut Renderable> {
+    pub(crate) fn find_node_mut<'a>(
+        root: &'a mut Renderable,
+        id: &str,
+    ) -> Option<&'a mut Renderable> {
         if root.id.0 == id {
             return Some(root);
         }
@@ -188,7 +190,11 @@ impl CliRenderer {
     /// `addToHitGrid` walk: every VISIBLE renderable adds its rect in
     /// paint order (Renderable.ts:1481-1493). The captured renderable
     /// is skipped (renderer.ts:1450-1452).
-    pub(crate) fn collect_hit_rects(node: &Renderable, captured: Option<&str>, grid: &mut Vec<HitRect>) {
+    pub(crate) fn collect_hit_rects(
+        node: &Renderable,
+        captured: Option<&str>,
+        grid: &mut Vec<HitRect>,
+    ) {
         if !node.visible {
             return;
         }
@@ -895,12 +901,12 @@ impl CliRenderer {
         // destroys immediately and likewise continues dispatch —
         // bounded divergence (no microtask queue in the sync port).
         if self.config.exit_on_ctrl_c {
-            let event_like =
-                crate::keybinding::KeyBindingLookup {
-                    binding: crate::keybinding::KeyBindingLike::from(&key),
-                    base_code: None,
-                };
-            let ctrl_c = crate::keybinding::KeyBindingLike::with_mods("c", true, false, false, false);
+            let event_like = crate::keybinding::KeyBindingLookup {
+                binding: crate::keybinding::KeyBindingLike::from(&key),
+                base_code: None,
+            };
+            let ctrl_c =
+                crate::keybinding::KeyBindingLike::with_mods("c", true, false, false, false);
             if crate::keybinding::matches_key_binding(&event_like, &ctrl_c) {
                 self.destroy();
             }

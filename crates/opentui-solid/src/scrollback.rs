@@ -226,7 +226,11 @@ mod tests {
         // outside the split-footer capture mode the gate rejects
         // (renderer.ts:2364-2366)
         assert!(matches!(
-            write_solid_to_scrollback(&mut renderer, || crate::text_! { content: "hi" }.into_element(), Default::default()),
+            write_solid_to_scrollback(
+                &mut renderer,
+                || crate::text_! { content: "hi" }.into_element(),
+                Default::default()
+            ),
             Err(ScrollbackWriteError::CaptureNotActive)
         ));
 

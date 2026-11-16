@@ -555,10 +555,7 @@ fn pty_write_to_scrollback_flushes_through_session() {
         text.contains("scrollback row one\nrow two\n"),
         "transcript rows in order with newline intent, got {text:?}"
     );
-    assert_eq!(
-        r.split_transcript(),
-        "scrollback row one\nrow two\n"
-    );
+    assert_eq!(r.split_transcript(), "scrollback row one\nrow two\n");
 }
 
 /// The split-footer SURFACE live path end-to-end over the PTY: a

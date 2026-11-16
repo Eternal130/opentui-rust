@@ -1,7 +1,7 @@
 //! Scenario loading + the Rust-side capture (mirrors js/driver.ts).
 
-use anyhow::{Context, Result};
 use crate::tree;
+use anyhow::{Context, Result};
 use opentui_core::color::parse_color;
 use opentui_core::editor::SelectionBehavior;
 use opentui_core::events::KeyEvent;

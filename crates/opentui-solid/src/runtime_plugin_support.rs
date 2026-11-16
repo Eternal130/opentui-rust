@@ -40,6 +40,7 @@ pub struct RuntimePluginRewriteOptions {
 
 /// `SolidRuntimePluginSupportOptions`
 /// (runtime-plugin-support-configure.ts:20-24).
+#[derive(Default)]
 pub struct SolidRuntimePluginSupportOptions<'a> {
     /// `additional` — extra runtime modules beyond the defaults.
     pub additional: &'a [(&'a str, &'a str)],
@@ -47,16 +48,6 @@ pub struct SolidRuntimePluginSupportOptions<'a> {
     /// identity (what `options.core !== install.core` compares).
     pub core: Option<&'a str>,
     pub rewrite: Option<RuntimePluginRewriteOptions>,
-}
-
-impl Default for SolidRuntimePluginSupportOptions<'_> {
-    fn default() -> Self {
-        SolidRuntimePluginSupportOptions {
-            additional: &[],
-            core: None,
-            rewrite: None,
-        }
-    }
 }
 
 /// `defaultRuntimeModules`

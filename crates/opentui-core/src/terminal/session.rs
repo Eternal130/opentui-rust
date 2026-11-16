@@ -221,10 +221,7 @@ impl<T: TtyDevice, W: io::Write> Terminal<T, W> {
                 // split-footer runtime base (D1b-core). Upstream's
                 // `setCursorPosition(1, 1, false)` right after
                 // (renderer.zig:571) is state-only, no bytes.
-                modes::make_room_for_renderer_output(
-                    &mut out,
-                    opts.reserve_surface_height.max(1),
-                )?;
+                modes::make_room_for_renderer_output(&mut out, opts.reserve_surface_height.max(1))?;
             }
             out.write_all(modes::MODIFY_OTHER_KEYS_ENABLE)?; // terminal.zig:410
             state.modify_other_keys = true;

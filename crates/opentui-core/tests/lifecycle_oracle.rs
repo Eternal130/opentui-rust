@@ -21,10 +21,8 @@
 
 use opentui_core::color::Rgba;
 use opentui_core::create_cli_renderer;
-use opentui_core::renderer::{
-    CliRenderEvent, CliRenderer, CliRendererConfig, ThemeModeWait, ThemeWaitPoll,
-};
 use opentui_core::renderables::text::TextOptions;
+use opentui_core::renderer::{CliRenderEvent, CliRenderer, CliRendererConfig, ThemeModeWait};
 
 fn renderer() -> CliRenderer {
     create_cli_renderer(CliRendererConfig::default())
@@ -83,7 +81,11 @@ fn settle_sequential_batches_exact_frame_count() {
     r.add_text("t", &TextOptions::default());
     let base = r.frame_id();
     for batch in 1..=10u64 {
-        assert_eq!(flush_batch(&mut r, 1 + (batch % 5) as u32), 1, "batch {batch}");
+        assert_eq!(
+            flush_batch(&mut r, 1 + (batch % 5) as u32),
+            1,
+            "batch {batch}"
+        );
     }
     assert_eq!(r.frame_id(), base + 10);
 }
@@ -99,7 +101,11 @@ fn settle_re_request_after_settle_flushes_fresh_batch() {
     let mut r = renderer();
     r.add_text("t", &TextOptions::default());
     assert_eq!(flush_batch(&mut r, 1), 1);
-    assert_eq!(flush_batch(&mut r, 1), 1, "the next batch flushes its own frame");
+    assert_eq!(
+        flush_batch(&mut r, 1),
+        1,
+        "the next batch flushes its own frame"
+    );
     let before = r.frame_id();
     r.settle(64);
     assert_eq!(r.frame_id(), before, "idle settle paints nothing");
@@ -240,7 +246,10 @@ fn lifecycle_wait_for_theme_mode_state_machine() {
     r.emit_terminal_event(CliRenderEvent::ThemeMode {
         mode: opentui_core::renderer::ThemeMode::Dark,
     });
-    assert_eq!(r.theme_mode(), Some(opentui_core::renderer::ThemeMode::Dark));
+    assert_eq!(
+        r.theme_mode(),
+        Some(opentui_core::renderer::ThemeMode::Dark)
+    );
     assert_eq!(
         r.poll_theme_mode_wait(id),
         Some(opentui_core::renderer::ThemeWaitPoll::Resolved(Some(
@@ -292,7 +301,10 @@ fn lifecycle_use_mouse_runtime_toggle() {
     // renderer.ts:1725-1737: enabling invalidates (a frame is
     // scheduled); disabling does not; unchanged toggles are no-ops.
     let mut r = renderer();
-    assert!(r.config.use_mouse, "default useMouse=true (renderer.ts:1222)");
+    assert!(
+        r.config.use_mouse,
+        "default useMouse=true (renderer.ts:1222)"
+    );
     r.set_use_mouse(true);
     assert!(!r.is_render_pending(), "unchanged toggle is a no-op");
 
@@ -305,7 +317,11 @@ fn lifecycle_use_mouse_runtime_toggle() {
     let before = r.frame_id();
     r.set_use_mouse(true);
     r.settle(64);
-    assert_eq!(r.frame_id() - before, 1, "enable invalidates (renderer.ts:1733)");
+    assert_eq!(
+        r.frame_id() - before,
+        1,
+        "enable invalidates (renderer.ts:1733)"
+    );
 }
 
 // ---------------------------------------------------------------------------

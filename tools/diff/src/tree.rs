@@ -101,7 +101,10 @@ fn emit_forest_node(
         .context("tree node needs kind")?
         .to_owned();
     let style = obj.get("style").cloned().unwrap_or(serde_json::Value::Null);
-    let passthrough = obj.get("options").cloned().unwrap_or(serde_json::Value::Null);
+    let passthrough = obj
+        .get("options")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
 
     // absolute placement options (position/left/top/width/height)
     let mut rect_opts = serde_json::Map::new();
@@ -161,7 +164,10 @@ fn emit_forest_node(
             push("text", &id, parent, opts, steps);
             // text children would need TextNodeRenderable semantics —
             // not part of the v1 tree contract
-            if obj.get("children").is_some_and(|c| c.as_array().is_some_and(|a| !a.is_empty())) {
+            if obj
+                .get("children")
+                .is_some_and(|c| c.as_array().is_some_and(|a| !a.is_empty()))
+            {
                 anyhow::bail!("tree node {id}: text nodes take no children (use content)");
             }
         }
@@ -215,8 +221,13 @@ fn emit_children(
 }
 
 /// `style` → box option spellings (same names the step DSL uses).
-fn merge_style_box(style: &serde_json::Value, opts: &mut serde_json::Map<String, serde_json::Value>) -> Result<()> {
-    let Some(s) = style.as_object() else { return Ok(()) };
+fn merge_style_box(
+    style: &serde_json::Value,
+    opts: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<()> {
+    let Some(s) = style.as_object() else {
+        return Ok(());
+    };
     for (from, to) in [
         ("bg", "backgroundColor"),
         ("border", "border"),
@@ -234,8 +245,13 @@ fn merge_style_box(style: &serde_json::Value, opts: &mut serde_json::Map<String,
 }
 
 /// `style` → text option spellings.
-fn merge_style_text(style: &serde_json::Value, opts: &mut serde_json::Map<String, serde_json::Value>) -> Result<()> {
-    let Some(s) = style.as_object() else { return Ok(()) };
+fn merge_style_text(
+    style: &serde_json::Value,
+    opts: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<()> {
+    let Some(s) = style.as_object() else {
+        return Ok(());
+    };
     for key in ["fg", "bg", "attributes"] {
         if let Some(v) = s.get(key) {
             opts.insert(key.into(), v.clone());
@@ -261,7 +277,10 @@ mod tests {
     use serde_json::json;
 
     fn steps_of(v: serde_json::Value) -> Vec<serde_json::Value> {
-        desugar_scenario(v).unwrap()["steps"].as_array().unwrap().clone()
+        desugar_scenario(v).unwrap()["steps"]
+            .as_array()
+            .unwrap()
+            .clone()
     }
 
     #[test]
@@ -400,6 +419,9 @@ mod tests {
         assert_eq!(lines.len(), 8);
         assert!(lines[1].starts_with(" ┌"), "panel border top at row 1");
         assert!(lines[6].starts_with(" └"), "panel border bottom at row 6");
-        assert!(lines[2].contains("hi"), "flow text child rendered inside panel");
+        assert!(
+            lines[2].contains("hi"),
+            "flow text child rendered inside panel"
+        );
     }
 }
