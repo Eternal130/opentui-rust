@@ -1275,14 +1275,8 @@ pub fn build_markdown_blocks_top_level(
             continue;
         };
         let margin_top = match prev {
-            Some(prev) => {
-                if should_add_top_level_margin(prev, token, &gap_before) {
-                    1
-                } else {
-                    0
-                }
-            }
-            None => 0,
+            Some(prev) if should_add_top_level_margin(prev, token, &gap_before) => 1,
+            _ => 0,
         };
         blocks.push(TopLevelBlock { spec, margin_top });
         prev = Some(token);
