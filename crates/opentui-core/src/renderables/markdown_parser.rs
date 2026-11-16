@@ -312,10 +312,6 @@ fn rtrim(s: &str, c: char) -> String {
     s.trim_end_matches(c).to_owned()
 }
 
-fn rtrim_spaces_tabs(s: &str) -> String {
-    s.trim_end_matches([' ', '\t']).to_owned()
-}
-
 // ---------------------------------------------------------------------------
 // the lexer
 // ---------------------------------------------------------------------------
@@ -1213,20 +1209,22 @@ impl Lexer {
         if lines.len() < 2 {
             return None;
         }
+        // `\n {0,3}(=+|-+) *(?:\n+|$)` — only spaces may follow the run
+        // (tabs disqualify the underline in marked's regex)
         let is_underline = |line: &str| {
-            let ul = line.trim_start_matches(' ');
             if leading_spaces(line) > 3 {
                 return false;
             }
-            let trimmed = rtrim_spaces_tabs(ul);
+            let trimmed = line.trim_start_matches(' ').trim_end_matches(' ');
             !trimmed.is_empty() && trimmed.bytes().all(|b| b == b'=' || b == b'-')
         };
-        // content lines: all non-blank and not block-starting; the
-        // underline terminates the heading
+        // content lines: guarded per the gfm Oe lookaheads — the initial
+        // `^(?!…)` and every `\n(?!…)` continuation carry the same block
+        // starts (bull+space, blockCode, fences, blockquote, heading,
+        // html, table delimiter row); continuations additionally cannot
+        // be blank. NOTE: hr is NOT in marked's lheading guard set.
         let mut content_lines: Vec<&str> = vec![lines[0]];
-        if (lines[0].is_empty() || starts_block(lines[0]) && !is_underline(lines[0]))
-            && lines[0].is_empty()
-        {
+        if is_blank_line(lines[0]) || lheading_line_guard(lines[0]) {
             return None;
         }
         let mut underline_idx = None;
@@ -1237,7 +1235,7 @@ impl Lexer {
             }
             // continuation guard (the \n(?!) lookaheads): blank lines and
             // block starts end the lheading attempt
-            if line.is_empty() || starts_block(line) || is_blank_line(line) {
+            if line.is_empty() || is_blank_line(line) || lheading_line_guard(line) {
                 return None;
             }
             content_lines.push(line);
@@ -1927,6 +1925,23 @@ fn match_paragraph_raw(src: &str) -> Option<String> {
             if starts_block(line) || is_blank_line(line) {
                 break;
             }
+            // table pair: this line as header + next line as a delimiter
+            // row breaks the paragraph (marked's table lookahead in the
+            // gfm paragraph rule — e.g. `text\n    ind\n-\n` stops before
+            // the indented line because `-` is delimiter-shaped)
+            let consumed = if rest.len() > line.len() {
+                line.len() + 1
+            } else {
+                rest.len()
+            };
+            let after_line = &rest[consumed..];
+            if line.contains(|c: char| c != ' ') {
+                let mut next_lines = after_line.split('\n');
+                let next = next_lines.next().unwrap_or("");
+                if table_delim_line(next) && table_tail_ok(next_lines) {
+                    break;
+                }
+            }
         } else if is_blank_line(first) {
             return None;
         }
@@ -2010,6 +2025,147 @@ fn bullet_with_space(rest: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// marked's lheading guard set (gfm `Oe` lookaheads): block starts that
+/// disqualify a setext CONTENT line (initial or continuation). Order and
+/// membership mirror the compiled rule exactly — notably hr is absent
+/// (a dash run is the underline itself) while blockCode (` {4}` /
+/// ` {0,3}\t`) IS present.
+fn lheading_line_guard(line: &str) -> bool {
+    let real_indent = line.as_bytes().iter().take_while(|&&b| b == b' ').count();
+    let indent = leading_spaces(line);
+    // blockCode: ` {4}` or ` {0,3}\t`
+    if real_indent >= 4 || line[indent..].starts_with('\t') {
+        return true;
+    }
+    let rest = &line[indent..];
+    // fences: ` {0,3}(?:`{3,}|~{3,})`
+    if rest.starts_with("```") || rest.starts_with("~~~") {
+        return true;
+    }
+    // blockquote: ` {0,3}>` / heading: ` {0,3}#{1,6}` (no \s requirement)
+    if rest.starts_with('>') || rest.starts_with('#') {
+        return true;
+    }
+    // bull + space: ` {0,3}(?:[*+-]|\d{1,9}[.)]) `
+    let bytes = rest.as_bytes();
+    let bullet_len = if matches!(bytes.first(), Some(b'*') | Some(b'+') | Some(b'-')) {
+        1
+    } else {
+        let digits = bytes
+            .iter()
+            .take(9)
+            .take_while(|b| b.is_ascii_digit())
+            .count();
+        if digits > 0 && matches!(bytes.get(digits), Some(b'.') | Some(b')')) {
+            digits + 1
+        } else {
+            0
+        }
+    };
+    if bullet_len > 0 && bytes.get(bullet_len) == Some(&b' ') {
+        return true;
+    }
+    // html: ` {0,3}<[^\n>]+>\n` — the whole line is one bracketed tag
+    if rest.starts_with('<') {
+        if let Some(gt) = rest.find('>') {
+            if !rest[1..gt].contains('>') && rest[gt + 1..].is_empty() && gt > 1 {
+                return true;
+            }
+        }
+    }
+    // table delimiter row: ` {0,3}\|?(?:[:\- ]*\|)+[:\- ]*\n`
+    if rest.contains('|')
+        && rest
+            .bytes()
+            .all(|b| b == b'|' || b == b':' || b == b'-' || b == b' ')
+    {
+        return true;
+    }
+    false
+}
+
+/// A table delimiter line for the gfm paragraph guard:
+/// ` {0,3}((?:\| *)?:?-+:? *(?:\| *:?-+:? *)*(?:\| *)?)` — dashes with
+/// optional colons/pipes; at least one dash run is mandatory.
+fn table_delim_line(line: &str) -> bool {
+    let s = &line[leading_spaces(line).min(line.len())..];
+    let b = s.as_bytes();
+    let mut i = 0;
+    // optional leading `|` + spaces
+    if b.first() == Some(&b'|') {
+        i = 1;
+        while i < b.len() && b[i] == b' ' {
+            i += 1;
+        }
+        if i == b.len() {
+            return false; // lone "|"
+        }
+    }
+    loop {
+        // group: `:?-+:? *`
+        if i < b.len() && b[i] == b':' {
+            i += 1;
+        }
+        let dashes = b[i..].iter().take_while(|&&c| c == b'-').count();
+        if dashes == 0 {
+            return false;
+        }
+        i += dashes;
+        if i < b.len() && b[i] == b':' {
+            i += 1;
+        }
+        while i < b.len() && b[i] == b' ' {
+            i += 1;
+        }
+        if i < b.len() && b[i] == b'|' {
+            i += 1;
+            while i < b.len() && b[i] == b' ' {
+                i += 1;
+            }
+            if i == b.len() {
+                return true; // trailing `|`
+            }
+            continue; // another group must follow
+        }
+        break;
+    }
+    i == b.len()
+}
+
+/// The paragraph-guard table tail: after a header+delimiter pair, the
+/// remaining source must be row lines (non-blank, non-guard) followed by
+/// blank lines to EOF (`(?:\n(rows)*\n*|$)` — rows cannot start with a
+/// block start; `\n*` only crosses empty lines).
+fn table_tail_ok<'a>(lines_after: impl Iterator<Item = &'a str>) -> bool {
+    let mut blanks_only = false;
+    for l in lines_after {
+        if l.is_empty() || l.bytes().all(|b| b == b' ') {
+            blanks_only = true;
+            continue;
+        }
+        if blanks_only {
+            return false;
+        }
+        // row guard: hr/heading/code/blockquote/fences/list/html
+        let indent = leading_spaces(l);
+        if indent > 3 || l[indent..].starts_with('\t') {
+            return false;
+        }
+        let rest = &l[indent..];
+        if match_hr(l).is_some()
+            || rest.starts_with('#')
+            || rest.starts_with('>')
+            || rest.starts_with("```")
+            || rest.starts_with("~~~")
+            || bullet_with_space(rest).is_some()
+            || (rest.starts_with('<') && rest.contains('>'))
+        {
+            return false;
+        }
+    }
+    true
 }
 
 // list continuation helpers ------------------------------------------------
