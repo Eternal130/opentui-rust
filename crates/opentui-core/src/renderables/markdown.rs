@@ -1225,12 +1225,13 @@ fn top_level_spec(
         Token::Table { .. } => Some(build_table_spec(token, style, options, 0)),
         _ => {
             // heading/paragraph/text/html/def — the markdown-text
-            // CodeRenderable over token.raw (createDefaultRenderable's
-            // getTopLevelBlockRaw fallback arm). The block's trailing
-            // newline is margin, not content: the reference's gap comes
-            // from shouldAddTopLevelMargin (a content trailing \n would
-            // render a blank row AND double the margin).
-            let raw = token.raw().trim_end_matches('\n').to_owned();
+            // CodeRenderable over token.raw VERBATIM
+            // (getTopLevelBlockRaw's normalizeScrollbackMarkdownBlockRaw
+            // arm: the trailing newline stays — the tree-sitter markdown
+            // conceal of e.g. a heading marker needs it). The RENDERER
+            // drops the resulting trailing blank row; the block gap is
+            // shouldAddTopLevelMargin's.
+            let raw = normalize_markdown_block_raw(token.raw());
             if raw.is_empty() {
                 return None;
             }
