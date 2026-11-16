@@ -142,3 +142,38 @@ fn lheading_initial_guard_bullets() {
     let tokens = lex("- item\n===\n");
     assert_eq!(shapes(&tokens), vec![("list", "- item\n===\n".to_owned())]);
 }
+
+#[test]
+fn mixed_underline_run_is_not_setext() {
+    // review I-1: `(=+|-+)` is a SINGLE repeated char — a mixed `=-`
+    // run is not an underline; marked lexes `para\n=-\n` as a paragraph
+    let tokens = lex("para\n=-\n");
+    assert_eq!(
+        shapes(&tokens),
+        vec![("paragraph", "para\n=-\n".to_owned())]
+    );
+    let tokens = lex("para\n-=\n");
+    assert_eq!(
+        shapes(&tokens),
+        vec![("paragraph", "para\n-=\n".to_owned())]
+    );
+}
+
+#[test]
+fn table_pair_guard_is_prefix_semantics() {
+    // review I-2: marked's paragraph table lookahead only needs the
+    // delimiter line to be followed by a newline (or EOF) — no shape
+    // constraint on what follows. Real marked stops the paragraph at
+    // `x` (the `y`+`-` header/delimiter pair), then `y\n-\n` is a
+    // setext heading, `-` an empty list item, `### h` an atx heading.
+    let tokens = lex("a\n    ind\nx\ny\n-\n-\n### h\n");
+    assert_eq!(
+        shapes(&tokens),
+        vec![
+            ("paragraph", "a\n    ind\nx\n".to_owned()),
+            ("heading", "y\n-\n".to_owned()),
+            ("list", "-\n".to_owned()),
+            ("heading", "### h\n".to_owned()),
+        ]
+    );
+}
