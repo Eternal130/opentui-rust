@@ -1225,12 +1225,15 @@ fn top_level_spec(
         Token::Table { .. } => Some(build_table_spec(token, style, options, 0)),
         _ => {
             // heading/paragraph/text/html/def — the markdown-text
-            // CodeRenderable over token.raw VERBATIM
-            // (getTopLevelBlockRaw's normalizeScrollbackMarkdownBlockRaw
-            // arm: the trailing newline stays — the tree-sitter markdown
-            // conceal of e.g. a heading marker needs it). The RENDERER
-            // drops the resulting trailing blank row; the block gap is
-            // shouldAddTopLevelMargin's.
+            // CodeRenderable over token.raw. DELIBERATE DIVERGENCE from
+            // ref: ref's getTopLevelBlockRaw runs
+            // normalizeScrollbackMarkdownBlockRaw which strips ALL
+            // trailing newlines (index.bun.js:12713-12715); we instead
+            // use normalizeMarkdownBlockRaw semantics and keep ONE
+            // trailing \n, because the tree-sitter markdown conceal of
+            // e.g. a heading marker needs it. The RENDERER (oc-tui seam,
+            // push_wrapped) swallows the resulting trailing blank row,
+            // so rendered output is equivalent (channel 9/9 exact).
             let raw = normalize_markdown_block_raw(token.raw());
             if raw.is_empty() {
                 return None;
