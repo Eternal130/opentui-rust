@@ -552,7 +552,13 @@ impl CliRenderer {
                         self.current_render_buffer.get(x, y),
                         self.next_render_buffer.get(x, y),
                     ) {
-                        (Some(a), Some(b)) if a == b => {}
+                        (Some(a), Some(b))
+                            if cells_equal(
+                                &a,
+                                &b,
+                                &self.current_render_buffer,
+                                &self.next_render_buffer,
+                            ) => {}
                         _ => {
                             equal = false;
                             break;
@@ -570,7 +576,14 @@ impl CliRenderer {
                 ) else {
                     continue;
                 };
-                if !force && cur == next {
+                if !force
+                    && cells_equal(
+                        &cur,
+                        &next,
+                        &self.current_render_buffer,
+                        &self.next_render_buffer,
+                    )
+                {
                     if run_length > 0 {
                         out.push_str(crate::ansi::ansi_consts::RESET);
                         run_start = -1;
@@ -636,6 +649,22 @@ impl CliRenderer {
                         self.next_render_buffer
                             .grapheme_bytes(crate::buffer::grapheme_id_from_char(next.char)),
                     );
+                    // MF-1 #2 (renderer.zig:2806-2812): the printed
+                    // cluster's terminal advance is the glyph's own
+                    // vt width (NOT the reserved extent), so the run
+                    // repositions explicitly to the first column after
+                    // the cluster's reserved span — without this CUP
+                    // the base run drifts left/right under the vt
+                    // width model. Upstream gates on
+                    // `capabilities.explicit_cursor_positioning` under
+                    // `!explicit_width`; this port has no capability
+                    // store on the renderer, so the gate collapses to
+                    // the enabled arm (CUP is universal — the same
+                    // collapse convention as the hyperlink gate above).
+                    let next_x = x + crate::buffer::char_right_extent(next.char) + 1;
+                    if next_x < width {
+                        crate::ansi::move_to(out, next_x + 1, y + 1 + row_offset);
+                    }
                 } else if let Some(c) = char::from_u32(next.char) {
                     out.push(c);
                 }
@@ -869,5 +898,110 @@ impl CliRenderer {
             true
         });
         out
+    }
+}
+
+/// MF-1 #2 — cell equality with grapheme-pool indirection. Upstream
+/// interns graphemes in ONE renderer-owned pool (grapheme.zig
+/// `alloc`'s `lookupOrInvalidate`), so identical symbols carry
+/// identical ids and plain cell equality is the diff. This port
+/// keeps a pool per buffer, so the two buffers' alloc orders churn
+/// ids for the same symbol; comparing the pool BYTES restores
+/// upstream's diff semantics (same symbol + same colors + same
+/// attrs = unchanged cell) without moving the pool onto the
+/// renderer. Non-grapheme cells fall through to plain equality.
+fn cells_equal(
+    cur: &crate::buffer::Cell,
+    next: &crate::buffer::Cell,
+    cur_buf: &crate::buffer::OptimizedBuffer,
+    next_buf: &crate::buffer::OptimizedBuffer,
+) -> bool {
+    if cur == next {
+        return true;
+    }
+    if cur.fg != next.fg || cur.bg != next.bg || cur.attributes != next.attributes {
+        return false;
+    }
+    if crate::buffer::is_grapheme_char(cur.char) && crate::buffer::is_grapheme_char(next.char) {
+        return cur_buf.grapheme_bytes(crate::buffer::grapheme_id_from_char(cur.char))
+            == next_buf.grapheme_bytes(crate::buffer::grapheme_id_from_char(next.char));
+    }
+    false
+}
+
+#[cfg(test)]
+mod mf2_grapheme_emit_tests {
+    use super::*;
+    use crate::buffer::pack_grapheme_start;
+
+    /// MF-1 #2 (renderer.zig:2788-2812): a grapheme cell prints its
+    /// full cluster bytes INLINE in the run, then repositions with a
+    /// CUP to the first column AFTER the cluster's reserved span (the
+    /// terminal's own advance is the glyph's vt width, not the
+    /// extent). Pin both the bytes and the CUP, plus the second frame
+    /// being byte-SILENT for an unchanged cluster under pool-id churn
+    /// (the bytes-equality diff rule).
+    #[test]
+    fn grapheme_prints_inline_with_post_extent_cup() {
+        let mut renderer = create_cli_renderer(CliRendererConfig {
+            width: 3,
+            height: 1,
+            ..CliRendererConfig::default()
+        });
+        let white = crate::color::Rgba::default_color(255, 255, 255, 255);
+        let bg = crate::color::Rgba::from_ints(0, 0, 0, 0);
+        // The oc-tui poke shape: every cell rewritten each frame; a
+        // dummy allocation first so the two buffers' "❤️" ids differ
+        // (the churn the bytes-equality rule must absorb).
+        let poke = |buffer: &mut crate::buffer::OptimizedBuffer, dummy: bool, bytes: &str| {
+            let gid = if dummy {
+                let _ = buffer.alloc_grapheme_pub("z");
+                buffer.alloc_grapheme_pub(bytes)
+            } else {
+                buffer.alloc_grapheme_pub(bytes)
+            };
+            let word = pack_grapheme_start(gid, 1);
+            buffer.set_cell_word(0, 0, word, white, bg, 0);
+            for x in 1..3 {
+                buffer.set_cell_word(x, 0, u32::from(' '), white, bg, 0);
+            }
+        };
+        poke(&mut renderer.next_render_buffer, true, "❤️");
+        let mut out = String::new();
+        renderer.bench_emit_frame_sgr(&mut out);
+        assert!(out.contains("❤️"), "cluster bytes print inline: {out:?}");
+        // CUP to column 2 (the cell after the 1-wide cluster), 1-based.
+        assert!(
+            out.contains("\x1b[1;2H"),
+            "post-extent reposition missing: {out:?}"
+        );
+
+        // Frame 2: same symbol, the OTHER buffer (a fresh pool — a
+        // different id for the same bytes): must stay byte-silent.
+        core::mem::swap(
+            &mut renderer.current_render_buffer,
+            &mut renderer.next_render_buffer,
+        );
+        poke(&mut renderer.next_render_buffer, false, "❤️");
+        // The bench seam does not advance frame_id — run one empty
+        // render to leave the forced-full path (the oc-tui caller's
+        // own dance), restoring the buffers around it.
+        let saved_current = std::mem::replace(
+            &mut renderer.current_render_buffer,
+            crate::buffer::OptimizedBuffer::new(3, 1),
+        );
+        let saved_next = std::mem::replace(
+            &mut renderer.next_render_buffer,
+            crate::buffer::OptimizedBuffer::new(3, 1),
+        );
+        renderer.render();
+        renderer.current_render_buffer = saved_current;
+        renderer.next_render_buffer = saved_next;
+        let mut out2 = String::new();
+        renderer.bench_emit_frame_sgr(&mut out2);
+        assert_eq!(
+            out2, "",
+            "unchanged cluster re-emitted under id churn: {out2:?}"
+        );
     }
 }
